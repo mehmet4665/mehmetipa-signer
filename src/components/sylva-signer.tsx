@@ -732,7 +732,7 @@ function WelcomeDialog({ onClose }: { onClose: () => void }) {
               Hey there 👋
             </h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Sylva Signer is a browser-based proof of concept for local IPA signing.
+              Mehmet IPA is a browser-based IPA signing tool for local IPA signing.
               Large files can take time because extraction, signing, and archiving happen
               on this device and may require several times the IPA size in available
               memory. Direct iPhone installation requires an
@@ -770,9 +770,9 @@ function LegalFooter() {
     <footer className="mt-12 border-t border-border pt-6 text-center text-xs text-muted-foreground">
       <div className="mx-auto flex max-w-3xl flex-col items-center gap-4">
         <p className="italic leading-5">
-          Sylva Signer runs zsign as WebAssembly inside a dedicated browser worker. Your IPA,
-          certificate, provisioning profile, password, and signed output remain on this device
-          during signing; temporary installation uploads only the signed IPA after confirmation.
+          Mehmet IPA, IPA dosyalarınızı doğrudan tarayıcınızda imzalamanızı sağlar. Sertifikanız, profiliniz 
+          ve imzalama işlemleriniz cihazınızda yerel olarak işlenir. Geçici kurulum sırasında yalnızca onayınızla 
+          imzalanmış IPA dosyası yüklenir.
         </p>
 
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border-y border-border/70 py-3 text-foreground/70">

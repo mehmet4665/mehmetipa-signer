@@ -1,6 +1,6 @@
 {
-  "name": "Sylva Signer",
-  "short_name": "Sylva",
+  "name": "Mehmet IPA",
+  "short_name": "Mehmet IPA",
   "description": "Sign iOS IPA files locally in your browser.",
   "start_url": "/",
   "scope": "/",

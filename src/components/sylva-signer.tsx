@@ -686,12 +686,12 @@ function WelcomeMark() {
   return (
     <div className="welcome-mark relative mx-auto size-24 md:size-28" aria-label="Sylva Signer">
       <img
-        src="/icon-light-192.png"
+        src="/icon-light.PNG"
         alt=""
         className="size-full object-contain drop-shadow-xl dark:hidden"
       />
       <img
-        src="/icon-dark-192.png"
+        src="/icon-dark.PNG"
         alt=""
         className="hidden size-full object-contain drop-shadow-xl dark:block"
       />
@@ -901,12 +901,12 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
         <a href="/" className="flex items-center gap-3.5">
           <div className="relative size-12 shrink-0 overflow-hidden rounded-2xl shadow-sm md:size-14">
             <img
-              src="/icon-light-192.png"
+              src="/icon-dark.PNG"
               alt="Sylva Signer logo"
               className="size-full scale-[1.18] object-cover dark:hidden"
             />
             <img
-              src="/icon-dark-192.png"
+              src="/icon-dark.PNG"
               alt=""
               aria-hidden
               className="hidden size-full scale-[1.18] object-cover dark:block"
@@ -1843,12 +1843,12 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3.5">
           <div className="relative size-10 shrink-0 overflow-hidden rounded-xl shadow-sm sm:size-12 sm:rounded-2xl md:size-14">
             <img
-              src="/icon-light-192.png"
+              src="/icon-light.PNG"
               alt="Sylva Signer logo"
               className="size-full scale-[1.18] object-cover dark:hidden"
             />
             <img
-              src="/icon-dark-192.png"
+              src="/icon-dark.PNG"
               alt=""
               aria-hidden
               className="hidden size-full scale-[1.18] object-cover dark:block"

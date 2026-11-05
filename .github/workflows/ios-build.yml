@@ -36,8 +36,9 @@ jobs:
 
       - name: Generate app icons
         run: |
-          cp assets/icon.PNG assets/icon.png
-          npx @capacitor/assets generate --ios --verbose
+          mkdir -p /tmp/mehmet-assets
+          cp assets/icon.PNG /tmp/mehmet-assets/icon.png
+          npx @capacitor/assets generate --ios --assetPath /tmp/mehmet-assets --verbose
 
       - name: Build iOS app
         run: |

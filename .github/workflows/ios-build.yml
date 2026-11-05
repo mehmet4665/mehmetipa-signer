@@ -6,6 +6,9 @@ on:
     branches:
       - master
 
+permissions:
+  contents: write
+
 jobs:
   build-ios:
     runs-on: macos-15
@@ -30,11 +33,12 @@ jobs:
 
       - name: Sync Capacitor
         run: npx cap sync ios
+
       - name: Generate app icons
         run: |
-         mkdir -p /tmp/mehmet-assets
-         cp assets/icon.PNG /tmp/mehmet-assets/icon.png
-         npx @capacitor/assets generate --ios --assetPath /tmp/mehmet-assets
+          mkdir -p /tmp/mehmet-assets
+          cp assets/icon.PNG /tmp/mehmet-assets/icon.png
+          npx @capacitor/assets generate --ios --assetPath /tmp/mehmet-assets
 
       - name: Build iOS app
         run: |
@@ -48,7 +52,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-     - name: Upload IPA
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R ios/build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -r Mehmet-IPA-iOS.ipa Payload
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: Mehmet-IPA-iOS

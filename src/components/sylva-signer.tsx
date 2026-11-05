@@ -684,7 +684,7 @@ function PreviousIpasDialog({
 
 function WelcomeMark() {
   return (
-    <div className="welcome-mark relative mx-auto size-24 md:size-28" aria-label="Sylva Signer">
+    <div className="welcome-mark relative mx-auto size-24 md:size-28" aria-label="Mehmet IPA">
       <img
         src="/icon-light.PNG"
         alt=""
@@ -902,7 +902,7 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
           <div className="relative size-12 shrink-0 overflow-hidden rounded-2xl shadow-sm md:size-14">
             <img
               src="/icon-dark.PNG"
-              alt="Sylva Signer logo"
+              alt="Mehmet IPA logo"
               className="size-full scale-[1.18] object-cover dark:hidden"
             />
             <img
@@ -914,7 +914,7 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
           </div>
           <div>
             <span className="block text-balance text-xl font-semibold tracking-tight md:text-2xl">
-              Sylva Signer
+              Mehmet IPA
             </span>
             <p className="text-sm text-muted-foreground">Fully local IPA signing</p>
           </div>
@@ -953,7 +953,7 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
           {isPrivacy ? (
             <>
               <p>
-                Sylva Signer is designed to sign IPA files locally in your browser. The app
+                Mehmet IPA is designed to sign IPA files locally in your browser. The app
                 does not require a signing server and does not intentionally upload your IPA,
                 P12/PFX certificate, provisioning profile, password, or dylibs. If you choose
                  temporary installation after signing, only the signed IPA is uploaded so iOS can
@@ -978,7 +978,7 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
           ) : (
             <>
               <p>
-                Sylva Signer is provided as a browser-based signing tool for lawful workflows
+                Mehmet IPA is provided as a browser-based signing tool for lawful workflows
                 using certificates, provisioning profiles, and app files you are authorized to
                 use.
               </p>
@@ -1844,7 +1844,7 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
           <div className="relative size-10 shrink-0 overflow-hidden rounded-xl shadow-sm sm:size-12 sm:rounded-2xl md:size-14">
             <img
               src="/icon-light.PNG"
-              alt="Sylva Signer logo"
+              alt="Mehmet IPA logo"
               className="size-full scale-[1.18] object-cover dark:hidden"
             />
             <img
@@ -1856,7 +1856,7 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
           </div>
           <div>
             <h1 className="whitespace-nowrap text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">
-              Sylva Signer<span className="sr-only"> - Local iOS IPA Signer</span>
+              Mehmet IPA<span className="sr-only"> - Local iOS IPA Signer</span>
             </h1>
             <p className="hidden text-sm text-muted-foreground sm:block">
               Fully local IPA signing in your browser
@@ -1868,8 +1868,8 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
             type="button"
             variant="outline"
             onClick={() => setWelcomeOpen(true)}
-            aria-label="About Sylva Signer"
-            title="About Sylva Signer"
+            aria-label="About Mehmet IPA"
+            title="About Mehmet IPA"
             className="size-9 px-0"
           >
             <Info size={16} />
@@ -1894,7 +1894,7 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
             href="https://github.com/AntonP29/SylvaSigner"
             target="_blank"
             rel="noreferrer"
-            aria-label="Open Sylva Signer on GitHub"
+            aria-label="Open Mehmet IPA on GitHub"
             title="GitHub"
             className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-all hover:bg-muted hover:text-sky-400 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50"
           >

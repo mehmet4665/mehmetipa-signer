@@ -805,46 +805,31 @@ function LegalFooter() {
         </div>
 
         <div className="w-full max-w-md rounded-2xl border border-border bg-card/60 px-4 py-3 text-center">
-          <p className="text-sm font-medium text-foreground">Try Sylva iOS</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Fully on-device native Swift app for importing, signing, organizing, and installing IPAs.
-          </p>
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-            <a
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground transition-colors hover:border-sky-400/50 hover:text-sky-300"
-              href={sylvaIosRepoUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <GithubIcon size={14} />
-              GitHub
-            </a>
-            <a
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground transition-colors hover:border-emerald-400/50 hover:text-emerald-300"
-              href={sylvaIosRelease?.ipaUrl ?? sylvaIosFallbackIpaUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Download size={14} />
-              Latest IPA
-              {sylvaIosRelease ? (
-                <span className="text-muted-foreground">v{sylvaIosRelease.version}</span>
-              ) : (
-                <span className="text-muted-foreground">auto</span>
-              )}
-            </a>
-            {sylvaIosRelease && (
-              <a
-                className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground hover:underline"
-                href={sylvaIosRelease.releaseUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Release notes
-              </a>
-            )}
-          </div>
-        </div>
+  <p className="text-sm font-medium text-foreground">Mehmet IPA</p>
+  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+    Sign iOS IPA files directly in your browser with Mehmet IPA.
+  </p>
+  <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+    <a
+      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground"
+      href="https://github.com/mehmet4665/mehmetipa-signer"
+      target="_blank"
+      rel="noreferrer"
+    >
+      <GithubIcon size={14} />
+      GitHub
+    </a>
+    <a
+      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground"
+      href="https://mehmetipa-signer.pages.dev"
+      target="_blank"
+      rel="noreferrer"
+    >
+      <Download size={14} />
+      Open Mehmet IPA
+    </a>
+  </div>
+</div>
 
         <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
           <a className="transition-colors hover:text-red-500" href="/privacy/">

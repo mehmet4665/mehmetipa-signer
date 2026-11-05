@@ -48,14 +48,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Package IPA
-        run: |
-          mkdir -p Payload
-          cp -R ios/build/Build/Products/Release-iphoneos/App.app Payload/
-          zip -r Mehmet-IPA-iOS.ipa Payload
-
-      - name: Upload IPA
+     - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: Mehmet-IPA-iOS
           path: Mehmet-IPA-iOS.ipa
+
+      - name: Publish IPA Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Mehmet IPA Latest
+          files: Mehmet-IPA-iOS.ipa
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

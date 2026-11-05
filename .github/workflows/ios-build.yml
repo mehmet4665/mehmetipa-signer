@@ -30,6 +30,11 @@ jobs:
 
       - name: Sync Capacitor
         run: npx cap sync ios
+      - name: Generate app icons
+        run: |
+         mkdir -p /tmp/mehmet-assets
+         cp assets/icon.PNG /tmp/mehmet-assets/icon.png
+         npx @capacitor/assets generate --ios --assetPath /tmp/mehmet-assets
 
       - name: Build iOS app
         run: |

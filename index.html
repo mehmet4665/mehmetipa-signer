@@ -57,9 +57,9 @@
           },
           {
             "@type": "SoftwareApplication",
-            "@id": "https://sylva.antonp29.dev/#application",
+            "@id": "https://mehmetipa-signer.pages.dev/#application",
             "name": "Mehmet IPA",
-            "url": "https://sylva.antonp29.dev/",
+            "url": "https://mehmetipa-signer.pages.dev/",
             "description": "Sign iOS IPA files locally in a browser with zsign compiled to WebAssembly.",
             "applicationCategory": "DeveloperApplication",
             "applicationSubCategory": "iOS code signing tool",
@@ -91,7 +91,7 @@
           },
           {
             "@type": "HowTo",
-            "@id": "https://sylva.antonp29.dev/#how-to-sign",
+            "@id": "https://mehmetipa-signer.pages.dev/#how-to-sign",
             "name": "How to sign an iOS IPA file in your browser",
             "description": "Use Mehmet IPA to sign an iOS app package locally without Xcode or macOS.",
             "totalTime": "PT10M",
@@ -111,22 +111,22 @@
           },
           {
             "@type": "FAQPage",
-            "@id": "https://sylva.antonp29.dev/#faq",
+            "@id": "https://mehmetipa-signer.pages.dev/#faq",
             "mainEntity": [
               {
                 "@type": "Question",
-                "name": "Does Sylva upload my certificate or IPA?",
+                "name": "Does Mehmet IPA upload my certificate or IPA?",
                 "acceptedAnswer": { "@type": "Answer", "text": "No. Normal signing runs locally in a browser worker, so the IPA, certificate, provisioning profile, password, dylibs, and signed output stay on the device. Only the optional installation flow uploads the already-signed IPA after confirmation." }
               },
               {
                 "@type": "Question",
                 "name": "What is a P12 signing certificate?",
-                "acceptedAnswer": { "@type": "Answer", "text": "A .p12 or .pfx file packages an Apple signing certificate with its private key. Sylva uses it locally with a provisioning profile to create a valid code signature for an iOS app." }
+                "acceptedAnswer": { "@type": "Answer", "text": "A .p12 or .pfx file packages an Apple signing certificate with its private key. Mehmet IPA  uses it locally with a provisioning profile to create a valid code signature for an iOS app." }
               },
               {
                 "@type": "Question",
                 "name": "Do I need Xcode or a Mac to sign an IPA?",
-                "acceptedAnswer": { "@type": "Answer", "text": "No. Sylva runs zsign as WebAssembly in the browser, so the signing process does not require Xcode, macOS, or a remote signing server." }
+                "acceptedAnswer": { "@type": "Answer", "text": "No. Mehmet IPA runs zsign as WebAssembly in the browser, so the signing process does not require Xcode, macOS, or a remote signing server." }
               },
               {
                 "@type": "Question",
@@ -136,7 +136,7 @@
               {
                 "@type": "Question",
                 "name": "What is the IPA size limit?",
-                "acceptedAnswer": { "@type": "Answer", "text": "Local signing has no fixed Sylva file-size limit, but it is constrained by the browser and the device's available memory. The optional temporary installation upload rejects signed IPA files larger than 1 GB." }
+                "acceptedAnswer": { "@type": "Answer", "text": "Local signing has no fixed Mehmet IPA file-size limit, but it is constrained by the browser and the device's available memory. The optional temporary installation upload rejects signed IPA files larger than 1 GB." }
               },
               {
                 "@type": "Question",
@@ -157,7 +157,7 @@
           var selectedTheme = theme === "light" ? "light" : "dark";
           root.classList.add(selectedTheme);
           document.getElementById("app-favicon").href =
-            selectedTheme === "light" ? "/icon-light-192.png" : "/icon-dark-192.png";
+            selectedTheme === "light" ? "/icon-light-192.PNG" : "/icon-dark-192.PNG";
         } catch (error) {}
       })();
     </script>

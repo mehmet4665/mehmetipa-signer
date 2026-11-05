@@ -8,29 +8,29 @@ const signingSteps = [
 
 const faqItems = [
   {
-    question: 'Does Sylva upload my certificate or IPA?',
+    question: 'Does Mehmet IPA upload my certificate or IPA?',
     answer:
       'No. Normal signing runs locally in a browser worker, so the IPA, certificate, provisioning profile, password, dylibs, and signed output stay on this device. Only the optional installation flow uploads the already-signed IPA after you confirm it.',
   },
   {
     question: 'What is a P12 signing certificate?',
     answer:
-      'A .p12 or .pfx file packages an Apple signing certificate with its private key. Sylva uses it locally with a provisioning profile to create a code signature for an iOS app.',
+      'A .p12 or .pfx file packages an Apple signing certificate with its private key. Mehmet IPA uses it locally with a provisioning profile to create a code signature for an iOS app.',
   },
   {
     question: 'Do I need Xcode or a Mac to sign an IPA?',
     answer:
-      'No. Sylva runs zsign as WebAssembly in the browser, so signing does not require Xcode, macOS, or a remote signing server.',
+      'No. Mehmet IPA runs zsign as WebAssembly in the browser, so signing does not require Xcode, macOS, or a remote signing server.',
   },
   {
-    question: 'Which browsers work with Sylva Signer?',
+    question: 'Which browsers work with Mehmet IPA Signer?',
     answer:
       'A current Chrome or Edge browser on desktop is recommended. Safari, iPhone, iPad, Android, and other mobile browsers use an experimental compatibility path and may be slower or more memory constrained.',
   },
   {
     question: 'What is the IPA size limit?',
     answer:
-      "Local signing has no fixed Sylva file-size limit, but it is constrained by the browser and the device's available memory. The optional temporary installation upload rejects signed IPA files larger than 1 GB.",
+      "Local signing has no fixed Mehmet IPA file-size limit, but it is constrained by the browser and the device's available memory. The optional temporary installation upload rejects signed IPA files larger than 1 GB.",
   },
   {
     question: 'What happens if a signing certificate is revoked?',
@@ -47,7 +47,7 @@ export function PrivacySummary() {
         Sign iOS IPA files locally in your browser
       </h2>
       <p className="mt-2 text-sm leading-6 text-muted-foreground md:text-base">
-        Sylva Signer runs zsign as WebAssembly inside a dedicated browser worker. Your IPA,
+        Mehmet IPA Signer runs zsign as WebAssembly inside a dedicated browser worker. Your IPA,
         certificate, provisioning profile, password, optional dylibs, and signed output remain on
         this device during signing. Temporary installation uploads only the signed IPA after you
         explicitly confirm it.
@@ -64,7 +64,7 @@ export function SigningGuideAndFaq() {
           How do you sign an iOS IPA file online?
         </h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Sylva signs an iOS app package locally without Xcode or macOS. Supply the IPA, an Apple
+          Mehmet IPA signs an iOS app package locally without Xcode or macOS. Supply the IPA, an Apple
           signing certificate, and a matching provisioning profile; review the detected app details;
           then run the WebAssembly signer and download the finished file without sending signing
           credentials to a server.

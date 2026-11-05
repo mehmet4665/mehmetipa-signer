@@ -52,7 +52,7 @@ jobs:
             build
 
       - name: Package IPA
-        run: 
+        run: |
           mkdir -p Payload
           cp -R ios/build/Build/Products/Release-iphoneos/App.app Payload/
           zip -r Mehmet-IPA-iOS.ipa Payload

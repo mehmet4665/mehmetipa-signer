@@ -1,36 +1,29 @@
 name: Apply Mehmet IPA Update
-
 on:
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
   apply-update:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_PAT }}
-
+      - uses: actions/checkout@v4
       - name: Extract and apply update
         run: |
-          test -f Mehmet-IPA-guncelleme-dosyalar-yeniden.zip
+          test -f Mehmet-IPA-guncelleme-dosyalar.zip
           mkdir -p /tmp/mehmet-update
-          unzip -q Mehmet-IPA-guncelleme-dosyalar-yeniden.zip -d /tmp/mehmet-update
+          unzip -q Mehmet-IPA-guncelleme-dosyalar.zip -d /tmp/mehmet-update
           test -d /tmp/mehmet-update/mehmetipa-signer-master
           cp -a /tmp/mehmet-update/mehmetipa-signer-master/. .
-          rm Mehmet-IPA-guncelleme-dosyalar-yeniden.zip
-
+          rm -f package-lock.json
+          rm Mehmet-IPA-guncelleme-dosyalar.zip
       - name: Commit update
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+users.noreply.github.com"
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "Apply Mehmet IPA account system update"
+            git commit -m "Fix Cloudflare dependency installation"
             git push
           else
             echo "No changes to apply."

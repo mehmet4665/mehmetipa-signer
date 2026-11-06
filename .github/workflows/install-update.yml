@@ -15,12 +15,12 @@ jobs:
 
       - name: Extract and apply update
         run: |
-          test -f Mehmet-IPA-guncelleme-dosyalar.zip
+          test -f Mehmet-IPA-guncelleme-dosyalar-yeniden.zip
           mkdir -p /tmp/mehmet-update
-          unzip -q Mehmet-IPA-guncelleme-dosyalar.zip -d /tmp/mehmet-update
+          unzip -q Mehmet-IPA-guncelleme-dosyalar-yeniden.zip -d /tmp/mehmet-update
           test -d /tmp/mehmet-update/mehmetipa-signer-master
           cp -a /tmp/mehmet-update/mehmetipa-signer-master/. .
-          rm Mehmet-IPA-guncelleme-dosyalar.zip
+          rm Mehmet-IPA-guncelleme-dosyalar-yeniden.zip
 
       - name: Commit update
         run: |

@@ -821,12 +821,12 @@ function LegalFooter() {
     </a>
     <a
       className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground"
-      href="https://mehmetipa-signer.pages.dev"
+      https://github.com/mehmet4665/mehmetipa-signer/releases/download/latest/Mehmet-IPA-iOS.ipa
       target="_blank"
       rel="noreferrer"
     >
       <Download size={14} />
-      Open Mehmet IPA
+       Download IPA
     </a>
   </div>
 </div>
@@ -1876,7 +1876,7 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
             </Button>
           </AnimateIcon>
           <a
-            href="https://github.com/AntonP29/SylvaSigner"
+            href="https://github.com/mehmet4665/mehmetipa-signer"
             target="_blank"
             rel="noreferrer"
             aria-label="Open Mehmet IPA on GitHub"

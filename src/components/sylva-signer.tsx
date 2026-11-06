@@ -820,8 +820,8 @@ function LegalFooter() {
       GitHub
     </a>
     <a
-      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground"
-      https://github.com/mehmet4665/mehmetipa-signer/releases/download/latest/Mehmet-IPA-iOS.ipa
+      className="inline-flex items-center gap-..."
+      href="https://github.com/mehmet4665/mehmetipa-signer/releases/download/latest/Mehmet-IPA-iOS.ipa"
       target="_blank"
       rel="noreferrer"
     >

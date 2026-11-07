@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#090909"/><stop offset="1" stop-color="#202020"/></linearGradient><linearGradient id="red" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff554c"/><stop offset="1" stop-color="#a40000"/></linearGradient></defs>
+<rect width="1200" height="630" rx="36" fill="url(#bg)"/>
+<rect x="70" y="70" width="490" height="490" rx="100" fill="#101010" stroke="url(#red)" stroke-width="12"/>
+<path d="M315 155l108 70-20 145-88 75-88-75-20-145z" fill="#171717" stroke="#e33b35" stroke-width="9"/>
+<path d="M315 190l-63 85 22 82 41 38 41-38 22-82z" fill="#d9d9d9"/>
+<text x="315" y="465" text-anchor="middle" font-family="Arial,sans-serif" font-size="52" font-weight="900" fill="#fff">MEHMET</text>
+<text x="315" y="515" text-anchor="middle" font-family="Arial,sans-serif" font-size="43" font-weight="800" fill="#ff5148">IPA</text>
+<text x="635" y="270" font-family="Arial,sans-serif" font-size="82" font-weight="800" fill="#fff">MEHMET IPA</text>
+<text x="640" y="350" font-family="Arial,sans-serif" font-size="34" fill="#c7c7c7">iOS IPA İmzalama Platformu</text>
+<rect x="640" y="405" width="360" height="5" rx="3" fill="#e43c36"/>
+<text x="640" y="470" font-family="Arial,sans-serif" font-size="27" fill="#eee">Güvenli • Hızlı • Kolay</text>
+</svg>

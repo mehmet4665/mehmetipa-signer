@@ -42,6 +42,17 @@ async function verifyPassword(password, stored) {
 
 async function readBody(request) {
   try { return await request.json() } catch { return {} }
+async function encryptSecret(value, secret) {
+  const rawKey = await crypto.subtle.digest('SHA-256', encoder.encode(secret))
+  const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['encrypt'])
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    encoder.encode(value)
+  )
+  return { ciphertext: b64url(ciphertext), iv: b64url(iv) }
+}
 }
 function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
@@ -53,7 +64,7 @@ function cleanUser(row) {
 export async function onRequest({ request, env, params }) {
   try {
     if (!env.DB) return json({ success: false, error: 'D1 veritabanı DB adıyla bağlanmamış.' }, 503)
-    if (!env.ADMIN_USERNAME || !env.ADMIN_PASSWORD) return json({ success: false, error: 'ADMIN_USERNAME ve ADMIN_PASSWORD Pages ortam değişkenleri tanımlanmamış.' }, 503)
+    
     const path = `/api/${Array.isArray(params.path) ? params.path.join('/') : params.path || ''}`.replace(/\/$/, '')
     const method = request.method.toUpperCase()
 

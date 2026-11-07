@@ -30,12 +30,12 @@ async function readToken(token, secret) {
 
 async function hashPassword(password, saltBytes = crypto.getRandomValues(new Uint8Array(16))) {
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations: 150000 }, key, 256)
-  return `pbkdf2$150000$${b64url(saltBytes)}$${b64url(bits)}`
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations: 100000 }, key, 256)
+  return `pbkdf2$100000$${b64url(saltBytes)}$${b64url(bits)}`
 }
 async function verifyPassword(password, stored) {
   const [kind, rounds, salt, expected] = String(stored || '').split('$')
-  if (kind !== 'pbkdf2' || Number(rounds) !== 150000 || !salt || !expected) return false
+  if (kind !== 'pbkdf2' || Number(rounds) !== 100000 || !salt || !expected) return false
   const calculated = await hashPassword(password, fromB64url(salt))
   return calculated === stored
 }

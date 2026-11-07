@@ -50,7 +50,7 @@ function Field({ label, ...props }: React.InputHTMLAttributes<HTMLInputElement> 
 export function AccessGate() {
   const [token, setToken] = React.useState('')
   const [user, setUser] = React.useState<User | null>(null)
-  const [view, setView] = React.useState<'home' | 'login' | 'admin' | 'signer'>('home')
+  const [view, setView] = React.useState<'home' | 'login' | 'admin' | 'method' | 'signer'>('home')
   const [username, setUsername] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [busy, setBusy] = React.useState(false)
@@ -96,7 +96,7 @@ export function AccessGate() {
       if (!alive) return
       setToken(saved)
       setUser(current)
-      setView(current.role === 'admin' ? 'admin' : 'signer')
+      setView(current.role === 'admin' ? 'admin' : 'method')
     }).catch(() => window.sessionStorage.removeItem(TOKEN_KEY))
     return () => { alive = false }
   }, [])
@@ -116,7 +116,7 @@ export function AccessGate() {
       })
       window.sessionStorage.setItem(TOKEN_KEY, result.token)
       setToken(result.token); setUser(result.user)
-      setView(result.user.role === 'admin' ? 'admin' : 'signer')
+      setView(result.user.role === 'admin' ? 'admin' : 'method')
       setPassword('')
     } catch (e) { setError(e instanceof Error ? e.message : 'Giriş başarısız.') }
     finally { setBusy(false) }

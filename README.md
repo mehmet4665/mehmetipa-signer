@@ -486,3 +486,9 @@ uses zsign (MIT), zlib/minizip (zlib terms), OpenSSL 3.5.7 (Apache-2.0), and Ems
 
 See the in-app Privacy Policy and Legal pages before using Sylva Signer for distribution
 workflows.
+
+## Mehmet IPA account portal
+
+The `functions/api/[[path]].js` Pages Function adds same-origin login, administrator-managed member accounts, and a device registry. Configure the Pages D1 binding as `DB` and the `ADMIN_USERNAME` / `ADMIN_PASSWORD` production secrets. Turkish deployment instructions are in `docs/MEHMET-IPA-SETUP-TR.md`.
+
+The account portal preserves the existing local browser signing flow. It does not move P12 files to a server or claim server-side signing. Device UDIDs are currently entered by members and managed as records; browser-side hardware binding is not implemented.

@@ -12,26 +12,26 @@ const pages = [
   {
     route: 'app',
     output: 'index.html',
-    title: 'Sylva Signer - Sign iOS IPA Files in Your Browser',
+    title: 'Mehmet IPA - iOS IPA İmzalama',
     description:
-      'Sign iOS IPA files locally in your browser with WebAssembly. Your IPA, certificate, profile, and password stay on your device during signing.',
-    canonical: 'https://sylva.antonp29.dev/',
+      'Mehmet IPA ile iOS IPA dosyalarını tarayıcıda yerel olarak imzalayın.',
+    canonical: 'https://mehmetipa-signer.pages.dev/',
   },
   {
     route: 'privacy',
     output: 'privacy/index.html',
-    title: 'Privacy Policy - Sylva Signer',
+    title: 'Gizlilik Politikası - Mehmet IPA',
     description:
-      'Learn how Sylva Signer processes IPA files, certificates, provisioning profiles, passwords, and signed output locally in your browser.',
-    canonical: 'https://sylva.antonp29.dev/privacy/',
+      'Mehmet IPA, IPA dosyalarını ve imzalama bilgilerini tarayıcınızda yerel olarak işler.',
+    canonical: 'https://mehmetipa-signer.pages.dev/privacy/',
   },
   {
     route: 'legal',
     output: 'legal/index.html',
-    title: 'Legal Notice - Sylva Signer',
+    title: 'Yasal Bilgilendirme - Mehmet IPA',
     description:
-      'Read the Sylva Signer legal notice, licensing information, permitted-use guidance, and third-party attribution.',
-    canonical: 'https://sylva.antonp29.dev/legal/',
+      'Mehmet IPA kullanım koşulları, lisans bilgileri ve üçüncü taraf bildirimleri.',
+    canonical: 'https://mehmetipa-signer.pages.dev/legal/',
   },
 ]
 
@@ -86,13 +86,13 @@ try {
         name: page.title,
         description: page.description,
         url: page.canonical,
-        isPartOf: { '@id': 'https://sylva.antonp29.dev/#website' },
+        isPartOf: { '@id': 'https://mehmetipa-signer.pages.dev/#website' },
         author: {
           '@type': 'Person',
-          name: 'AntonP29',
-          url: 'https://github.com/AntonP29',
+          name: 'Mehmet IPA',
+          url: 'https://github.com/mehmet4665/mehmetipa-signer',
         },
-        inLanguage: 'en',
+        inLanguage: 'tr',
         dateModified: '2026-09-18',
       })
       html = html.replace(

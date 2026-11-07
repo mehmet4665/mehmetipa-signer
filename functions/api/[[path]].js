@@ -64,7 +64,6 @@ export async function onRequest({ request, env, params }) {
     if (path === '/api/auth/login' && method === 'POST') {
       const body = await readBody(request)
       const username = String(body.username || '').trim()
-      const normalizedUsername = username.toLowerCase()
       const password = String(body.password || '')
       if (!username || !password) return json({ success: false, error: 'Kullanıcı adı ve şifre gerekli.' }, 400)
 
@@ -73,7 +72,7 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, token, user: { id: 'admin', name: 'Yönetici', username, role: 'admin' } })
       }
 
-      const row = await env.DB.prepare('SELECT id, name, username, password_hash, group_name, status FROM users WHERE username = ? LIMIT 1').bind(normalizedUsername).first()
+      const row = await env.DB.prepare('SELECT id, name, username, password_hash, group_name, status FROM users WHERE username = ? LIMIT 1').bind(username.toLowerCase()).first()
       if (!row || row.status !== 'active' || !(await verifyPassword(password, row.password_hash))) {
         return json({ success: false, error: 'Giriş bilgileri hatalı veya hesap engellenmiş.' }, 401)
       }
@@ -105,8 +104,7 @@ export async function onRequest({ request, env, params }) {
         const denied = requireAdmin(); if (denied) return denied
         const body = await readBody(request)
         const name = String(body.name || '').trim().slice(0, 80)
-        const username = String(body.username || '').trim()
-      const normalizedUsername = username.toLowerCase().toLowerCase().slice(0, 40)
+        const username = String(body.username || '').trim().toLowerCase().slice(0, 40)
         const password = String(body.password || '')
         const group = String(body.group_name || 'Standart').trim().slice(0, 40) || 'Standart'
         if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || password.length < 8) {

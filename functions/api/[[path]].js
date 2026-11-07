@@ -1,6 +1,12 @@
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
-  headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+  headers: {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+    'access-control-allow-headers': 'Content-Type, Authorization',
+  },
 })
 
 const encoder = new TextEncoder()
@@ -68,6 +74,12 @@ function cleanUser(row) {
 
 export async function onRequest({ request, env, params }) {
   try {
+    if (request.method.toUpperCase() === 'OPTIONS') return new Response(null, { status: 204, headers: {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+      'access-control-allow-headers': 'Content-Type, Authorization',
+      'access-control-max-age': '86400',
+    } })
     if (!env.DB) return json({ success: false, error: 'D1 veritabanı DB adıyla bağlanmamış.' }, 503)
     
     const path = `/api/${Array.isArray(params.path) ? params.path.join('/') : params.path || ''}`.replace(/\/$/, '')

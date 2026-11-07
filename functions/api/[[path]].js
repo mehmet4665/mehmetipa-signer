@@ -169,7 +169,7 @@ export async function onRequest({ request, env, params }) {
           .bind(randomId(), session.sub, udid, 'pending', new Date().toISOString()).run()
         return json({ success: true, status: 'pending' }, 201)
       }
-    }
+        
       // SIGNING: VIP sertifika durumu
       if (path === '/api/signing/availability' && method === 'GET') {
         const cert = await env.DB.prepare(
@@ -293,7 +293,8 @@ export async function onRequest({ request, env, params }) {
         ).bind(status, signingLogMatch[1]).run()
 
         return json({ success: true })
-      }
+      } 
+    } 
     return json({ success: false, error: 'Bulunamadı.' }, 404)
   } catch (error) {
     return json({ success: false, error: 'Sunucu hatası. D1 şemasını ve Pages bağlarını kontrol edin.' }, 500)

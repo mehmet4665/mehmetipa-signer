@@ -170,7 +170,130 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, status: 'pending' }, 201)
       }
     }
+      // SIGNING: VIP sertifika durumu
+      if (path === '/api/signing/availability' && method === 'GET') {
+        const cert = await env.DB.prepare(
+          'SELECT status, certificate_name, profile_name, expires_at FROM signing_certificate ORDER BY updated_at DESC LIMIT 1'
+        ).first()
 
+        const available = !!(
+          cert &&
+          cert.status === 'active'
+        )
+
+        return json({
+          success: true,
+          available,
+          certificate: cert ? {
+            name: cert.certificate_name,
+            profile: cert.profile_name,
+            expires_at: cert.expires_at
+          } : null
+        })
+      }
+
+      // SIGNING: Yönetici sertifika bilgisi
+      if (path === '/api/admin/certificate' && method === 'GET') {
+        const denied = requireAdmin()
+        if (denied) return denied
+
+        const cert = await env.DB.prepare(
+          'SELECT id, status, certificate_name, profile_name, expires_at, updated_at FROM signing_certificate ORDER BY updated_at DESC LIMIT 1'
+        ).first()
+
+        return json({ success: true, certificate: cert || null })
+      }
+
+      // SIGNING: Yönetici imza geçmişi
+      if (path === '/api/admin/signing-logs' && method === 'GET') {
+        const denied = requireAdmin()
+        if (denied) return denied
+
+        const { results = [] } = await env.DB.prepare(
+          `SELECT signing_logs.id, signing_logs.username,
+           signing_logs.mode, signing_logs.ipa_name,
+           signing_logs.status, signing_logs.created_at,
+           users.name
+           FROM signing_logs
+           LEFT JOIN users ON users.id = signing_logs.user_id
+           ORDER BY signing_logs.created_at DESC
+           LIMIT 200`
+        ).all()
+
+        return json({ success: true, logs: results })
+      }
+
+      // SIGNING: Üye imza işlemi başlatır
+      if (path === '/api/signing/log' && method === 'POST') {
+        if (isAdmin) {
+          return json({ success: false, error: 'Yönetici imza kaydı oluşturamaz.' }, 400)
+        }
+
+        const body = await readBody(request)
+        const mode = body.mode
+        const ipaName = String(body.ipa_name || '').trim().slice(0, 180)
+
+        if (!['own', 'vip'].includes(mode) || !ipaName) {
+          return json({ success: false, error: 'İmza yöntemi veya IPA adı geçersiz.' }, 400)
+        }
+
+        if (mode === 'vip') {
+          const cert = await env.DB.prepare(
+            "SELECT status FROM signing_certificate WHERE status = 'active' LIMIT 1"
+          ).first()
+
+          if (!cert) {
+            return json({ success: false, error: 'VIP sertifika şu anda kullanıma hazır değil.' }, 409)
+          }
+        }
+
+        const id = randomId()
+
+        await env.DB.prepare(
+          `INSERT INTO signing_logs
+           (id, user_id, username, mode, ipa_name, status, created_at)
+           VALUES (?, ?, ?, ?, ?, 'started', ?)`
+        ).bind(
+          id,
+          session.sub,
+          session.username,
+          mode,
+          ipaName,
+          new Date().toISOString()
+        ).run()
+
+        return json({ success: true, log_id: id }, 201)
+      }
+
+      // SIGNING: İmza sonucunu kaydet
+      const signingLogMatch = path.match(/^\/api\/signing\/log\/([^/]+)$/)
+
+      if (signingLogMatch && method === 'PATCH') {
+        const body = await readBody(request)
+        const status = body.status
+
+        if (!['success', 'failed'].includes(status)) {
+          return json({ success: false, error: 'Geçersiz imza durumu.' }, 400)
+        }
+
+        const log = await env.DB.prepare(
+          'SELECT id, user_id FROM signing_logs WHERE id = ? LIMIT 1'
+        ).bind(signingLogMatch[1]).first()
+
+        if (!log) {
+          return json({ success: false, error: 'İmza kaydı bulunamadı.' }, 404)
+        }
+
+        if (!isAdmin && log.user_id !== session.sub) {
+          return json({ success: false, error: 'Bu kayıt size ait değil.' }, 403)
+        }
+
+        await env.DB.prepare(
+          'UPDATE signing_logs SET status = ? WHERE id = ?'
+        ).bind(status, signingLogMatch[1]).run()
+
+        return json({ success: true })
+      }
     return json({ success: false, error: 'Bulunamadı.' }, 404)
   } catch (error) {
     return json({ success: false, error: 'Sunucu hatası. D1 şemasını ve Pages bağlarını kontrol edin.' }, 500)

@@ -220,6 +220,93 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, certificate: cert || null })
       }
 
+      // SIGNING: Yönetici sertifika ve profil yükleme
+      if (path === '/api/admin/certificate' && method === 'POST') {
+        const denied = requireAdmin()
+        if (denied) return denied
+
+        if (!env.CERTS || !env.SIGNING_ENCRYPTION_KEY) {
+          return json({ success: false, error: 'Sertifika kasası veya şifreleme anahtarı bağlı değil.' }, 503)
+        }
+
+        const body = await readBody(request)
+        const certificateName = String(body.certificate_name || '').trim().slice(0, 180)
+        const profileName = String(body.profile_name || '').trim().slice(0, 180)
+        const password = String(body.password || '')
+        const expiresAt = body.expires_at ? String(body.expires_at).slice(0, 40) : null
+        const p12Base64 = String(body.p12_base64 || '')
+        const profileBase64 = String(body.profile_base64 || '')
+
+        if (!certificateName || !profileName || !password || !p12Base64 || !profileBase64) {
+          return json({ success: false, error: 'P12, şifre, provisioning profile ve dosya adları gerekli.' }, 400)
+        }
+
+        if (p12Base64.length > 7000000 || profileBase64.length > 1400000) {
+          return json({ success: false, error: 'Dosya boyutu sınırı aşıldı.' }, 413)
+        }
+
+        let p12Bytes, profileBytes
+        try {
+          const decode = (value) => {
+            const normalized = value.replace(/^data:[^,]*;base64,/, '').replace(/\s/g, '')
+            if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 !== 0) {
+              throw new Error('Geçersiz Base64')
+            }
+            return Uint8Array.from(atob(normalized), c => c.charCodeAt(0))
+          }
+          p12Bytes = decode(p12Base64)
+          profileBytes = decode(profileBase64)
+        } catch {
+          return json({ success: false, error: 'Dosya verisi okunamadı.' }, 400)
+        }
+
+        if (!p12Bytes.length || p12Bytes.length > 5 * 1024 * 1024 ||
+            !profileBytes.length || profileBytes.length > 1024 * 1024) {
+          return json({ success: false, error: 'P12 en fazla 5 MB, profil en fazla 1 MB olmalı.' }, 413)
+        }
+
+        const id = randomId()
+        const p12Key = `certificates/${id}/certificate.p12`
+        const profileKey = `certificates/${id}/profile.mobileprovision`
+        const encrypted = await encryptSecret(password, env.SIGNING_ENCRYPTION_KEY)
+
+        try {
+          await env.CERTS.put(p12Key, p12Bytes, {
+            httpMetadata: { contentType: 'application/x-pkcs12' }
+          })
+          await env.CERTS.put(profileKey, profileBytes, {
+            httpMetadata: { contentType: 'application/octet-stream' }
+          })
+
+          await env.DB.prepare(
+            `INSERT INTO signing_certificate
+            (id, status, certificate_name, profile_name, password_ciphertext, password_iv, p12_key, profile_key, expires_at, updated_at)
+            VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            id, certificateName, profileName,
+            encrypted.ciphertext, encrypted.iv,
+            p12Key, profileKey, expiresAt,
+            new Date().toISOString()
+          ).run()
+        } catch (error) {
+          try { await env.CERTS.delete(p12Key) } catch {}
+          try { await env.CERTS.delete(profileKey) } catch {}
+          throw error
+        }
+
+        return json({
+          success: true,
+          certificate: {
+            id,
+            status: 'pending',
+            certificate_name: certificateName,
+            profile_name: profileName,
+            expires_at: expiresAt
+          },
+          message: 'Sertifika dosyaları özel kasaya kaydedildi. Doğrulama bekleniyor.'
+        }, 201)
+      }
+
       // SIGNING: Yönetici imza geçmişi
       if (path === '/api/admin/signing-logs' && method === 'GET') {
         const denied = requireAdmin()

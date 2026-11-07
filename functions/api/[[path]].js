@@ -41,7 +41,13 @@ async function verifyPassword(password, stored) {
 }
 
 async function readBody(request) {
-  try { return await request.json() } catch { return {} }
+  try {
+    return await request.json()
+  } catch {
+    return {}
+  }
+}
+
 async function encryptSecret(value, secret) {
   const rawKey = await crypto.subtle.digest('SHA-256', encoder.encode(secret))
   const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['encrypt'])
@@ -52,7 +58,6 @@ async function encryptSecret(value, secret) {
     encoder.encode(value)
   )
   return { ciphertext: b64url(ciphertext), iv: b64url(iv) }
-}
 }
 function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''

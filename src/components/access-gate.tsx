@@ -176,7 +176,38 @@ export function AccessGate() {
   }
 
   if (isPublicDocument) return <SylvaSigner />
+if (view === 'method' && user?.role === 'member') return <Frame>
+  <header className="flex items-center justify-between">
+    <div className="text-lg font-bold">
+      Mehmet IPA <span className="ml-2 rounded-full bg-muted px-2 py-1 text-xs font-normal">{user.username}</span>
+    </div>
+    <button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button>
+  </header>
 
+  <section className="mx-auto mt-10 max-w-xl">
+    <h1 className="text-2xl font-bold">İmza yöntemini seç</h1>
+    <p className="mt-2 text-sm text-muted-foreground">IPA dosyanı hangi sertifika ile imzalamak istediğini seç.</p>
+
+    <div className="mt-6 grid gap-4">
+      <button onClick={() => { setError(''); setView('signer') }} className="rounded-2xl border bg-card p-5 text-left">
+        <span className="text-lg font-semibold">Kendi sertifikam</span>
+        <span className="mt-2 block text-sm text-muted-foreground">Kendi P12/PFX dosyanı ve provisioning profile dosyanı kullan.</span>
+        <span className="mt-4 inline-flex rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Devam et</span>
+      </button>
+
+      <div className="rounded-2xl border border-dashed bg-card/60 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-lg font-semibold">Mehmet IPA VIP</span>
+          <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-700">Hazırlanıyor</span>
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">Merkezi sertifika ve sunucu tarafı imzalama tamamlandığında açılacak.</p>
+        <button disabled className="mt-4 rounded-lg border px-4 py-2 text-sm opacity-50">VIP yakında</button>
+      </div>
+    </div>
+
+    <button onClick={() => setView('home')} className="mt-6 text-sm text-muted-foreground">← Hesabıma dön</button>
+  </section>
+</Frame>
   if (view === 'signer' && user?.role === 'member') {
     return <><div className="sticky top-0 z-50 flex items-center justify-between border-b bg-background/95 px-4 py-2 backdrop-blur"><div className="text-sm font-semibold">Mehmet IPA <span className="ml-2 rounded-full bg-muted px-2 py-1 text-xs font-normal">{user.username}</span></div><div className="flex gap-2"><button onClick={() => setView('home')} className="rounded-lg border px-3 py-2 text-sm">Hesabım</button><button onClick={logout} className="rounded-lg border px-3 py-2 text-sm">Çıkış</button></div></div><SylvaSigner /></>
   }

@@ -6,7 +6,7 @@ import './styles.css'
 
 import { SylvaSigner } from '@/components/sylva-signer'
 import { AccessGate } from '@/components/access-gate'
-import { AdminPanel } from '@/components/admin-panel'
+
 inject()
 
 const API_URL = 'https://mehmetipa-api.kaymazm4665.workers.dev'

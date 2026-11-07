@@ -1,17 +1,17 @@
 {
-  "name": "zsign-wasm",
+  "name": "mehmetipa-signer",
   "version": "0.1.0",
-  "description": "Fully local IPA signing in the browser with zsign WebAssembly.",
+  "description": "Mehmet IPA - iOS IPA signing platform.",
   "private": true,
   "license": "MIT",
-  "author": "AntonP29",
-  "homepage": "https://sylva.antonp29.dev",
+  "author": "Mehmet IPA",
+  "homepage": "https://mehmetipa-signer.pages.dev",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AntonP29/SylvaSigner.git"
+    "url": "https://github.com/mehmet4665/mehmetipa-signer.git"
   },
   "bugs": {
-    "url": "https://github.com/AntonP29/SylvaSigner/issues"
+    "url": "https://github.com/mehmet4665/mehmetipa-signer/issues"
   },
   "type": "module",
   "scripts": {

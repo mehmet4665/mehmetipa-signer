@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { SylvaSigner } from '@/components/sylva-signer'
+import { Capacitor } from '@capacitor/core'
 
 type User = {
   id: string
@@ -21,12 +22,14 @@ type Device = {
 
 const TOKEN_KEY = 'mehmetipa.session.v1'
 const APP_DOWNLOAD = 'https://github.com/mehmet4665/mehmetipa-signer/releases/download/latest/Mehmet-IPA-iOS.ipa'
+const API_BASE = 'https://mehmetipa-signer.pages.dev'
 
 async function api<T>(path: string, token?: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('content-type', 'application/json')
   if (token) headers.set('authorization', `Bearer ${token}`)
-  const response = await fetch(path, { ...init, headers, cache: 'no-store' })
+  const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`
+  const response = await fetch(url, { ...init, headers, cache: 'no-store' })
   const data = await response.json().catch(() => ({})) as T & { error?: string }
   if (!response.ok) throw new Error(data.error || `İstek başarısız (${response.status})`)
   return data
@@ -121,6 +124,9 @@ export function AccessGate() {
       const result = await api<{ token: string; user: User }>('/api/auth/login', undefined, {
         method: 'POST', body: JSON.stringify({ username, password }),
       })
+      if (!result?.token || !result?.user || !['admin', 'member'].includes(result.user.role)) {
+        throw new Error('Sunucudan geçerli kullanıcı bilgisi alınamadı. Bağlantıyı kontrol edip tekrar dene.')
+      }
       window.sessionStorage.setItem(TOKEN_KEY, result.token)
       setToken(result.token); setUser(result.user)
       setView(result.user.role === 'admin' ? 'admin' : 'method')
@@ -265,7 +271,7 @@ if (view === 'method' && user?.role === 'member') return <Frame>
 
   if (view === 'home' && user?.role === 'member') return <Frame><header className="flex items-center justify-between"><Brand /><button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button></header><section className="mx-auto mt-10 max-w-xl rounded-3xl border bg-card p-6"><h1 className="text-2xl font-bold">Merhaba, {user.name}</h1><p className="mt-2 text-sm text-muted-foreground">Hesabın aktif. Kayıtlı cihazlarını buradan yönetebilirsin.</p><p className="mt-2 text-xs text-muted-foreground">UDID kaydı Safari tarafından otomatik doğrulanmaz; yönetici onayı şu an kayıt takibi içindir.</p><form onSubmit={registerDevice} className="mt-6 grid gap-3"><Field label="Cihaz UDID" value={udid} onChange={e => setUdid(e.target.value)} placeholder="UDID değerini gir" required /><button disabled={busy} className="h-11 rounded-xl bg-primary font-semibold text-primary-foreground">Cihazı onaya gönder</button></form><div className="mt-5 grid gap-2">{myDevices.map(d => <div key={d.id} className="flex items-center justify-between rounded-xl border p-3 text-sm"><span className="break-all">{d.udid}</span><span>{d.status === 'approved' ? 'Onaylandı' : d.status === 'blocked' ? 'Engellendi' : 'Bekliyor'}</span></div>)}</div><button onClick={() => setView('signer')} className="mt-6 h-11 w-full rounded-xl bg-primary font-semibold text-primary-foreground">İmzalama ekranını aç</button></section></Frame>
 
-  return <Frame><section className="mx-auto max-w-xl pt-8 text-center sm:pt-16"><Brand /><div className="mt-10 rounded-3xl border bg-card p-6 shadow-sm sm:p-10"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-2xl font-bold">IPA</div><h1 className="mt-6 text-3xl font-bold tracking-tight">Mehmet IPA</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">iOS IPA dosyalarını tarayıcı üzerinden imzalama aracı. Üyeler giriş yaparak imzalama ekranına erişebilir.</p><a href={APP_DOWNLOAD} className="mt-7 flex h-12 w-full items-center justify-center rounded-xl border font-semibold">Mehmet IPA uygulamasını indir</a><button onClick={() => { setView('login'); setError('') }} className="mt-3 h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground">Üye / Yönetici girişi</button><p className="mt-5 text-xs text-muted-foreground">Yeni üyelik oluşturma kapalıdır. Hesaplar yönetici tarafından tanımlanır.</p></div><p className="mt-6 text-xs text-muted-foreground">© Mehmet IPA</p></section></Frame>
+  return <Frame><section className="mx-auto max-w-xl pt-8 text-center sm:pt-16"><Brand /><div className="mt-10 rounded-3xl border bg-card p-6 shadow-sm sm:p-10"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-2xl font-bold">IPA</div><h1 className="mt-6 text-3xl font-bold tracking-tight">Mehmet IPA</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">iOS IPA dosyalarını tarayıcı üzerinden imzalama aracı. Üyeler giriş yaparak imzalama ekranına erişebilir.</p>{!Capacitor.isNativePlatform() && <a href={APP_DOWNLOAD} className="mt-7 flex h-12 w-full items-center justify-center rounded-xl border font-semibold">Mehmet IPA uygulamasını indir</a>}<button onClick={() => { setView('login'); setError('') }} className="mt-3 h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground">Üye / Yönetici girişi</button><p className="mt-5 text-xs text-muted-foreground">Yeni üyelik oluşturma kapalıdır. Hesaplar yönetici tarafından tanımlanır.</p></div><p className="mt-6 text-xs text-muted-foreground">© Mehmet IPA</p></section></Frame>
 }
 
 function ErrorText({ error }: { error: string }) { return error ? <p role="alert" className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-700">{error}</p> : null }

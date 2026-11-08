@@ -50,8 +50,8 @@ jobs:
           path: |
             ~/Library/Caches/org.swift.swiftpm/artifacts
             ~/Library/Developer/Xcode/DerivedData
-            $RUNNER_TEMP/SwiftPackageCache
-            $RUNNER_TEMP/SourcePackages
+            ${{ runner.temp }}/SwiftPackageCache
+            ${{ runner.temp }}/SourcePackages
           key: ${{ runner.os }}-spm-${{ hashFiles('ios/App/Package.swift', 'ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
@@ -98,8 +98,8 @@ jobs:
           path: |
             ~/Library/Caches/org.swift.swiftpm/artifacts
             ~/Library/Developer/Xcode/DerivedData
-            $RUNNER_TEMP/SwiftPackageCache
-            $RUNNER_TEMP/SourcePackages
+            ${{ runner.temp }}/SwiftPackageCache
+            ${{ runner.temp }}/SourcePackages
           key: ${{ runner.os }}-spm-${{ hashFiles('ios/App/Package.swift', 'ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Build iOS app

@@ -906,7 +906,25 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
         <ThemeToggle />
       </header>
 
-      <Separator className="my-8" />
+      <section className="signer-hero relative isolate my-7 overflow-hidden rounded-[1.8rem] border border-violet-400/25 px-5 py-6 shadow-2xl shadow-violet-950/20 sm:px-7 sm:py-8">
+        <div className="signer-hero-orb signer-hero-orb-one" />
+        <div className="signer-hero-orb signer-hero-orb-two" />
+        <div className="relative z-10">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
+            <span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,.8)]" />
+            PRIVATE SIGNING WORKSPACE
+          </div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[.22em] text-violet-200/80">MEHMET IPA / SIGNING STUDIO</p>
+          <h2 className="max-w-2xl text-3xl font-black tracking-tight text-white sm:text-4xl">Uygulamanı özgürce imzala.</h2>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300 sm:text-base">IPA dosyanı, sertifikanı ve provisioning profile dosyanı ekle. İmzalama işlemini tarayıcında başlat.</p>
+          <div className="mt-6 grid max-w-2xl grid-cols-3 gap-2 sm:gap-3">
+            <div className="signer-step"><span>01</span><strong>IPA dosyası</strong></div>
+            <div className="signer-step"><span>02</span><strong>Sertifika</strong></div>
+            <div className="signer-step"><span>03</span><strong>İmzala</strong></div>
+          </div>
+        </div>
+      </section>
+      <Separator className="my-7 opacity-40" />
 
       <section className="rounded-2xl border border-border bg-card p-6 md:p-8">
         <div className="mb-6 flex items-center gap-3">
@@ -1901,7 +1919,7 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
                   className="text-muted-foreground transition-colors hover:text-blue-500"
                 />
               </AnimateIcon>
-              <h2 className="text-sm font-semibold tracking-tight">Inputs</h2>
+              <h2 className="text-base font-bold tracking-tight">Dosyalarını ekle</h2>
             </div>
 
             <FileDrop

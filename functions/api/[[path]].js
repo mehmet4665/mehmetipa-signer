@@ -149,7 +149,7 @@ export async function onRequest({ request, env, params }) {
       const session = await readToken(bearer(request), env.ADMIN_PASSWORD)
       if (!session) return json({ success: false, error: 'Oturum geçersiz veya süresi dolmuş.' }, 401)
       if (session.role === 'admin') return json({ success: true, user: { id: 'admin', name: 'Yönetici', username: session.username, role: 'admin' } })
-      const row = await env.DB.prepare('SELECT id, name, username, group_name, status, created_at FROM users WHERE id = ?').bind(session.sub).first()
+      const row = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at FROM users WHERE id = ?').bind(session.sub).first()
       if (!row || row.status !== 'active') return json({ success: false, error: 'Hesap etkin değil.' }, 401)
       return json({ success: true, user: { ...cleanUser(row), role: 'member' } })
     }
@@ -160,9 +160,27 @@ export async function onRequest({ request, env, params }) {
       const isAdmin = session.role === 'admin'
       const requireAdmin = () => isAdmin ? null : json({ success: false, error: 'Bu işlem yalnızca yöneticiye açık.' }, 403)
 
+      if (path === '/api/admin/registration-requests' && method === 'GET') {
+        const denied=requireAdmin(); if(denied) return denied
+        const {results=[]}=await env.DB.prepare("SELECT id,name,username,email,status,created_at,verified_at FROM registration_requests WHERE status IN ('pending','verification_pending') ORDER BY created_at DESC").all()
+        return json({success:true,requests:results})
+      }
+      const registrationMatch=path.match(/^\\/api\\/admin\\/registration-requests\\/([^/]+)$/)
+      if(registrationMatch && method==='POST') {
+        const denied=requireAdmin(); if(denied) return denied; const body=await readBody(request), action=body.action
+        const row=await env.DB.prepare('SELECT * FROM registration_requests WHERE id=? LIMIT 1').bind(registrationMatch[1]).first()
+        if(!row || row.status!=='pending') return json({success:false,error:'Başvuru bulunamadı veya e-posta doğrulanmadı.'},404)
+        if(action==='reject') { await env.DB.prepare("UPDATE registration_requests SET status='rejected',reviewed_at=?,reviewed_by='admin' WHERE id=?").bind(new Date().toISOString(),row.id).run(); if(env.RESEND_API_KEY&&env.MAIL_FROM) await sendMail(env,{to:row.email,subject:'Mehmet IPA üyelik başvurusu',html:emailHtml('Başvurun sonuçlandı','Üyelik başvurun şu anda kabul edilmedi.','https://mehmetipa-signer.pages.dev','Mehmet IPA')}).catch(()=>{}); return json({success:true}) }
+        if(action!=='approve') return json({success:false,error:'Geçersiz işlem.'},400)
+        const conflict=await env.DB.prepare('SELECT id FROM users WHERE username=? OR email=? LIMIT 1').bind(row.username,row.email).first(); if(conflict) return json({success:false,error:'Kullanıcı adı veya e-posta başka hesapta kullanılıyor.'},409)
+        const userId=randomId(), now=new Date().toISOString()
+        await env.DB.batch([env.DB.prepare("INSERT INTO users (id,name,username,email,password_hash,group_name,status,created_at,email_verified) VALUES (?,?,?,?,?,'Standart','active',?,1)").bind(userId,row.name,row.username,row.email,row.password_hash,now),env.DB.prepare("UPDATE registration_requests SET status='approved',reviewed_at=?,reviewed_by='admin' WHERE id=?").bind(now,row.id)])
+        if(env.RESEND_API_KEY&&env.MAIL_FROM) await sendMail(env,{to:row.email,subject:'Mehmet IPA hesabın onaylandı',html:emailHtml('Hesabın hazır!','Üyelik başvurun onaylandı. Artık Mehmet IPA hesabına giriş yapabilirsin.','https://mehmetipa-signer.pages.dev','Giriş yap')}).catch(()=>{})
+        return json({success:true,user:{id:userId,username:row.username}})
+      }
       if (path === '/api/admin/users' && method === 'GET') {
         const denied = requireAdmin(); if (denied) return denied
-        const { results = [] } = await env.DB.prepare('SELECT id, name, username, group_name, status, created_at FROM users ORDER BY created_at DESC').all()
+        const { results = [] } = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at FROM users ORDER BY created_at DESC').all()
         return json({ success: true, users: results.map(cleanUser) })
       }
       if (path === '/api/admin/users' && method === 'POST') {
@@ -171,19 +189,20 @@ export async function onRequest({ request, env, params }) {
         const name = String(body.name || '').trim().slice(0, 80)
         const username = String(body.username || '').trim().toLowerCase().slice(0, 40)
         const password = String(body.password || '')
+        const email = String(body.email || '').trim().toLowerCase()
         const group = String(body.group_name || 'Standart').trim().slice(0, 40) || 'Standart'
-        if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || password.length < 8) {
-          return json({ success: false, error: 'Ad gerekli; kullanıcı adı 3-40 karakter (a-z, 0-9, . _ -), şifre en az 8 karakter olmalı.' }, 400)
+        if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || password.length < 8) {
+          return json({ success: false, error: 'Ad ve geçerli e-posta gerekli; kullanıcı adı 3-40 karakter (a-z, 0-9, . _ -), şifre en az 8 karakter olmalı.' }, 400)
         }
         const hash = await hashPassword(password)
         const id = randomId()
         try {
-          await env.DB.prepare('INSERT INTO users (id, name, username, password_hash, group_name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-            .bind(id, name, username, hash, group, 'active', new Date().toISOString()).run()
+          await env.DB.prepare('INSERT INTO users (id, name, username, email, password_hash, group_name, status, created_at, email_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)')
+            .bind(id, name, username, email, hash, group, 'active', new Date().toISOString()).run()
         } catch (error) {
           return json({ success: false, error: 'Bu kullanıcı adı kullanılıyor veya kayıt oluşturulamadı.' }, 409)
         }
-        return json({ success: true, user: { id, name, username, group_name: group, status: 'active' } }, 201)
+        return json({ success: true, user: { id, name, username, email, group_name: group, status: 'active' } }, 201)
       }
 
       const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/)

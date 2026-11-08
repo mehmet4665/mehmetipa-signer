@@ -97,7 +97,7 @@ export async function onRequest({ request, env, params }) {
     if (path === '/api/auth/register' && method === 'POST') {
       if (!(await rateLimit(env, request, 'register', 5, 30))) return json({ success: false, error: 'Çok fazla kayıt denemesi. Bir süre sonra tekrar dene.' }, 429)
       const body = await readBody(request); const name = String(body.name || '').trim().slice(0,80); const username = String(body.username || '').trim().toLowerCase(); const email = String(body.email || '').trim().toLowerCase(); const password = String(body.password || '')
-      if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success:false,error:'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' },400)
+      if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success:false,error:'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' },400)
       const existing = await env.DB.prepare('SELECT username FROM users WHERE username=? OR email=? UNION SELECT username FROM registration_requests WHERE username=? OR email=? LIMIT 1').bind(username,email,username,email).first()
       if (existing) return json({ success:false,error:'Bu kullanıcı adı veya e-posta zaten kayıtlı ya da başvuru bekliyor.' },409)
       if (!env.RESEND_API_KEY || !env.MAIL_FROM) return json({ success:false,error:'E-posta gönderimi henüz yapılandırılmadı. Yönetici e-posta servisini etkinleştirmeli.' },503)
@@ -115,7 +115,7 @@ export async function onRequest({ request, env, params }) {
     }
     if (path === '/api/auth/forgot-password' && method === 'POST') {
       if (!(await rateLimit(env,request,'forgot-password',4,30))) return json({success:false,error:'Çok fazla deneme. Daha sonra tekrar dene.'},429)
-      const body=await readBody(request), email=String(body.email||'').trim().toLowerCase(); if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return json({success:false,error:'Geçerli e-posta adresi gir.'},400)
+      const body=await readBody(request), email=String(body.email||'').trim().toLowerCase(); if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({success:false,error:'Geçerli e-posta adresi gir.'},400)
       const row=await env.DB.prepare("SELECT id,email FROM users WHERE email=? AND status='active' LIMIT 1").bind(email).first()
       if(row && env.RESEND_API_KEY && env.MAIL_FROM) { const token=randomToken(), tokenHash=await sha256Hex(token), id=randomId(), expires=new Date(Date.now()+1800000).toISOString(); await env.DB.prepare('INSERT INTO password_reset_tokens (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)').bind(id,row.id,tokenHash,expires,new Date().toISOString()).run(); const url='https://mehmetipa-signer.pages.dev/reset-password?token='+encodeURIComponent(token); try { await sendMail(env,{to:email,subject:'Mehmet IPA şifre sıfırlama',html:emailHtml('Şifreni yenile','Şifre sıfırlama bağlantısı 30 dakika geçerlidir ve tek kullanımlıktır.',url,'Şifremi yenile')}) } catch { return json({success:false,error:'E-posta gönderilemedi. Daha sonra tekrar dene.'},502) } }
       return json({success:true,message:'Bu e-posta kayıtlıysa şifre sıfırlama bağlantısı gönderildi.'})
@@ -165,7 +165,7 @@ export async function onRequest({ request, env, params }) {
         const {results=[]}=await env.DB.prepare("SELECT id,name,username,email,status,created_at,verified_at FROM registration_requests WHERE status IN ('pending','verification_pending') ORDER BY created_at DESC").all()
         return json({success:true,requests:results})
       }
-      const registrationMatch=path.match(/^\\/api\\/admin\\/registration-requests\\/([^/]+)$/)
+      const registrationMatch=path.match(/^\/api\/admin\/registration-requests\/([^/]+)$/)
       if(registrationMatch && method==='POST') {
         const denied=requireAdmin(); if(denied) return denied; const body=await readBody(request), action=body.action
         const row=await env.DB.prepare('SELECT * FROM registration_requests WHERE id=? LIMIT 1').bind(registrationMatch[1]).first()
@@ -191,7 +191,7 @@ export async function onRequest({ request, env, params }) {
         const password = String(body.password || '')
         const email = String(body.email || '').trim().toLowerCase()
         const group = String(body.group_name || 'Standart').trim().slice(0, 40) || 'Standart'
-        if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || password.length < 8) {
+        if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8) {
           return json({ success: false, error: 'Ad ve geçerli e-posta gerekli; kullanıcı adı 3-40 karakter (a-z, 0-9, . _ -), şifre en az 8 karakter olmalı.' }, 400)
         }
         const hash = await hashPassword(password)

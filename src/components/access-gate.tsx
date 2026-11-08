@@ -525,6 +525,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
           <span className="hidden rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-300 sm:inline-flex">● Platform online</span>
           <div className="flex items-center gap-2"><button onClick={() => { setLoginMode('member'); setView('login'); setError('') }} className="rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-sm font-semibold shadow-lg shadow-violet-950/40 transition hover:brightness-110">Üye girişi →</button><button onClick={() => { setLoginMode('admin'); setView('login'); setError('') }} className="rounded-xl border border-white/15 bg-white/[0.05] px-3 py-2.5 text-xs font-semibold text-slate-300 transition hover:border-amber-300/40 hover:text-amber-200">Yönetici</button></div>
         </div>
+      </header>
       <section className="mt-5 overflow-hidden rounded-3xl border border-violet-300/20 bg-gradient-to-br from-violet-600/20 via-indigo-600/15 to-cyan-500/10 p-5 shadow-xl shadow-violet-950/10 sm:p-7">
         <div className="max-w-3xl">
           <p className="text-xs font-black uppercase tracking-[.22em] text-cyan-300"><span data-locale="tr">MEHMET IPA'YI KEŞFET</span><span data-locale="en" hidden>DISCOVER MEHMET IPA</span></p>

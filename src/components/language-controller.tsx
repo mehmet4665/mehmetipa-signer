@@ -63,7 +63,23 @@ const translations: Record<string, string> = {
   "Üyeler alınamadı.": "Could not load members.",
   "Sunucu bağlantı hatası.": "Server connection error.",
   "İşlem başarısız.": "Operation failed.",
-  "IPA dosyanı kendi sertifikan": "Sign your IPA with your own certificate"
+  "IPA dosyanı kendi sertifikan": "Sign your IPA with your own certificate",
+
+  "Private by design": "Gizlilik önceliğimizdir",
+  "Sign iOS IPA files locally in your browser": "iOS IPA dosyalarını tarayıcında yerel olarak imzala",
+  "Mehmet IPA Signer runs zsign as WebAssembly inside a dedicated browser worker. Your IPA, certificate, provisioning profile, password, optional dylibs, and signed output remain on this device during signing. Signed files are downloaded directly by your browser; this site does not upload IPA files to its servers or to third-party hosting services.": "Mehmet IPA Signer, zsign'ı tarayıcı içinde WebAssembly olarak çalıştırır. IPA dosyan, sertifikan, provisioning profilin, şifren, isteğe bağlı dylib dosyaların ve imzalanmış çıktın imzalama sırasında bu cihazda kalır. Dosyalar doğrudan tarayıcına indirilir; IPA dosyaların bu sitenin sunucularına veya üçüncü taraf barındırma hizmetlerine yüklenmez.",
+  "Accepts .ipa,.zip": "Desteklenen biçimler: .ipa, .zip",
+  "Accepts .p12,.pfx": "Desteklenen biçimler: .p12, .pfx",
+  "Accepts .mobileprovision,.provisionprofile": "Desteklenen biçimler: .mobileprovision, .provisionprofile",
+  "Accepts .dylib": "Desteklenen biçim: .dylib",
+  "How do you sign an iOS IPA file online?": "iOS IPA dosyası çevrimiçi nasıl imzalanır?",
+  "Frequently asked questions": "Sıkça sorulan sorular",
+  "Choose an IPA": "Bir IPA dosyası seç",
+  "Add your certificate": "Sertifikanı ekle",
+  "Add provisioning": "Provisioning profilini ekle",
+  "Review signing options": "İmzalama seçeneklerini kontrol et",
+  "Sign and download": "İmzala ve indir"
+
 }
 const STORAGE_KEY = 'mehmetipa.language'
 type Language = 'tr' | 'en'
@@ -103,7 +119,8 @@ const englishToTurkish: Record<string, string> = {
 }
 function translateText(value: string, language: Language) {
   const trimmed = value.trim()
-  const translated = language === 'en' ? translations[trimmed] : englishToTurkish[trimmed]
+  const normalized = trimmed.replace(/\\s+/g, ' ')
+  const translated = language === 'en' ? translations[normalized] : englishToTurkish[normalized]
   return translated ? value.replace(trimmed, translated) : value
 }
 

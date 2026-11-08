@@ -293,31 +293,66 @@ if (view === 'method' && user?.role === 'member') return <Frame>
 
   if (view === 'home' && user?.role === 'member') return <Frame><header className="flex items-center justify-between"><Brand /><button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button></header><section className="mx-auto mt-10 max-w-xl rounded-3xl border bg-card p-6"><h1 className="text-2xl font-bold">Merhaba, {user.name}</h1><p className="mt-2 text-sm text-muted-foreground">Hesabın aktif. Kayıtlı cihazlarını buradan yönetebilirsin.</p><p className="mt-2 text-xs text-muted-foreground">UDID kaydı Safari tarafından otomatik doğrulanmaz; yönetici onayı şu an kayıt takibi içindir.</p><form onSubmit={registerDevice} className="mt-6 grid gap-3"><Field label="Cihaz UDID" value={udid} onChange={e => setUdid(e.target.value)} placeholder="UDID değerini gir" required /><button disabled={busy} className="h-11 rounded-xl bg-primary font-semibold text-primary-foreground">Cihazı onaya gönder</button></form><div className="mt-5 grid gap-2">{myDevices.map(d => <div key={d.id} className="flex items-center justify-between rounded-xl border p-3 text-sm"><span className="break-all">{d.udid}</span><span>{d.status === 'approved' ? 'Onaylandı' : d.status === 'blocked' ? 'Engellendi' : 'Bekliyor'}</span></div>)}</div><button onClick={() => setView('signer')} className="mt-6 h-11 w-full rounded-xl bg-primary font-semibold text-primary-foreground">İmzalama ekranını aç</button></section></Frame>
 
-  return <Frame>
-    <section className="mx-auto max-w-3xl pt-2">
-      <div className="mb-5 text-center">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Mehmet IPA VIP</p>
-        <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">VIP Paket Fiyatları</h2>
-        <p className="mt-2 text-sm text-muted-foreground">İhtiyacına uygun süreyi seç.</p>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <article className="rounded-2xl border bg-card p-5 text-center">
-          <p className="text-sm text-muted-foreground">1 Ay</p>
-          <p className="mt-2 text-3xl font-bold tabular-nums">450 TL</p><p className="mt-1 text-sm text-muted-foreground">≈ $8.98 USD</p>
-        </article>
-        <article className="rounded-2xl border-2 border-primary bg-card p-5 text-center shadow-sm">
-          <p className="text-sm font-semibold text-primary">3 Ay</p>
-          <p className="mt-2 text-3xl font-bold tabular-nums">800 TL</p><p className="mt-1 text-sm text-muted-foreground">≈ $15.96 USD</p>
-          <p className="mt-1 text-xs text-muted-foreground">Avantajlı paket</p>
-        </article>
-        <article className="rounded-2xl border bg-card p-5 text-center">
-          <p className="text-sm text-muted-foreground">6 Ay</p>
-          <p className="mt-2 text-3xl font-bold tabular-nums">1.500 TL</p><p className="mt-1 text-sm text-muted-foreground">≈ $29.92 USD</p>
-        </article>
-      </div>
-      <p className="mt-3 text-center text-xs text-muted-foreground">Dolar karşılıkları 1 USD ≈ 50,14 TL referans kuruyla hesaplanmıştır; yaklaşık tutarlardır. Ödeme sistemi henüz aktif değildir.</p>
-    </section>
-    <section className="mx-auto max-w-xl pt-8 text-center sm:pt-12"><Brand /><div className="mt-10 rounded-3xl border bg-card p-6 shadow-sm sm:p-10"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-2xl font-bold">IPA</div><h1 className="mt-6 text-3xl font-bold tracking-tight">Mehmet IPA</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">iOS IPA dosyalarını tarayıcı üzerinden imzalama aracı. Üyeler giriş yaparak imzalama ekranına erişebilir.</p>{!isInstalledApp && <a href={APP_DOWNLOAD} className="mt-7 flex h-12 w-full items-center justify-center rounded-xl border font-semibold">Mehmet IPA uygulamasını indir</a>}<button onClick={() => { setView('login'); setError('') }} className="mt-3 h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground">Üye / Yönetici girişi</button><p className="mt-5 text-xs text-muted-foreground">Yeni üyelik oluşturma kapalıdır. Hesaplar yönetici tarafından tanımlanır.</p></div><p className="mt-6 text-xs text-muted-foreground">© Mehmet IPA</p></section></Frame>
+  return <main className="relative min-h-screen overflow-hidden bg-[#080B18] px-4 py-6 text-white sm:px-6 sm:py-8">
+    <div aria-hidden="true" className="pointer-events-none absolute -left-32 top-20 h-80 w-80 rounded-full bg-violet-600/20 blur-3xl" />
+    <div aria-hidden="true" className="pointer-events-none absolute -right-24 top-96 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl" />
+    <div className="relative mx-auto w-full max-w-6xl">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl sm:px-6">
+        <div className="flex items-center gap-3">
+          <img src="/icon-dark-512.PNG" alt="Mehmet IPA" className="h-11 w-11 rounded-xl object-cover ring-1 ring-white/15" />
+          <div><div className="font-bold tracking-tight">Mehmet IPA</div><div className="text-xs text-slate-400">iOS Signing Platform</div></div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="hidden rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-300 sm:inline-flex">● Platform online</span>
+          <button onClick={() => { setView('login'); setError('') }} className="rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-sm font-semibold shadow-lg shadow-violet-950/40 transition hover:brightness-110">Giriş yap <span aria-hidden="true">→</span></button>
+        </div>
+      </header>
+
+      <section className="grid items-center gap-10 pb-10 pt-14 sm:pt-20 lg:grid-cols-[1.1fr_.9fr] lg:pb-16">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-violet-300/20 bg-violet-400/10 px-3 py-1.5 text-xs font-medium text-violet-200"><span className="h-2 w-2 rounded-full bg-violet-300 shadow-[0_0_12px_#a78bfa]" /> IPA signing made simple</div>
+          <h1 className="mt-6 max-w-2xl text-4xl font-black leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">iOS uygulamalarını <span className="bg-gradient-to-r from-violet-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">özgürce</span> imzala.</h1>
+          <p className="mt-5 max-w-xl text-base leading-7 text-slate-300 sm:text-lg">IPA dosyalarını tarayıcı üzerinden imzala. Hesabına giriş yap, kendi sertifikanla işlemini kolayca başlat.</p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            {!isInstalledApp && <a href={APP_DOWNLOAD} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-5 text-sm font-semibold text-white transition hover:bg-white/10">↓ Mehmet IPA uygulamasını indir</a>}
+            <button onClick={() => { setView('login'); setError('') }} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-6 text-sm font-bold text-white shadow-xl shadow-violet-950/40 transition hover:scale-[1.02]">Hesabıma giriş yap <span>→</span></button>
+          </div>
+          <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-400"><span>✓ Tarayıcı üzerinden</span><span>✓ Mobil uyumlu</span><span>✓ Güvenli sertifika kasası</span></div>
+        </div>
+        <div className="relative mx-auto w-full max-w-md">
+          <div className="absolute -inset-5 rounded-[2rem] bg-gradient-to-br from-violet-500/20 via-indigo-500/10 to-cyan-400/20 blur-2xl" />
+          <div className="relative rounded-[2rem] border border-white/10 bg-gradient-to-br from-white/[0.11] to-white/[0.03] p-5 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-7">
+            <div className="flex items-center justify-between"><div className="text-sm font-semibold text-slate-200">İmza merkezi</div><span className="rounded-full bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold text-cyan-200">MEHMET IPA</span></div>
+            <div className="mt-7 rounded-2xl border border-dashed border-violet-300/30 bg-violet-400/[0.07] px-5 py-9 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 text-2xl shadow-lg shadow-violet-950/50">↑</div>
+              <div className="mt-5 text-lg font-bold">IPA dosyan hazır mı?</div>
+              <p className="mt-2 text-sm leading-6 text-slate-400">Hesabına giriş yaparak imzalama ekranına geçebilirsin.</p>
+              <button onClick={() => { setView('login'); setError('') }} className="mt-5 w-full rounded-xl bg-white px-4 py-3 text-sm font-bold text-slate-900 transition hover:bg-violet-100">Başlamak için giriş yap</button>
+            </div>
+            <div className="mt-5 grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-xl bg-black/20 p-3"><div className="text-lg">📱</div><div className="mt-1 text-[11px] text-slate-400">iOS</div></div>
+              <div className="rounded-xl bg-black/20 p-3"><div className="text-lg">🔐</div><div className="mt-1 text-[11px] text-slate-400">Sertifika</div></div>
+              <div className="rounded-xl bg-black/20 p-3"><div className="text-lg">⚡</div><div className="mt-1 text-[11px] text-slate-400">Kolay işlem</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-white/10 py-10 sm:py-12">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div><p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-300">VIP üyelik</p><h2 className="mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl">Sana uygun paketi seç</h2><p className="mt-2 text-sm text-slate-400">VIP hizmeti kullanıma açıldığında paket seçenekleri burada olacak.</p></div>
+          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs text-amber-200">Yakında aktif</span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <article className="rounded-2xl border border-white/10 bg-white/[0.045] p-5 transition hover:-translate-y-1 hover:border-violet-300/30 sm:p-6"><div className="text-sm font-semibold text-slate-300">Başlangıç</div><div className="mt-4 text-3xl font-black tabular-nums">450 TL</div><div className="mt-1 text-sm text-slate-400">≈ $8.98 USD</div><div className="mt-5 h-px bg-white/10" /><div className="mt-4 text-sm text-slate-300">1 aylık VIP paket</div><div className="mt-5 rounded-xl border border-white/10 px-4 py-2.5 text-center text-sm font-semibold text-slate-400">Yakında</div></article>
+          <article className="relative rounded-2xl border border-violet-400/60 bg-gradient-to-b from-violet-500/20 to-indigo-500/[0.08] p-5 shadow-xl shadow-violet-950/20 transition hover:-translate-y-1 sm:p-6"><span className="absolute -top-3 right-5 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white">Avantajlı</span><div className="text-sm font-semibold text-violet-200">En çok tercih edilen</div><div className="mt-4 text-3xl font-black tabular-nums">800 TL</div><div className="mt-1 text-sm text-violet-200/80">≈ $15.96 USD</div><div className="mt-5 h-px bg-violet-200/15" /><div className="mt-4 text-sm text-slate-200">3 aylık VIP paket</div><div className="mt-5 rounded-xl border border-violet-300/25 bg-violet-300/10 px-4 py-2.5 text-center text-sm font-semibold text-violet-200">Yakında</div></article>
+          <article className="rounded-2xl border border-white/10 bg-white/[0.045] p-5 transition hover:-translate-y-1 hover:border-cyan-300/30 sm:p-6"><div className="text-sm font-semibold text-slate-300">Uzun dönem</div><div className="mt-4 text-3xl font-black tabular-nums">1.500 TL</div><div className="mt-1 text-sm text-slate-400">≈ $29.92 USD</div><div className="mt-5 h-px bg-white/10" /><div className="mt-4 text-sm text-slate-300">6 aylık VIP paket</div><div className="mt-5 rounded-xl border border-white/10 px-4 py-2.5 text-center text-sm font-semibold text-slate-400">Yakında</div></article>
+        </div>
+        <p className="mt-4 text-center text-[11px] leading-5 text-slate-500">Dolar karşılıkları 1 USD ≈ 50,14 TL referans kuruyla hesaplanmıştır; yaklaşık tutarlardır. Ödeme ve VIP hizmeti henüz aktif değildir.</p>
+      </section>
+      <footer className="flex flex-col items-center justify-between gap-3 border-t border-white/10 py-6 text-xs text-slate-500 sm:flex-row"><div className="flex items-center gap-2"><img src="/icon-dark-512.PNG" alt="" className="h-6 w-6 rounded-md" /> © Mehmet IPA</div><div>iOS IPA Signing Platform</div></footer>
+    </div>
+  </main>
 }
 
 function ErrorText({ error }: { error: string }) { return error ? <p role="alert" className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-700">{error}</p> : null }

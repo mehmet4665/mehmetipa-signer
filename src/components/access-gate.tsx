@@ -303,19 +303,19 @@ if (view === 'method' && user?.role === 'member') return <Frame>
       <div className="grid gap-3 sm:grid-cols-3">
         <article className="rounded-2xl border bg-card p-5 text-center">
           <p className="text-sm text-muted-foreground">1 Ay</p>
-          <p className="mt-2 text-3xl font-bold tabular-nums">450 TL</p>
+          <p className="mt-2 text-3xl font-bold tabular-nums">450 TL</p><p className="mt-1 text-sm text-muted-foreground">≈ $8.98 USD</p>
         </article>
         <article className="rounded-2xl border-2 border-primary bg-card p-5 text-center shadow-sm">
           <p className="text-sm font-semibold text-primary">3 Ay</p>
-          <p className="mt-2 text-3xl font-bold tabular-nums">800 TL</p>
+          <p className="mt-2 text-3xl font-bold tabular-nums">800 TL</p><p className="mt-1 text-sm text-muted-foreground">≈ $15.96 USD</p>
           <p className="mt-1 text-xs text-muted-foreground">Avantajlı paket</p>
         </article>
         <article className="rounded-2xl border bg-card p-5 text-center">
           <p className="text-sm text-muted-foreground">6 Ay</p>
-          <p className="mt-2 text-3xl font-bold tabular-nums">1.500 TL</p>
+          <p className="mt-2 text-3xl font-bold tabular-nums">1.500 TL</p><p className="mt-1 text-sm text-muted-foreground">≈ $29.92 USD</p>
         </article>
       </div>
-      <p className="mt-3 text-center text-xs text-muted-foreground">VIP hizmeti ve ödeme sistemi henüz hazırlanıyor. Paket satışı aktif değildir.</p>
+      <p className="mt-3 text-center text-xs text-muted-foreground">Dolar karşılıkları 1 USD ≈ 50,14 TL referans kuruyla hesaplanmıştır; yaklaşık tutarlardır. Ödeme sistemi henüz aktif değildir.</p>
     </section>
     <section className="mx-auto max-w-xl pt-8 text-center sm:pt-12"><Brand /><div className="mt-10 rounded-3xl border bg-card p-6 shadow-sm sm:p-10"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-2xl font-bold">IPA</div><h1 className="mt-6 text-3xl font-bold tracking-tight">Mehmet IPA</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">iOS IPA dosyalarını tarayıcı üzerinden imzalama aracı. Üyeler giriş yaparak imzalama ekranına erişebilir.</p>{!isInstalledApp && <a href={APP_DOWNLOAD} className="mt-7 flex h-12 w-full items-center justify-center rounded-xl border font-semibold">Mehmet IPA uygulamasını indir</a>}<button onClick={() => { setView('login'); setError('') }} className="mt-3 h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground">Üye / Yönetici girişi</button><p className="mt-5 text-xs text-muted-foreground">Yeni üyelik oluşturma kapalıdır. Hesaplar yönetici tarafından tanımlanır.</p></div><p className="mt-6 text-xs text-muted-foreground">© Mehmet IPA</p></section></Frame>
 }

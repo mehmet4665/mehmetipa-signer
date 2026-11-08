@@ -415,9 +415,13 @@ function ProgressBar({ progress }: { progress: ProgressState }) {
   )
 }
 
+function getAppLocale() {
+  return typeof window !== 'undefined' && window.localStorage.getItem('mehmetipa.language') === 'en' ? 'en-US' : 'tr-TR'
+}
+
 function formatHistoryDate(value: string) {
   try {
-    return new Intl.DateTimeFormat('en-US', {
+    return new Intl.DateTimeFormat(getAppLocale(), {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -699,19 +703,12 @@ function WelcomeMark() {
 }
 
 function getFormattedDate() {
-  const date = new Date()
-  const day = date.getDate()
-  const month = date.toLocaleDateString('en-US', { month: 'long' })
-  const year = date.getFullYear()
-
-  let suffix = 'th'
-  if (day % 10 === 1 && day !== 11) suffix = 'st'
-  else if (day % 10 === 2 && day !== 12) suffix = 'nd'
-  else if (day % 10 === 3 && day !== 13) suffix = 'rd'
-
-  return `${month} ${day}${suffix}, ${year}`
+  return new Intl.DateTimeFormat(getAppLocale(), {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date())
 }
-
 function WelcomeDialog({ onClose }: { onClose: () => void }) {
   return (
     <div
@@ -1024,7 +1021,7 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
 function formatMetadataDate(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Unknown'
-  return new Intl.DateTimeFormat('en-US', {
+  return new Intl.DateTimeFormat(getAppLocale(), {
     month: 'short',
     day: 'numeric',
     year: 'numeric',

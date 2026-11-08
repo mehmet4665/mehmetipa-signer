@@ -342,6 +342,30 @@ if (view === 'method' && user?.role === 'member') return <Frame>
         </div>
       </section>
 
+      <section className="border-t border-white/10 py-10 sm:py-14">
+        <div className="grid gap-8 lg:grid-cols-[.9fr_1.1fr] lg:items-center">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">Mobil oyun dünyası</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Telefonunda daha fazlasını keşfet.</h2>
+            <p className="mt-4 max-w-lg text-sm leading-7 text-slate-300">MeloNX ve diğer emülatörler için kurulum anlatımları, ayarlar, oyun uyumluluğu ve performans ipuçları. Kendi cihazında nelerin çalışabileceğini adım adım öğren.</p>
+            <a href="https://www.tiktok.com/@m3hm3t_m" target="_blank" rel="noopener noreferrer" className="mt-6 inline-flex h-12 items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-fuchsia-500 to-rose-500 px-5 text-sm font-bold text-white shadow-lg shadow-rose-950/30 transition hover:brightness-110">
+              <span className="text-lg">♪</span> TikTok'ta takip et · @m3hm3t_m
+            </a>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <article className="rounded-2xl border border-white/10 bg-gradient-to-br from-orange-400/15 to-rose-500/5 p-4 sm:p-5"><div className="text-3xl">⚔️</div><h3 className="mt-3 font-bold">Dark Souls Remastered</h3><p className="mt-1 text-xs leading-5 text-slate-400">Kurulum ve performans notları</p></article>
+            <article className="rounded-2xl border border-white/10 bg-gradient-to-br from-cyan-400/15 to-blue-500/5 p-4 sm:p-5"><div className="text-3xl">🗡️</div><h3 className="mt-3 font-bold">Prince of Persia</h3><p className="mt-1 text-xs leading-5 text-slate-400">Emülatör deneyimi ve ayarlar</p></article>
+            <article className="rounded-2xl border border-white/10 bg-gradient-to-br from-amber-400/15 to-red-500/5 p-4 sm:p-5"><div className="text-3xl">🥊</div><h3 className="mt-3 font-bold">Mortal Kombat</h3><p className="mt-1 text-xs leading-5 text-slate-400">Kontrol ve performans rehberi</p></article>
+            <article className="rounded-2xl border border-white/10 bg-gradient-to-br from-emerald-400/15 to-teal-500/5 p-4 sm:p-5"><div className="text-3xl">🎮</div><h3 className="mt-3 font-bold">Daha fazla oyun</h3><p className="mt-1 text-xs leading-5 text-slate-400">Yeni rehberler yakında</p></article>
+          </div>
+        </div>
+        <div className="mt-8 rounded-2xl border border-violet-300/20 bg-gradient-to-r from-violet-500/10 via-indigo-500/10 to-cyan-500/10 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
+          <div><div className="font-bold">Kurulumu birlikte öğrenelim</div><p className="mt-1 text-sm leading-6 text-slate-400">MeloNX ve emülatörler için kısa, Türkçe video anlatımları hazırlıyoruz.</p></div>
+          <span className="mt-3 inline-flex rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs font-semibold text-amber-200 sm:mt-0">Video rehberi yakında</span>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">Not: Oyunların çalışması cihaz modeline, emülatör sürümüne ve oyun uyumluluğuna göre değişir. Oyun dosyalarını yalnızca yasal olarak edindiğin kaynaklardan kullan.</p>
+      </section>
+
       <section className="border-t border-white/10 py-10 sm:py-12">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div><p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-300">VIP üyelik</p><h2 className="mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl">Sana uygun paketi seç</h2><p className="mt-2 text-sm text-slate-400">VIP hizmeti kullanıma açıldığında paket seçenekleri burada olacak.</p></div>

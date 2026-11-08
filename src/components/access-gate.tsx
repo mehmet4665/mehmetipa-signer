@@ -37,7 +37,7 @@ async function api<T>(path: string, token?: string, init: RequestInit = {}): Pro
   const headers = new Headers(init.headers)
   headers.set('content-type', 'application/json')
   if (token) headers.set('authorization', 'Bearer ' + token)
-  const url = /^https?:\\/\\//i.test(path) ? path : API_BASE + path
+  const url = path.startsWith('http://') || path.startsWith('https://') ? path : API_BASE + path
 
   // Use the native HTTP bridge in the iOS app to avoid WKWebView's opaque
   // "Load failed" network error when contacting the remote Pages API.

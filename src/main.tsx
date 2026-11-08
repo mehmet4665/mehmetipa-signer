@@ -4,6 +4,7 @@ import { inject } from '@vercel/analytics'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import './styles.css'
 import { AccessGate } from '@/components/access-gate'
+import { LanguageController } from '@/components/language-controller'
 
 inject()
 
@@ -13,6 +14,7 @@ if (!root) throw new Error('Missing app root')
 createRoot(root).render(
   <>
     <AccessGate />
+    <LanguageController />
     <SpeedInsights />
   </>
 )

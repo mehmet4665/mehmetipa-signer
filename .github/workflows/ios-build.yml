@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-ios:
-    runs-on: macos-15-intel
+    runs-on: macos-26
 
     steps:
       - name: Checkout
@@ -39,13 +39,26 @@ jobs:
           cp assets/icon.PNG assets/logo.png
           npx @capacitor/assets generate --ios
 
-      - name: Prepare isolated Swift Package Manager cache
+      - name: Show Apple toolchain versions
         run: |
-          rm -rf "$HOME/Library/Caches/org.swift.swiftpm"
-          rm -rf "$HOME/Library/org.swiftpm"
+          xcodebuild -version
+          swift --version
+
+      - name: Prepare Swift Package Manager
+        run: |
+          rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
           rm -rf "$HOME/Library/Developer/Xcode/DerivedData"
           rm -rf "$RUNNER_TEMP/SwiftPackageCache"
           rm -rf "$RUNNER_TEMP/SourcePackages"
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -packageCachePath "$RUNNER_TEMP/SwiftPackageCache" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
 
       - name: Build iOS app
         run: |
@@ -58,6 +71,7 @@ jobs:
             -derivedDataPath ios/build \
             -packageCachePath "$RUNNER_TEMP/SwiftPackageCache" \
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO \
             build
 

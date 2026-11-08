@@ -105,17 +105,11 @@ const RESIDENT_EVIL_GAMES: PublicGame[] = [
 ]
 
 function PublicGameCard({ game }: { game: PublicGame }) {
-  const badgeClass = game.platformType === 'switch'
-    ? 'text-cyan-200'
-    : game.platformType === 'cloud'
-      ? 'text-amber-200'
-      : 'text-rose-200'
   return <article className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.05]">
     <img src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${game.image}/header.jpg`} alt={`${game.title} kapak görseli`} loading="lazy" className="aspect-[16/9] w-full object-cover" />
     <div className="p-3">
       <h3 className="text-sm font-bold leading-5">{game.title}</h3>
       <p className="mt-1 text-xs text-slate-400">{game.genre}</p>
-      <span className={`mt-2 inline-block text-[10px] font-semibold leading-4 ${badgeClass}`}>{game.platform}</span>
     </div>
   </article>
 }
@@ -349,7 +343,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
     </header>
     {memberTab === 'games' && <div className="mt-6">
       <section className="overflow-hidden rounded-3xl border border-violet-300/20 bg-gradient-to-br from-violet-600/25 via-indigo-600/15 to-cyan-500/10 p-6 sm:p-9"><p className="text-xs font-bold uppercase tracking-[.2em] text-violet-200">Oyun dünyası</p><h1 className="mt-2 text-3xl font-black sm:text-4xl">Hoş geldin, {user.name}!</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">Emülatör oyunlarını keşfet, rehberlere göz at ve yeni oyun deneyimlerine hazırlan.</p><a href="https://t.me/ajandare" target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold">✈️ Telegram destek</a></section>
-      <div className="mb-4 mt-8"><p className="text-xs font-bold uppercase tracking-[.18em] text-cyan-300">Nintendo Switch oyunları</p><h2 className="mt-2 text-2xl font-extrabold">Öne çıkan oyunlar</h2><p className="mt-1 text-sm text-slate-400">Switch sürümü bulunan sevilen oyunlar ve rehberleri</p></div>
+      <div className="mb-4 mt-8"><p className="text-xs font-bold uppercase tracking-[.18em] text-cyan-300">Oyun koleksiyonu</p><h2 className="mt-2 text-2xl font-extrabold">Öne çıkan oyunlar</h2><p className="mt-1 text-sm text-slate-400">Switch sürümü bulunan sevilen oyunlar ve rehberleri</p></div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         
         <article className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.05]"><img src="https://cdn.cloudflare.steamstatic.com/steam/apps/570940/header.jpg" alt="Dark Souls Remastered kapak görseli" loading="lazy" className="aspect-[16/9] w-full object-cover" /><div className="p-3"><h3 className="font-bold text-sm">Dark Souls Remastered</h3><p className="mt-1 text-xs text-slate-400">Soulslike · Aksiyon RPG</p><span className="mt-2 inline-block text-[11px] text-violet-200">Switch sürümü var</span><GameDevicePower level={4} recommended="iPhone 16 ve üzeri · ağır oyun" /></div></article>
@@ -462,7 +456,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
         <div className="mb-6">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">Nintendo Switch oyunları</p>
           <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Oyun kataloğu</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Mehmet IPA ana sayfasında, giriş yapmadan oyun kapaklarını ve platform bilgilerini inceleyebilirsin.</p>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Mehmet IPA ana sayfasında, giriş yapmadan sevdiğin oyunları keşfet.</p>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {PUBLIC_GAMES.map(game => <PublicGameCard key={game.title} game={game} />)}
@@ -470,19 +464,15 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
         <div className="mb-6 mt-12">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-rose-300">Capcom · Survival horror</p>
           <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Resident Evil serisi</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Remake oyunları ve serinin diğer yapımları. Switch sürümü olmayan oyunları ayrıca belirttik; bulut sürümleri MeloNX ile aynı şey değildir.</p>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Remake oyunları ve serinin unutulmaz diğer yapımları tek yerde.</p>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {RESIDENT_EVIL_GAMES.map(game => <PublicGameCard key={game.title} game={game} />)}
-        </div>
-        <div className="mt-6 rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] p-4 text-xs leading-6 text-amber-100/90">
-          <strong>Uyumluluk notu:</strong> Resident Evil 2, 3 ve 4 Remake'in Nintendo Switch sürümü yoktur. Resident Evil 7 ve Village'ın Switch bulut sürümleri bölgeye bağlıdır ve MeloNX'te yerel Switch oyunu gibi çalışmaz. Kartlardaki platform bilgileri oyun sürümünü belirtir; iPhone'da çalışma garantisi vermez.
         </div>
         <div className="mt-8 rounded-2xl border border-violet-300/20 bg-gradient-to-r from-violet-500/10 via-indigo-500/10 to-cyan-500/10 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
           <div><div className="font-bold">Oyun rehberleri ve destek</div><p className="mt-1 text-sm leading-6 text-slate-400">Kurulum, emülatör ayarları ve performans notları için topluluğa katıl.</p></div>
           <a href="https://t.me/ajandare" target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2.5 text-sm font-semibold text-sky-200 sm:mt-0">Telegram destek · @ajandare</a>
         </div>
-        <p className="mt-4 text-xs leading-5 text-slate-500">Oyun dosyalarını yalnızca yasal olarak edindiğin kaynaklardan kullan. Gerçek performans emülatör sürümüne, cihazına, RAM'e ve ısınmaya göre değişir.</p>
       </section>
       <section className="border-t border-white/10 py-10 sm:py-12">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">

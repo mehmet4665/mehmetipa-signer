@@ -73,6 +73,53 @@ function GameDevicePower({ level, recommended }: { level: number; recommended: s
   </div>
 }
 
+type PublicGame = { title: string; image: string; genre: string; platform: string; platformType: 'switch' | 'cloud' | 'other' }
+
+const PUBLIC_GAMES: PublicGame[] = [
+  { title: 'Dark Souls Remastered', image: '570940', genre: 'Soulslike · Aksiyon RPG', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Prince of Persia: The Lost Crown', image: '2751000', genre: 'Aksiyon · Metroidvania', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Mortal Kombat 11', image: '976310', genre: 'Dövüş · Aksiyon', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Grand Theft Auto V', image: '271590', genre: 'Açık dünya · Aksiyon', platform: 'Switch sürümü yok', platformType: 'other' },
+  { title: 'Hades', image: '1145360', genre: 'Aksiyon · Roguelike', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Hollow Knight', image: '367520', genre: 'Metroidvania · Macera', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Cuphead', image: '268910', genre: 'Platform · Boss savaşı', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Stardew Valley', image: '413150', genre: 'Çiftçilik · Yaşam', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Dead Cells', image: '588650', genre: 'Aksiyon · Roguelite', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Celeste', image: '504230', genre: 'Platform · Zorlu macera', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'The Witcher 3: Wild Hunt', image: '292030', genre: 'Açık dünya · RPG', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Ori and the Blind Forest', image: '261570', genre: 'Platform · Hikâye', platform: 'Switch sürümü var', platformType: 'switch' },
+]
+
+const RESIDENT_EVIL_GAMES: PublicGame[] = [
+  { title: 'Resident Evil 4 Remake', image: '2050650', genre: 'Survival horror · Remake', platform: 'Switch sürümü yok', platformType: 'other' },
+  { title: 'Resident Evil 2 Remake', image: '883710', genre: 'Survival horror · Remake', platform: 'Switch sürümü yok', platformType: 'other' },
+  { title: 'Resident Evil 3 Remake', image: '952060', genre: 'Survival horror · Remake', platform: 'Switch sürümü yok', platformType: 'other' },
+  { title: 'Resident Evil 7: Biohazard', image: '418370', genre: 'Survival horror', platform: 'Switch bulut sürümü · bölgeye bağlı', platformType: 'cloud' },
+  { title: 'Resident Evil Village', image: '1196590', genre: 'Survival horror · Aksiyon', platform: 'Switch bulut sürümü · bölgeye bağlı', platformType: 'cloud' },
+  { title: 'Resident Evil 5', image: '21690', genre: 'Aksiyon · Co-op', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Resident Evil 6', image: '221040', genre: 'Aksiyon · Co-op', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Resident Evil Revelations', image: '222480', genre: 'Survival horror', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Resident Evil Revelations 2', image: '287290', genre: 'Survival horror · Bölümlü', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Resident Evil 0 HD Remaster', image: '339340', genre: 'Survival horror · Klasik', platform: 'Switch sürümü var', platformType: 'switch' },
+  { title: 'Resident Evil HD Remaster', image: '304240', genre: 'Survival horror · Klasik', platform: 'Switch sürümü var', platformType: 'switch' },
+]
+
+function PublicGameCard({ game }: { game: PublicGame }) {
+  const badgeClass = game.platformType === 'switch'
+    ? 'text-cyan-200'
+    : game.platformType === 'cloud'
+      ? 'text-amber-200'
+      : 'text-rose-200'
+  return <article className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.05]">
+    <img src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${game.image}/header.jpg`} alt={`${game.title} kapak görseli`} loading="lazy" className="aspect-[16/9] w-full object-cover" />
+    <div className="p-3">
+      <h3 className="text-sm font-bold leading-5">{game.title}</h3>
+      <p className="mt-1 text-xs text-slate-400">{game.genre}</p>
+      <span className={`mt-2 inline-block text-[10px] font-semibold leading-4 ${badgeClass}`}>{game.platform}</span>
+    </div>
+  </article>
+}
+
 export function AccessGate() {
   const [token, setToken] = React.useState('')
   const [user, setUser] = React.useState<User | null>(null)
@@ -412,29 +459,31 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
       </section>
 
       <section className="border-t border-white/10 py-10 sm:py-14">
-        <div className="grid gap-8 lg:grid-cols-[.9fr_1.1fr] lg:items-center">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">Mobil oyun dünyası</p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Telefonunda daha fazlasını keşfet.</h2>
-            <p className="mt-4 max-w-lg text-sm leading-7 text-slate-300">MeloNX ve diğer emülatörler için kurulum anlatımları, ayarlar, oyun uyumluluğu ve performans ipuçları. Kendi cihazında nelerin çalışabileceğini adım adım öğren.</p>
-            <a href="https://www.tiktok.com/@m3hm3t_m" target="_blank" rel="noopener noreferrer" className="mt-6 inline-flex h-12 items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-fuchsia-500 to-rose-500 px-5 text-sm font-bold text-white shadow-lg shadow-rose-950/30 transition hover:brightness-110">
-              <span className="text-lg">♪</span> TikTok'ta takip et · @m3hm3t_m
-            </a>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <article className="rounded-2xl border border-white/10 bg-gradient-to-br from-orange-400/15 to-rose-500/5 p-4 sm:p-5"><div className="text-3xl">⚔️</div><h3 className="mt-3 font-bold">Dark Souls Remastered</h3><p className="mt-1 text-xs leading-5 text-slate-400">Kurulum ve performans notları</p></article>
-            <article className="rounded-2xl border border-white/10 bg-gradient-to-br from-cyan-400/15 to-blue-500/5 p-4 sm:p-5"><div className="text-3xl">🗡️</div><h3 className="mt-3 font-bold">Prince of Persia</h3><p className="mt-1 text-xs leading-5 text-slate-400">Emülatör deneyimi ve ayarlar</p></article>
-            <article className="rounded-2xl border border-white/10 bg-gradient-to-br from-amber-400/15 to-red-500/5 p-4 sm:p-5"><div className="text-3xl">🥊</div><h3 className="mt-3 font-bold">Mortal Kombat</h3><p className="mt-1 text-xs leading-5 text-slate-400">Kontrol ve performans rehberi</p></article>
-            <article className="rounded-2xl border border-white/10 bg-gradient-to-br from-emerald-400/15 to-teal-500/5 p-4 sm:p-5"><div className="text-3xl">🎮</div><h3 className="mt-3 font-bold">Daha fazla oyun</h3><p className="mt-1 text-xs leading-5 text-slate-400">Yeni rehberler yakında</p></article>
-          </div>
+        <div className="mb-6">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">Nintendo Switch oyunları</p>
+          <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Oyun kataloğu</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Mehmet IPA ana sayfasında, giriş yapmadan oyun kapaklarını ve platform bilgilerini inceleyebilirsin.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {PUBLIC_GAMES.map(game => <PublicGameCard key={game.title} game={game} />)}
+        </div>
+        <div className="mb-6 mt-12">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-rose-300">Capcom · Survival horror</p>
+          <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Resident Evil serisi</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Remake oyunları ve serinin diğer yapımları. Switch sürümü olmayan oyunları ayrıca belirttik; bulut sürümleri MeloNX ile aynı şey değildir.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {RESIDENT_EVIL_GAMES.map(game => <PublicGameCard key={game.title} game={game} />)}
+        </div>
+        <div className="mt-6 rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] p-4 text-xs leading-6 text-amber-100/90">
+          <strong>Uyumluluk notu:</strong> Resident Evil 2, 3 ve 4 Remake'in Nintendo Switch sürümü yoktur. Resident Evil 7 ve Village'ın Switch bulut sürümleri bölgeye bağlıdır ve MeloNX'te yerel Switch oyunu gibi çalışmaz. Kartlardaki platform bilgileri oyun sürümünü belirtir; iPhone'da çalışma garantisi vermez.
         </div>
         <div className="mt-8 rounded-2xl border border-violet-300/20 bg-gradient-to-r from-violet-500/10 via-indigo-500/10 to-cyan-500/10 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:p-6">
-          <div><div className="font-bold">Kurulumu birlikte öğrenelim</div><p className="mt-1 text-sm leading-6 text-slate-400">MeloNX ve emülatörler için kısa, Türkçe video anlatımları hazırlıyoruz.</p></div>
-          <span className="mt-3 inline-flex rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs font-semibold text-amber-200 sm:mt-0">Video rehberi yakında</span>
+          <div><div className="font-bold">Oyun rehberleri ve destek</div><p className="mt-1 text-sm leading-6 text-slate-400">Kurulum, emülatör ayarları ve performans notları için topluluğa katıl.</p></div>
+          <a href="https://t.me/ajandare" target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2.5 text-sm font-semibold text-sky-200 sm:mt-0">Telegram destek · @ajandare</a>
         </div>
-        <p className="mt-3 text-xs leading-5 text-slate-500">Not: Oyunların çalışması cihaz modeline, emülatör sürümüne ve oyun uyumluluğuna göre değişir. Oyun dosyalarını yalnızca yasal olarak edindiğin kaynaklardan kullan.</p>
+        <p className="mt-4 text-xs leading-5 text-slate-500">Oyun dosyalarını yalnızca yasal olarak edindiğin kaynaklardan kullan. Gerçek performans emülatör sürümüne, cihazına, RAM'e ve ısınmaya göre değişir.</p>
       </section>
-
       <section className="border-t border-white/10 py-10 sm:py-12">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div><p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-300">VIP üyelik</p><h2 className="mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl">Sana uygun paketi seç</h2><p className="mt-2 text-sm text-slate-400">VIP hizmeti kullanıma açıldığında paket seçenekleri burada olacak.</p></div>

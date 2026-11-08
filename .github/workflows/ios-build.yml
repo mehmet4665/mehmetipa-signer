@@ -38,6 +38,13 @@ jobs:
         run: |
           cp assets/icon.PNG assets/logo.png
           npx @capacitor/assets generate --ios
+
+      - name: Clear Swift Package Manager cache
+        run: |
+          rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
+          rm -rf "$HOME/Library/org.swiftpm"
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData"
+
       - name: Build iOS app
         run: |
           xcodebuild \

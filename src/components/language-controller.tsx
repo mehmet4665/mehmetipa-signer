@@ -1,6 +1,11 @@
 import * as React from 'react'
 
 const englishToTurkish: Record<string, string> = {
+  "Welcome,": "Hoş geldin,",
+  "Game collection": "Oyun koleksiyonu",
+  "GAME COLLECTION": "OYUN KOLEKSİYONU",
+  "GAME WORLD": "OYUN DÜNYASI",
+  "GAME WORLD ": "OYUN DÜNYASI ",
   "Player center": "Oyuncu merkezi",
   "Account active": "Hesap aktif",
   "Game world": "Oyun dünyası",

@@ -119,7 +119,7 @@ const englishToTurkish: Record<string, string> = {
 }
 function translateText(value: string, language: Language) {
   const trimmed = value.trim()
-  const normalized = trimmed.replace(/\\s+/g, ' ')
+  const normalized = trimmed.replace(/\s+/g, ' ')
   const translated = language === 'en' ? translations[normalized] : englishToTurkish[normalized]
   return translated ? value.replace(trimmed, translated) : value
 }

@@ -111,6 +111,7 @@ export async function onRequest({ request, env, params }) {
       const body=await readBody(request), hash=await sha256Hex(String(body.token||'')); const row=await env.DB.prepare("SELECT id,status,verification_expires_at FROM registration_requests WHERE verification_token_hash=? LIMIT 1").bind(hash).first()
       if(!row || row.status!=='verification_pending' || !row.verification_expires_at || new Date(row.verification_expires_at).getTime()<Date.now()) return json({success:false,error:'Doğrulama bağlantısı geçersiz veya süresi dolmuş.'},400)
       await env.DB.prepare("UPDATE registration_requests SET status='pending',verified_at=?,verification_token_hash=NULL,verification_expires_at=NULL WHERE id=?").bind(new Date().toISOString(),row.id).run()
+      if (env.ADMIN_NOTIFICATION_EMAIL && env.RESEND_API_KEY && env.MAIL_FROM) await sendMail(env,{to:env.ADMIN_NOTIFICATION_EMAIL,subject:'Mehmet IPA: yeni üyelik başvurusu',html:emailHtml('Yeni üyelik başvurusu',row.username+' kullanıcısının başvurusu yönetici onayını bekliyor. Yönetim panelinden inceleyebilirsin.','https://mehmetipa-signer.pages.dev','Yönetim panelini aç')}).catch(()=>{})
       return json({success:true,message:'E-posta doğrulandı. Başvurun yönetici onayına gönderildi.'})
     }
     if (path === '/api/auth/forgot-password' && method === 'POST') {
@@ -162,7 +163,7 @@ export async function onRequest({ request, env, params }) {
 
       if (path === '/api/admin/registration-requests' && method === 'GET') {
         const denied=requireAdmin(); if(denied) return denied
-        const {results=[]}=await env.DB.prepare("SELECT id,name,username,email,status,created_at,verified_at FROM registration_requests WHERE status IN ('pending','verification_pending') ORDER BY created_at DESC").all()
+        const {results=[]}=await env.DB.prepare("SELECT id,name,username,email,status,created_at,verified_at FROM registration_requests WHERE status IN ('pending','verification_pending','rejected') ORDER BY created_at DESC").all()
         return json({success:true,requests:results})
       }
       const registrationMatch=path.match(/^\/api\/admin\/registration-requests\/([^/]+)$/)

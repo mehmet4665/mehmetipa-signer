@@ -853,7 +853,7 @@ function getLanguage(): Language {
 }
 
 function normalize(value: string) {
-  return value.replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim()
+  return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 const englishFallback: Record<string, string> = Object.create(null)
@@ -873,13 +873,13 @@ function translateText(value: string, language: Language) {
     : { ...turkishFallback, ...turkishToEnglish }
   const exact = dictionary[source]
   if (exact) {
-    const leading = value.match(/^\\s*/)?.[0] || ''
-    const trailing = value.match(/\\s*$/)?.[0] || ''
+    const leading = value.match(/^\s*/)?.[0] || ''
+    const trailing = value.match(/\s*$/)?.[0] || ''
     return leading + exact + trailing
   }
 
   // Translate dynamic file-picker labels without losing the selected file type.
-  const addMore = source.match(/^Add more (.+)\\.\\.\\.$/i)
+  const addMore = source.match(/^Add more (.+)\.\.\.$/i)
   if (language === 'tr' && addMore) {
     const label = dictionary[addMore[1]] || addMore[1]
     return value.replace(source, `Daha fazla ${label.toLocaleLowerCase('tr-TR')} ekle...`)
@@ -894,8 +894,10 @@ function translateText(value: string, language: Language) {
   const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((x, y) => y.length - x.length)
   let result = value
   for (const key of keys) {
-    const escaped = key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')
-    const pattern = new RegExp('(^|[^\\\\p{L}\\\\p{N}])(' + escaped + ')(?=$|[^\\\\p{L}\\\\p{N}])', 'giu')
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const boundary = '(^|[^' + bs + bs + 'p{L}' + bs + bs + 'p{N}])('
+      + escaped + ')(?=$|[^' + bs + bs + 'p{L}' + bs + bs + 'p{N}])'
+    const pattern = new RegExp(boundary, 'giu')
     result = result.replace(pattern, (_match, prefix: string, phrase: string) => prefix + (dictionary[phrase] || dictionary[key]))
   }
   return result

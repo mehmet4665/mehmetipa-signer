@@ -229,3 +229,96 @@
     animation: none;
   }
 }
+
+
+/* Mehmet IPA signing studio visual refresh */
+.signer-screen-enter {
+  position: relative;
+  isolation: isolate;
+}
+.signer-screen-enter::before {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 12% 8%, rgba(109, 40, 217, .16), transparent 38%),
+    radial-gradient(ellipse at 90% 35%, rgba(79, 70, 229, .12), transparent 34%);
+}
+.dark .signer-screen-enter::before {
+  background:
+    radial-gradient(ellipse at 12% 8%, rgba(109, 40, 217, .24), transparent 38%),
+    radial-gradient(ellipse at 90% 35%, rgba(79, 70, 229, .17), transparent 34%);
+}
+.signer-hero {
+  background: linear-gradient(125deg, #180d35 0%, #251052 48%, #171b4b 100%);
+}
+.signer-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .2;
+  background-image: linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.08) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(90deg, black, transparent 85%);
+}
+.signer-hero-orb {
+  position: absolute;
+  z-index: 0;
+  width: 15rem;
+  height: 15rem;
+  border-radius: 9999px;
+  filter: blur(55px);
+  opacity: .3;
+  pointer-events: none;
+}
+.signer-hero-orb-one { right: -4rem; top: -7rem; background: #8b5cf6; }
+.signer-hero-orb-two { right: 25%; bottom: -11rem; background: #4f46e5; }
+.signer-step {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: .35rem;
+  border: 1px solid rgba(196,181,253,.2);
+  border-radius: 1rem;
+  background: rgba(255,255,255,.07);
+  padding: .7rem .8rem;
+  backdrop-filter: blur(12px);
+}
+.signer-step span { color: #c4b5fd; font-size: .65rem; font-weight: 800; letter-spacing: .14em; }
+.signer-step strong { color: #fff; font-size: .76rem; font-weight: 700; }
+.signer-panel {
+  border-color: rgba(139,92,246,.28) !important;
+  background: linear-gradient(160deg, rgba(35,23,65,.88), rgba(18,19,36,.96)) !important;
+  box-shadow: 0 20px 60px -35px rgba(109,40,217,.55) !important;
+}
+.signer-panel > div:first-child {
+  padding-bottom: .8rem;
+  border-bottom: 1px solid rgba(167,139,250,.16);
+}
+.signer-panel > div:first-child h2 { font-size: 1rem; color: #f5f3ff; }
+.signer-panel label { color: #f1edff; }
+.signer-panel button.group {
+  min-height: 5.8rem;
+  border-color: rgba(167,139,250,.22);
+  background: linear-gradient(110deg, rgba(124,58,237,.10), rgba(30,27,55,.55));
+}
+.signer-panel button.group:hover {
+  border-color: rgba(167,139,250,.65);
+  background: linear-gradient(110deg, rgba(124,58,237,.2), rgba(49,46,89,.65));
+  box-shadow: 0 12px 28px -20px rgba(139,92,246,.8);
+}
+.signer-screen-enter .rounded-2xl.border.border-border.bg-card,
+.signer-screen-enter section.rounded-2xl {
+  border-color: rgba(139,92,246,.2);
+  box-shadow: 0 16px 45px -34px rgba(109,40,217,.45);
+}
+@media (max-width: 640px) {
+  .signer-screen-enter { padding-top: 1.15rem; padding-bottom: 2rem; }
+  .signer-hero { margin-top: 1.2rem; margin-bottom: 1.5rem; border-radius: 1.45rem; }
+  .signer-step { padding: .65rem .55rem; }
+  .signer-step strong { font-size: .68rem; }
+}

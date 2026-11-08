@@ -809,34 +809,18 @@ function translateText(value: string, language: Language) {
   const dictionary = language === 'tr' ? englishToTurkish : turkishToEnglish
   const exact = dictionary[source]
   if (exact) {
-    const leading = value.match(/^\\s*/)?.[0] || ''
-    const trailing = value.match(/\\s*$/)?.[0] || ''
+    const leading = value.match(/^\s*/)?.[0] || ''
+    const trailing = value.match(/\s*$/)?.[0] || ''
     return leading + exact + trailing
   }
 
-  // React often splits dynamic labels (for example, "Welcome, {name}!")
-  // into separate text nodes. Translate known phrases inside the node too.
-  const keys = Object.keys(dictionary)
-    .filter(key => key.length >= 3 && key !== source)
-    .sort((a, b) => b.length - a.length)
+  // Translate known phrases inside dynamic text nodes as well.
+  const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((a, b) => b.length - a.length)
   let result = value
   for (const key of keys) {
-    const escaped = key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\function translateText(value: string, language: Language) {
-  const source = normalize(value)
-  if (!source) return value
-  const dictionary = language === 'tr' ? englishToTurkish : turkishToEnglish
-  const translated = dictionary[source]
-  if (translated) {
-    const leading = value.match(/^\\s*/)?.[0] || ''
-    const trailing = value.match(/\\s*$/)?.[0] || ''
-    return leading + translated + trailing
-  }
-  return value
-}')
-    const pattern = new RegExp('(^|[^\\\\p{L}\\\\p{N}])(' + escaped + ')(?=$|[^\\\\p{L}\\\\p{N}])', 'giu')
-    result = result.replace(pattern, (_match, prefix: string, phrase: string) => {
-      return prefix + (dictionary[phrase] || dictionary[key])
-    })
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const pattern = new RegExp('(^|[^\\p{L}\\p{N}])(' + escaped + ')(?=$|[^\\p{L}\\p{N}])', 'giu')
+    result = result.replace(pattern, (_match, prefix: string, phrase: string) => prefix + (dictionary[phrase] || dictionary[key]))
   }
   return result
 }

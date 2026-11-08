@@ -9,7 +9,9 @@ type User = {
   role: 'admin' | 'member'
   group_name?: string
   status?: string
+  email?: string
 }
+type RegistrationRequest = { id:string; name:string; username:string; email:string; status:string; created_at:string; verified_at?:string|null }
 type PresenceUser = { id:string; name:string; username:string; last_seen_at?:string|null; device_label?:string|null; browser_label?:string|null; online:boolean }
 type Device = {
   id: string
@@ -117,9 +119,19 @@ function PublicGameCard({ game }: { game: PublicGame }) {
 export function AccessGate() {
   const [token, setToken] = React.useState('')
   const [user, setUser] = React.useState<User | null>(null)
-  const [view, setView] = React.useState<'home' | 'login' | 'admin' | 'method' | 'signer'>('home')
+  const [view, setView] = React.useState<'home' | 'login' | 'register' | 'forgot' | 'reset' | 'verify' | 'admin' | 'method' | 'signer'>(() => typeof window !== 'undefined' ? (window.location.pathname === '/verify-email' ? 'verify' : window.location.pathname === '/reset-password' ? 'reset' : 'home') : 'home')
   const [username, setUsername] = React.useState('')
   const [password, setPassword] = React.useState('')
+  const [registrationRequests, setRegistrationRequests] = React.useState<RegistrationRequest[]>([])
+  const [registerName, setRegisterName] = React.useState('')
+  const [registerUsername, setRegisterUsername] = React.useState('')
+  const [registerEmail, setRegisterEmail] = React.useState('')
+  const [registerPassword, setRegisterPassword] = React.useState('')
+  const [registerPasswordAgain, setRegisterPasswordAgain] = React.useState('')
+  const [forgotEmail, setForgotEmail] = React.useState('')
+  const [resetPasswordValue, setResetPasswordValue] = React.useState('')
+  const [resetPasswordAgain, setResetPasswordAgain] = React.useState('')
+  const [resetToken, setResetToken] = React.useState(() => typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : '')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState('')
   const [notice, setNotice] = React.useState('')
@@ -154,17 +166,23 @@ export function AccessGate() {
       api<{ devices: Device[] }>('/api/admin/devices', activeToken),
       api<{ certificate: {status:string;certificate_name?:string;profile_name?:string;expires_at?:string}|null }>('/api/admin/certificate', activeToken),
       api<{ users: PresenceUser[] }>('/api/admin/presence', activeToken),
+      api<{ requests: RegistrationRequest[] }>('/api/admin/registration-requests', activeToken),
     ])
     setUsers(u.users || [])
     setDevices(d.devices || [])
     setCertificate(c.certificate)
     setPresenceUsers(p.users || [])
+    setRegistrationRequests(p.requests || [])
   }, [])
 
   const loadMemberDevices = React.useCallback(async (activeToken: string) => {
     const result = await api<{ devices: Device[] }>('/api/devices', activeToken)
     setMyDevices(result.devices || [])
   }, [])
+
+  React.useEffect(() => {
+    if (view === 'verify') verifyRegistrationEmail().catch(() => {})
+  }, [view, verifyRegistrationEmail])
 
   React.useEffect(() => {
     const saved = window.sessionStorage.getItem(TOKEN_KEY)
@@ -233,6 +251,16 @@ export function AccessGate() {
     finally { setBusy(false) }
   }
 
+  const register = async (event: React.FormEvent) => {
+    event.preventDefault(); setBusy(true); setError(''); setNotice('')
+    if (registerPassword !== registerPasswordAgain) { setBusy(false); setError('Şifreler eşleşmiyor.'); return }
+    try { const result=await api<{message:string}>('/api/auth/register',undefined,{method:'POST',body:JSON.stringify({name:registerName,username:registerUsername,email:registerEmail,password:registerPassword})}); setNotice(result.message || 'Doğrulama e-postası gönderildi.'); setError(''); setRegisterPassword(''); setRegisterPasswordAgain('') }
+    catch(e) { setError(e instanceof Error ? e.message : 'Başvuru gönderilemedi.') } finally { setBusy(false) }
+  }
+  const requestPasswordReset = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(''); setNotice(''); try { const result=await api<{message:string}>('/api/auth/forgot-password',undefined,{method:'POST',body:JSON.stringify({email:forgotEmail})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'İstek gönderilemedi.') } finally { setBusy(false) } }
+  const resetPassword = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(''); setNotice(''); if(resetPasswordValue!==resetPasswordAgain){setBusy(false);setError('Şifreler eşleşmiyor.');return} try { const result=await api<{message:string}>('/api/auth/reset-password',undefined,{method:'POST',body:JSON.stringify({token:resetToken,password:resetPasswordValue})}); setNotice(result.message); setResetPasswordValue('');setResetPasswordAgain('') } catch(e) { setError(e instanceof Error ? e.message : 'Şifre yenilenemedi.') } finally { setBusy(false) } }
+  const verifyRegistrationEmail = React.useCallback(async () => { if (!resetToken) { const token=new URLSearchParams(window.location.search).get('token') || ''; if (!token) { setError('Doğrulama bağlantısı bulunamadı.'); return } setResetToken(token); try { const result=await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({token})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'E-posta doğrulanamadı.') } } else { try { const result=await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({token:resetToken})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'E-posta doğrulanamadı.') } } },[resetToken])
+  const reviewRegistration = async (request: RegistrationRequest, action: 'approve'|'reject') => { if(!token)return; setError('');setNotice('');try{await api('/api/admin/registration-requests/'+encodeURIComponent(request.id),token,{method:'POST',body:JSON.stringify({action})});await loadAdmin(token);setNotice(action==='approve'?'Başvuru kabul edildi, hesap açıldı.':'Başvuru reddedildi.')}catch(e){setError(e instanceof Error?e.message:'Başvuru işlenemedi.')} }
   const logout = () => {
     window.sessionStorage.removeItem(TOKEN_KEY)
     setToken(''); setUser(null); setUsers([]); setDevices([]); setMyDevices([]); setView('home'); setError(''); setNotice('')

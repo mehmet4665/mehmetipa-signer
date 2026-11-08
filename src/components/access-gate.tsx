@@ -182,10 +182,6 @@ export function AccessGate() {
   }, [])
 
   React.useEffect(() => {
-    if (view === 'verify') verifyRegistrationEmail().catch(() => {})
-  }, [view, verifyRegistrationEmail])
-
-  React.useEffect(() => {
     const saved = window.sessionStorage.getItem(TOKEN_KEY)
     if (!saved) return
     let alive = true
@@ -261,6 +257,10 @@ export function AccessGate() {
   const requestPasswordReset = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(''); setNotice(''); try { const result=await api<{message:string}>('/api/auth/forgot-password',undefined,{method:'POST',body:JSON.stringify({email:forgotEmail})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'İstek gönderilemedi.') } finally { setBusy(false) } }
   const resetPassword = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(''); setNotice(''); if(resetPasswordValue!==resetPasswordAgain){setBusy(false);setError('Şifreler eşleşmiyor.');return} try { const result=await api<{message:string}>('/api/auth/reset-password',undefined,{method:'POST',body:JSON.stringify({token:resetToken,password:resetPasswordValue})}); setNotice(result.message); setResetPasswordValue('');setResetPasswordAgain('') } catch(e) { setError(e instanceof Error ? e.message : 'Şifre yenilenemedi.') } finally { setBusy(false) } }
   const verifyRegistrationEmail = React.useCallback(async () => { if (!resetToken) { const token=new URLSearchParams(window.location.search).get('token') || ''; if (!token) { setError('Doğrulama bağlantısı bulunamadı.'); return } setResetToken(token); try { const result=await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({token})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'E-posta doğrulanamadı.') } } else { try { const result=await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({token:resetToken})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'E-posta doğrulanamadı.') } } },[resetToken])
+  React.useEffect(() => {
+    if (view === 'verify') verifyRegistrationEmail().catch(() => {})
+  }, [view, verifyRegistrationEmail])
+
   const reviewRegistration = async (request: RegistrationRequest, action: 'approve'|'reject') => { if(!token)return; setError('');setNotice('');try{await api('/api/admin/registration-requests/'+encodeURIComponent(request.id),token,{method:'POST',body:JSON.stringify({action})});await loadAdmin(token);setNotice(action==='approve'?'Başvuru kabul edildi, hesap açıldı.':'Başvuru reddedildi.')}catch(e){setError(e instanceof Error?e.message:'Başvuru işlenemedi.')} }
   const logout = () => {
     window.sessionStorage.removeItem(TOKEN_KEY)

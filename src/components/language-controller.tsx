@@ -856,28 +856,50 @@ function normalize(value: string) {
   return value.replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim()
 }
 
+const englishFallback: Record<string, string> = Object.create(null)
+for (const [english, turkish] of Object.entries(englishToTurkish)) {
+  if (!englishFallback[turkish]) englishFallback[turkish] = english
+}
+const turkishFallback: Record<string, string> = Object.create(null)
+for (const [turkish, english] of Object.entries(turkishToEnglish)) {
+  if (!turkishFallback[english]) turkishFallback[english] = turkish
+}
+
 function translateText(value: string, language: Language) {
   const source = normalize(value)
   if (!source) return value
-  const dictionary = language === 'tr' ? englishToTurkish : turkishToEnglish
+  const dictionary = language === 'tr'
+    ? { ...englishFallback, ...englishToTurkish }
+    : { ...turkishFallback, ...turkishToEnglish }
   const exact = dictionary[source]
   if (exact) {
-    const leading = value.match(/^\s*/)?.[0] || ''
-    const trailing = value.match(/\s*$/)?.[0] || ''
+    const leading = value.match(/^\\s*/)?.[0] || ''
+    const trailing = value.match(/\\s*$/)?.[0] || ''
     return leading + exact + trailing
   }
 
+  // Translate dynamic file-picker labels without losing the selected file type.
+  const addMore = source.match(/^Add more (.+)\\.\\.\\.$/i)
+  if (language === 'tr' && addMore) {
+    const label = dictionary[addMore[1]] || addMore[1]
+    return value.replace(source, `Daha fazla ${label.toLocaleLowerCase('tr-TR')} ekle...`)
+  }
+  const removeLabel = source.match(/^Remove (.+)$/i)
+  if (language === 'tr' && removeLabel) {
+    const label = dictionary[removeLabel[1]] || removeLabel[1]
+    return value.replace(source, `Kaldır ${label}`)
+  }
+
   // Translate known phrases inside dynamic text nodes as well.
-  const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((a, b) => b.length - a.length)
+  const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((x, y) => y.length - x.length)
   let result = value
   for (const key of keys) {
-    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const pattern = new RegExp('(^|[^\\p{L}\\p{N}])(' + escaped + ')(?=$|[^\\p{L}\\p{N}])', 'giu')
+    const escaped = key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')
+    const pattern = new RegExp('(^|[^\\\\p{L}\\\\p{N}])(' + escaped + ')(?=$|[^\\\\p{L}\\\\p{N}])', 'giu')
     result = result.replace(pattern, (_match, prefix: string, phrase: string) => prefix + (dictionary[phrase] || dictionary[key]))
   }
   return result
 }
-
 const originalText = new WeakMap<Text, { source: string; rendered: string }>()
 const originalAttributes = new WeakMap<Element, Map<string, { source: string; rendered: string }>>()
 

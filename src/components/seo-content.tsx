@@ -10,7 +10,7 @@ const faqItems = [
   {
     question: 'Does Mehmet IPA upload my certificate or IPA?',
     answer:
-      'No. Normal signing runs locally in a browser worker, so the IPA, certificate, provisioning profile, password, dylibs, and signed output stay on this device. Only the optional installation flow uploads the already-signed IPA after you confirm it.',
+      'No. Signing runs locally in a browser worker. The IPA, certificate, provisioning profile, password, dylibs, and signed output are not sent to Mehmet IPA servers. The site provides a direct download; it does not offer third-party IPA hosting or QR installation.',
   },
   {
     question: 'What is a P12 signing certificate?',
@@ -30,7 +30,7 @@ const faqItems = [
   {
     question: 'What is the IPA size limit?',
     answer:
-      "Local signing has no fixed Mehmet IPA file-size limit, but it is constrained by the browser and the device's available memory. The optional temporary installation upload rejects signed IPA files larger than 1 GB.",
+      "Local signing has no fixed Mehmet IPA file-size limit, but it is constrained by the browser and the device's available memory. The signed IPA is downloaded directly to your device; installation hosting is not provided.",
   },
   {
     question: 'What happens if a signing certificate is revoked?',
@@ -49,8 +49,8 @@ export function PrivacySummary() {
       <p className="mt-2 text-sm leading-6 text-muted-foreground md:text-base">
         Mehmet IPA Signer runs zsign as WebAssembly inside a dedicated browser worker. Your IPA,
         certificate, provisioning profile, password, optional dylibs, and signed output remain on
-        this device during signing. Temporary installation uploads only the signed IPA after you
-        explicitly confirm it.
+        this device during signing. Signed files are downloaded directly by your browser; this site
+        does not upload IPA files to its servers or to third-party hosting services.
       </p>
     </section>
   )

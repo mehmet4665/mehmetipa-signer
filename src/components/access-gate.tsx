@@ -525,7 +525,21 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
           <span className="hidden rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-300 sm:inline-flex">● Platform online</span>
           <div className="flex items-center gap-2"><button onClick={() => { setLoginMode('member'); setView('login'); setError('') }} className="rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-sm font-semibold shadow-lg shadow-violet-950/40 transition hover:brightness-110">Üye girişi →</button><button onClick={() => { setLoginMode('admin'); setView('login'); setError('') }} className="rounded-xl border border-white/15 bg-white/[0.05] px-3 py-2.5 text-xs font-semibold text-slate-300 transition hover:border-amber-300/40 hover:text-amber-200">Yönetici</button></div>
         </div>
-      </header>
+      <section className="mt-5 overflow-hidden rounded-3xl border border-violet-300/20 bg-gradient-to-br from-violet-600/20 via-indigo-600/15 to-cyan-500/10 p-5 shadow-xl shadow-violet-950/10 sm:p-7">
+        <div className="max-w-3xl">
+          <p className="text-xs font-black uppercase tracking-[.22em] text-cyan-300"><span data-locale="tr">MEHMET IPA'YI KEŞFET</span><span data-locale="en" hidden>DISCOVER MEHMET IPA</span></p>
+          <h2 className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl"><span data-locale="tr">Oyunlarını keşfet, IPA'larını kendi sertifikanla imzala.</span><span data-locale="en" hidden>Explore games. Sign your IPAs with your own certificate.</span></h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+            <span data-locale="tr">Mehmet IPA; iOS oyunlarını ve rehberlerini keşfedebileceğin, IPA dosyalarını kendi sertifikan ve provisioning profile dosyanla tarayıcı üzerinden imzalayabileceğin bir platformdur. Oyun ve rehberleri incelemek için gezinebilir, imzalama araçlarını kullanmak için üye girişi yapabilirsin.</span>
+            <span data-locale="en" hidden>Mehmet IPA is a platform where you can explore iOS games and guides, and sign IPA files in your browser using your own certificate and provisioning profile. Browse games and guides freely; sign in to access the signing tools.</span>
+          </p>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-black/15 p-4"><div className="text-2xl">🎮</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">Oyunları keşfet</span><span data-locale="en" hidden>Explore games</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Oyunları, bilgileri ve rehberleri incele.</span><span data-locale="en" hidden>Browse games, details, and guides.</span></p></div>
+          <div className="rounded-2xl border border-white/10 bg-black/15 p-4"><div className="text-2xl">✍️</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">IPA dosyalarını imzala</span><span data-locale="en" hidden>Sign IPA files</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Kendi sertifikanla tarayıcı üzerinden imzalama yap.</span><span data-locale="en" hidden>Sign in your browser with your own certificate.</span></p></div>
+          <div className="rounded-2xl border border-white/10 bg-black/15 p-4"><div className="text-2xl">📘</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">Rehberlerden yararlan</span><span data-locale="en" hidden>Use helpful guides</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Kurulum ve kullanım adımlarını öğren.</span><span data-locale="en" hidden>Learn setup and usage steps.</span></p></div>
+        </div>
+      </section>
       {isInstalledApp && availableUpdate && <section className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-300/25 bg-cyan-400/10 p-4">
         <div><div className="font-semibold text-cyan-100">Yeni sürüm mevcut · v{availableUpdate.version}</div><p className="mt-1 text-sm text-slate-300">{availableUpdate.notes || 'Mehmet IPA’nın yeni sürümü hazır.'}</p></div>
         <a href={availableUpdate.ipaUrl} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">IPA’yı Güncelle</a>

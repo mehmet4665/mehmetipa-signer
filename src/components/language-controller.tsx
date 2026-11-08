@@ -346,6 +346,9 @@ const englishToTurkish: Record<string, string> = {
   "VIP certificate is unavailable.": "VIP sertifikası şu anda kullanılamıyor.",
   "Upload only your IPA file. Certificate and provisioning profile are managed by Mehmet IPA.": "Yalnızca IPA dosyanı yükle. Sertifika ve provisioning profili Mehmet IPA tarafından yönetilir.",
   "Sign & Download": "İmzala ve İndir",
+  "Sign IPA": "İmzala ve İndir",
+  "Signing...": "İmzalanıyor...",
+
 
   "Sign your app freely.": "Uygulamanı özgürce imzala.",
   "Add your IPA, certificate, and provisioning profile files. Start signing in your browser.": "IPA dosyanı, sertifikanı ve provisioning profile dosyanı ekle. İmzalama işlemini tarayıcında başlat.",

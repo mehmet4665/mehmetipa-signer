@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { SylvaSigner } from '@/components/sylva-signer'
-import { Capacitor } from '@capacitor/core'
+import { Capacitor, CapacitorHttp } from '@capacitor/core'
 
 type User = {
   id: string
@@ -36,11 +36,40 @@ const API_BASE = 'https://mehmetipa-signer.pages.dev'
 async function api<T>(path: string, token?: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('content-type', 'application/json')
-  if (token) headers.set('authorization', `Bearer ${token}`)
-  const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`
+  if (token) headers.set('authorization', \`Bearer \${token}\`)
+  const url = /^https?:\/\//i.test(path) ? path : \`\${API_BASE}\${path}\`
+
+  // WKWebView's fetch can fail with the opaque "Load failed" error when
+  // calling the remote Pages API. Use Capacitor's native HTTP bridge on iOS.
+  if (Capacitor.isNativePlatform()) {
+    let requestData: unknown = undefined
+    if (typeof init.body === 'string') {
+      try { requestData = JSON.parse(init.body) } catch { requestData = init.body }
+    } else if (init.body !== undefined && init.body !== null) {
+      requestData = init.body
+    }
+    const response = await CapacitorHttp.request({
+      url,
+      method: (init.method || 'GET').toUpperCase(),
+      headers: Object.fromEntries(headers.entries()),
+      data: requestData,
+      connectTimeout: 20000,
+      readTimeout: 30000,
+      responseType: 'json',
+    })
+    let data = response.data as T & { error?: string }
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data) as T & { error?: string } } catch { data = {} as T & { error?: string } }
+    }
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(data?.error || \`İstek başarısız (\${response.status})\`)
+    }
+    return data
+  }
+
   const response = await fetch(url, { ...init, headers, cache: 'no-store' })
   const data = await response.json().catch(() => ({})) as T & { error?: string }
-  if (!response.ok) throw new Error(data.error || `İstek başarısız (${response.status})`)
+  if (!response.ok) throw new Error(data.error || \`İstek başarısız (\${response.status})\`)
   return data
 }
 

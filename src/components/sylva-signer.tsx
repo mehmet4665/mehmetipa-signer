@@ -1750,7 +1750,6 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
     }
 
     try {
-      if (cacheCert) await saveCertCacheFromInputs()
       const result = await signIpa(buildSignOptions(), {
         onLog: addWorkerLog,
         onProgress: updateWorkerProgress,
@@ -1772,6 +1771,8 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
           )
           setCurrentHistoryId(entry.id)
           setHistoryEntries(upsertIpaHistoryEntry(entry))
+          saveOutput(signedOutput)
+          addLog('success', `Signed IPA download started: ${signedOutput.name}`)
         }
       }
       addLog(result.exitCode === 0 ? 'success' : 'error', `zsign exited with code ${result.exitCode}`)
@@ -1964,20 +1965,7 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
                 ) : (
                   <Send size={18} />
                 )}
-                {state === 'signing' ? 'Signing...' : 'Sign IPA'}
-              </Button>
-            </AnimateIcon>
-
-            <AnimateIcon animateOnHover asChild>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={handleDownload}
-                disabled={outputs.length === 0}
-                className="h-11 gap-2 px-5"
-              >
-                <Download size={18} />
-                Download
+                {state === 'signing' ? 'Signing...' : 'Sign & Download'}
               </Button>
             </AnimateIcon>
 

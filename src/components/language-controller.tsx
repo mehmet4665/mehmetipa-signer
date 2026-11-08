@@ -83,21 +83,29 @@ function translateText(value: string, language: Language) {
   return value
 }
 
+const originalText = new WeakMap<Text, string>()
+const originalAttributes = new WeakMap<Element, Map<string, string>>()
+
 function applyLanguage(root: ParentNode, language: Language) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   const nodes: Text[] = []
   while (walker.nextNode()) nodes.push(walker.currentNode as Text)
   for (const node of nodes) {
-    const original = node.textContent || ''
-    const translated = translateText(original, language)
-    if (translated !== original) node.textContent = translated
+    if (!originalText.has(node)) originalText.set(node, node.textContent || '')
+    const source = originalText.get(node) || ''
+    const translated = translateText(source, language)
+    if (node.textContent !== translated) node.textContent = translated
   }
   const elements = root instanceof Element ? [root, ...Array.from(root.querySelectorAll('*'))] : Array.from((root as Document).querySelectorAll?.('*') || [])
   for (const element of elements) {
     for (const attr of ['placeholder', 'title', 'aria-label']) {
       const value = element.getAttribute(attr)
       if (value) {
-        const translated = translateText(value, language)
+        if (!originalAttributes.has(element)) originalAttributes.set(element, new Map())
+        const attrs = originalAttributes.get(element)!
+        if (!attrs.has(attr)) attrs.set(attr, value)
+        const source = attrs.get(attr) || value
+        const translated = translateText(source, language)
         if (translated !== value) element.setAttribute(attr, translated)
       }
     }

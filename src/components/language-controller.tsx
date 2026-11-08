@@ -40,7 +40,6 @@ const translations: Record<string, string> = {
   "Mobile compatibility mode": "Mobile compatibility mode",
   "Uses upstream zsign's slower native archive path to reduce browser memory duplication. Keep this tab active until signing and download finish.": "Uses zsign's slower native archive method to reduce browser memory usage. Keep this tab open until signing and download are complete.",
   "Fully local IPA signing in your browser": "Sign IPA files locally in your browser",
-  "Sign iOS IPA files locally in your browser": "Sign iOS IPA files locally in your browser",
   "IPA dosyanı": "Your IPA file",
   "Yükleniyor...": "Loading...",
   "Üyeler": "Members",

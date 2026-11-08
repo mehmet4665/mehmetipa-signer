@@ -177,7 +177,7 @@ export async function onRequest({ request, env, params }) {
       if(registrationMatch && method==='POST') {
         const denied=requireAdmin(); if(denied) return denied; const body=await readBody(request), action=body.action
         const row=await env.DB.prepare('SELECT * FROM registration_requests WHERE id=? LIMIT 1').bind(registrationMatch[1]).first()
-        if(!row || row.status!=='pending') return json({success:false,error:'Başvuru bulunamadı veya e-posta doğrulanmadı.'},404)
+        if(!row || (row.status!=='pending' && !(action==='reopen' && row.status==='rejected'))) return json({success:false,error:'Başvuru bulunamadı veya e-posta doğrulanmadı.'},404)
         if(action==='reopen' && row.status==='rejected') { await env.DB.prepare("UPDATE registration_requests SET status='pending',reviewed_at=NULL,reviewed_by=NULL WHERE id=?").bind(row.id).run(); return json({success:true}) }
         if(action==='reject') { await env.DB.prepare("UPDATE registration_requests SET status='rejected',reviewed_at=?,reviewed_by='admin' WHERE id=?").bind(new Date().toISOString(),row.id).run(); if(env.RESEND_API_KEY&&env.MAIL_FROM) await sendMail(env,{to:row.email,subject:'Mehmet IPA üyelik başvurusu',html:emailHtml('Başvurun sonuçlandı','Üyelik başvurun şu anda kabul edilmedi.','https://mehmetipa-signer.pages.dev','Mehmet IPA')}).catch(()=>{}); return json({success:true}) }
         if(action!=='approve') return json({success:false,error:'Geçersiz işlem.'},400)

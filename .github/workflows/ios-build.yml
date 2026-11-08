@@ -39,11 +39,13 @@ jobs:
           cp assets/icon.PNG assets/logo.png
           npx @capacitor/assets generate --ios
 
-      - name: Clear Swift Package Manager cache
+      - name: Prepare isolated Swift Package Manager cache
         run: |
-          rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
+          rm -rf "$HOME/Library/Caches/org.swift.swiftpm"
           rm -rf "$HOME/Library/org.swiftpm"
           rm -rf "$HOME/Library/Developer/Xcode/DerivedData"
+          rm -rf "$RUNNER_TEMP/SwiftPackageCache"
+          rm -rf "$RUNNER_TEMP/SourcePackages"
 
       - name: Build iOS app
         run: |
@@ -54,6 +56,8 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath ios/build \
+            -packageCachePath "$RUNNER_TEMP/SwiftPackageCache" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
             CODE_SIGNING_ALLOWED=NO \
             build
 

@@ -71,6 +71,24 @@ async function encryptSecret(value, secret) {
   )
   return { ciphertext: b64url(ciphertext), iv: b64url(iv) }
 }
+async function decryptSecret(ciphertext, iv, secret) {
+  const rawKey = await crypto.subtle.digest('SHA-256', encoder.encode(secret))
+  const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt'])
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: fromB64url(iv) },
+    key,
+    fromB64url(ciphertext)
+  )
+  return new TextDecoder().decode(plaintext)
+}
+function bytesToBase64(bytes) {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
+}
 function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
 }
@@ -284,6 +302,50 @@ export async function onRequest({ request, env, params }) {
           ...row,
           online: !!row.last_seen_at && now - new Date(row.last_seen_at).getTime() <= 90000
         })) })
+      }
+
+      // SIGNING: Aktif üyeye imzalama için aktif VIP sertifikasını sağla.
+      // Sertifika materyali yalnızca oturum açmış, etkin üyelere döndürülür.
+      if (path === '/api/signing/certificate' && method === 'GET') {
+        if (isAdmin) return json({ success: false, error: 'Üye hesabıyla giriş yapın.' }, 403)
+        if (!env.CERTS || !env.SIGNING_ENCRYPTION_KEY) {
+          return json({ success: false, error: 'VIP sertifika kasası yapılandırılmamış.' }, 503)
+        }
+        const cert = await env.DB.prepare(
+          "SELECT status, certificate_name, profile_name, password_ciphertext, password_iv, p12_key, profile_key, expires_at FROM signing_certificate ORDER BY updated_at DESC LIMIT 1"
+        ).first()
+        if (!cert || cert.status !== 'active') {
+          return json({ success: false, error: 'VIP sertifika şu anda kullanıma hazır değil.' }, 409)
+        }
+        if (cert.expires_at && Date.parse(cert.expires_at) < Date.now()) {
+          return json({ success: false, error: 'VIP sertifikanın süresi dolmuş.' }, 409)
+        }
+        if (!cert.password_ciphertext || !cert.password_iv || !cert.p12_key || !cert.profile_key) {
+          return json({ success: false, error: 'VIP sertifika kaydı eksik.' }, 503)
+        }
+        const [p12Object, profileObject, password] = await Promise.all([
+          env.CERTS.get(cert.p12_key),
+          env.CERTS.get(cert.profile_key),
+          decryptSecret(cert.password_ciphertext, cert.password_iv, env.SIGNING_ENCRYPTION_KEY)
+        ])
+        if (!p12Object || !profileObject) {
+          return json({ success: false, error: 'VIP sertifika dosyaları kasada bulunamadı.' }, 503)
+        }
+        const [p12Bytes, profileBytes] = await Promise.all([
+          p12Object.arrayBuffer(),
+          profileObject.arrayBuffer()
+        ])
+        return json({
+          success: true,
+          certificate: {
+            name: cert.certificate_name,
+            profile: cert.profile_name,
+            expires_at: cert.expires_at,
+            p12_base64: bytesToBase64(new Uint8Array(p12Bytes)),
+            profile_base64: bytesToBase64(new Uint8Array(profileBytes)),
+            password
+          }
+        })
       }
 
       // SIGNING: VIP sertifika durumu

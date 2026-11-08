@@ -49,6 +49,7 @@ async function verifyPassword(password, stored) {
 async function sha256Hex(value) { const digest = await crypto.subtle.digest('SHA-256', encoder.encode(String(value))); return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2, '0')).join('') }
 function randomToken() { return b64url(crypto.getRandomValues(new Uint8Array(32))) }
 async function sendMail(env, { to, subject, html }) { if (!env.RESEND_API_KEY || !env.MAIL_FROM) return false; const response = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: env.MAIL_FROM, to: [to], subject, html }) }); if (!response.ok) throw new Error('E-posta gönderimi başarısız.'); return true }
+async function clearRateLimit(env, request, action) { const ip=request.headers.get('cf-connecting-ip')||'unknown'; const key=await sha256Hex(action+':'+ip); await env.DB.prepare('DELETE FROM auth_rate_limits WHERE rate_key=?').bind(key).run() }
 async function rateLimit(env, request, action, limit = 6, windowMinutes = 15) { const ip = request.headers.get('cf-connecting-ip') || 'unknown'; const key = await sha256Hex(action + ':' + ip); const now = Date.now(); const row = await env.DB.prepare('SELECT attempts, window_started_at, blocked_until FROM auth_rate_limits WHERE rate_key = ?').bind(key).first(); if (row && row.blocked_until && new Date(row.blocked_until).getTime() > now) return false; const expired = !row || now - new Date(row.window_started_at).getTime() > windowMinutes * 60000; const attempts = expired ? 1 : Number(row.attempts || 0) + 1; const started = expired ? new Date(now).toISOString() : row.window_started_at; const blocked = attempts > limit ? new Date(now + windowMinutes * 60000).toISOString() : null; await env.DB.prepare('INSERT INTO auth_rate_limits (rate_key, attempts, window_started_at, blocked_until) VALUES (?, ?, ?, ?) ON CONFLICT(rate_key) DO UPDATE SET attempts=excluded.attempts, window_started_at=excluded.window_started_at, blocked_until=excluded.blocked_until').bind(key, attempts, started, blocked).run(); return !blocked }
 function emailHtml(title, message, url, label) { return '<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:28px;color:#171727"><h2>' + title + '</h2><p style="line-height:1.7">' + message + '</p><p style="margin:28px 0"><a href="' + url + '" style="background:#7047d8;color:#fff;text-decoration:none;padding:13px 20px;border-radius:10px;display:inline-block">' + label + '</a></p><p style="color:#777;font-size:12px">Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin.</p></div>' }
 async function readBody(request) {
@@ -134,6 +135,7 @@ export async function onRequest({ request, env, params }) {
       if (!username || !password) return json({ success: false, error: 'Kullanıcı adı ve şifre gerekli.' }, 400)
 
       if (username === env.ADMIN_USERNAME && password === env.ADMIN_PASSWORD) {
+        await clearRateLimit(env, request, 'login')
         const token = await issueToken({ sub: 'admin', role: 'admin', name: 'Yönetici', username }, env.ADMIN_PASSWORD)
         return json({ success: true, token, user: { id: 'admin', name: 'Yönetici', username, role: 'admin' } })
       }
@@ -142,6 +144,7 @@ export async function onRequest({ request, env, params }) {
       if (!row || row.status !== 'active' || !(await verifyPassword(password, row.password_hash))) {
         return json({ success: false, error: 'Giriş bilgileri hatalı veya hesap engellenmiş.' }, 401)
       }
+      await clearRateLimit(env, request, 'login')
       const token = await issueToken({ sub: row.id, role: 'member', name: row.name, username: row.username }, env.ADMIN_PASSWORD)
       return json({ success: true, token, user: { ...cleanUser(row), role: 'member' } })
     }
@@ -171,6 +174,7 @@ export async function onRequest({ request, env, params }) {
         const denied=requireAdmin(); if(denied) return denied; const body=await readBody(request), action=body.action
         const row=await env.DB.prepare('SELECT * FROM registration_requests WHERE id=? LIMIT 1').bind(registrationMatch[1]).first()
         if(!row || row.status!=='pending') return json({success:false,error:'Başvuru bulunamadı veya e-posta doğrulanmadı.'},404)
+        if(action==='reopen' && row.status==='rejected') { await env.DB.prepare("UPDATE registration_requests SET status='pending',reviewed_at=NULL,reviewed_by=NULL WHERE id=?").bind(row.id).run(); return json({success:true}) }
         if(action==='reject') { await env.DB.prepare("UPDATE registration_requests SET status='rejected',reviewed_at=?,reviewed_by='admin' WHERE id=?").bind(new Date().toISOString(),row.id).run(); if(env.RESEND_API_KEY&&env.MAIL_FROM) await sendMail(env,{to:row.email,subject:'Mehmet IPA üyelik başvurusu',html:emailHtml('Başvurun sonuçlandı','Üyelik başvurun şu anda kabul edilmedi.','https://mehmetipa-signer.pages.dev','Mehmet IPA')}).catch(()=>{}); return json({success:true}) }
         if(action!=='approve') return json({success:false,error:'Geçersiz işlem.'},400)
         const conflict=await env.DB.prepare('SELECT id FROM users WHERE username=? OR email=? LIMIT 1').bind(row.username,row.email).first(); if(conflict) return json({success:false,error:'Kullanıcı adı veya e-posta başka hesapta kullanılıyor.'},409)

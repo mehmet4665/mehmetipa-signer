@@ -342,7 +342,7 @@ const englishToTurkish: Record<string, string> = {
   "En çok tercih edilen": "Most popular",
   "3 aylık VIP paket": "3-month VIP plan",
   "Uzun dönem": "Long term",
-  "6 aylık VIP paket": "6-month VIP plan"
+  "6 aylık VIP paket": "6-month VIP plan",
   "Add your files": "Dosyalarını ekle",
   "Sign your app freely.": "Uygulamanı özgürce imzala.",
   "Add your IPA, certificate, and provisioning profile files. Start signing in your browser.": "IPA dosyanı, sertifikanı ve provisioning profile dosyanı ekle. İmzalama işlemini tarayıcında başlat.",
@@ -728,7 +728,7 @@ const turkishToEnglish: Record<string, string> = {
   "İstek başarısız oldu": "Request failed",
   "Sunucu bağlantı hatası.": "Server connection error.",
   "İşlem başarısız oldu": "Operation failed.",
-  "IPA": "IPA"
+  "IPA": "IPA",
   "Dosyalarını ekle": "Add your files",
   "Server connection error.": "Sunucu bağlantı hatası.",
   "Operation failed.": "İşlem başarısız oldu",

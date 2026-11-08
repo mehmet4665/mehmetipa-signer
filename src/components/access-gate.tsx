@@ -393,6 +393,10 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
       <div className="flex items-center gap-3"><img src="/icon-dark-512.PNG" alt="Mehmet IPA" className="h-10 w-10 rounded-xl" /><div><div className="font-bold">Mehmet IPA</div><div className="text-xs text-slate-400">Oyuncu merkezi</div></div></div>
       <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-300">● Hesap aktif</span>
     </header>
+    {isInstalledApp && availableUpdate && <section className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-300/25 bg-cyan-400/10 p-4">
+      <div><div className="font-semibold text-cyan-100">Yeni sürüm mevcut · v{availableUpdate.version}</div><p className="mt-1 text-sm text-slate-300">{availableUpdate.notes || 'Mehmet IPA’nın yeni sürümü hazır.'}</p></div>
+      <a href={availableUpdate.ipaUrl} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">IPA’yı Güncelle</a>
+    </section>}
     {memberTab === 'games' && <div className="mt-6">
       <section className="overflow-hidden rounded-3xl border border-violet-300/20 bg-gradient-to-br from-violet-600/25 via-indigo-600/15 to-cyan-500/10 p-6 sm:p-9"><p className="text-xs font-bold uppercase tracking-[.2em] text-violet-200">Oyun dünyası</p><h1 className="mt-2 text-3xl font-black sm:text-4xl">Hoş geldin, {user.name}!</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">Emülatör oyunlarını keşfet, rehberlere göz at ve yeni oyun deneyimlerine hazırlan.</p><a href="https://t.me/ajandare" target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold">✈️ Telegram destek</a></section>
       <div className="mb-4 mt-8"><p className="text-xs font-bold uppercase tracking-[.18em] text-cyan-300">Oyun koleksiyonu</p><h2 className="mt-2 text-2xl font-extrabold">Öne çıkan oyunlar</h2><p className="mt-1 text-sm text-slate-400">Switch sürümü bulunan sevilen oyunlar ve rehberleri</p></div>

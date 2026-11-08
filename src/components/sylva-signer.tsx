@@ -1821,7 +1821,8 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
   }
 
   return (
-    <main className={`mx-auto flex min-h-svh w-full max-w-6xl flex-col px-5 py-8 md:px-8 md:py-12 ${mobileMode && state === 'signing' ? 'mobile-signing' : ''}`}>
+    <main className={`signer-screen-enter mx-auto flex min-h-svh w-full max-w-6xl flex-col px-5 py-8 md:px-8 md:py-12 ${mobileMode && state === 'signing' ? 'mobile-signing' : ''}`}>
+      <style>{`@keyframes signerScreenEnter { from { opacity: 0; transform: translateY(18px) scale(.99); filter: blur(5px); } to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } } .signer-screen-enter { animation: signerScreenEnter .55s cubic-bezier(.2,.75,.25,1) both; } @media (prefers-reduced-motion: reduce) { .signer-screen-enter { animation: none; } }`}</style>
       <header className="flex items-center justify-between gap-2 sm:gap-4">
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3.5">
           <div className="relative size-10 shrink-0 overflow-hidden rounded-xl shadow-sm sm:size-12 sm:rounded-2xl md:size-14">
@@ -1892,7 +1893,7 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
 
       <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-6">
-          <section className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5">
+          <section className="signer-panel flex flex-col gap-4 rounded-[1.5rem] border border-border/80 bg-gradient-to-b from-card to-card/80 p-5 shadow-[0_16px_50px_-30px_rgba(80,100,180,0.28)] transition-all duration-300 hover:border-primary/25 sm:p-6">
             <div className="flex items-center gap-2">
               <AnimateIcon animateOnHover>
                 <Layers
@@ -2151,7 +2152,7 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
                 size="lg"
                 onClick={handleSign}
                 disabled={!canSign}
-                className="h-11 gap-2 px-5"
+                className="h-12 gap-2 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 px-6 text-white shadow-lg shadow-indigo-950/20 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl disabled:opacity-50"
               >
                 {state === 'signing' ? (
                   <LoaderCircle size={18} animate={!mobileMode} loop={!mobileMode} />

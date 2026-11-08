@@ -75,12 +75,36 @@ function getLanguage(): Language {
   return navigator.language.toLowerCase().startsWith('en') ? 'en' : 'tr'
 }
 
+const englishToTurkish: Record<string, string> = {
+  "Fully local IPA signing in your browser": "Tarayıcında tamamen yerel IPA imzalama",
+  "Mobile compatibility mode": "Mobil uyumluluk modu",
+  "Uses upstream zsign's slower native archive path to reduce browser memory duplication. Keep this tab active until signing and download finish.": "Tarayıcı belleği kullanımını azaltmak için zsign'ın daha yavaş arşivleme yöntemi kullanılıyor. İmzalama ve indirme tamamlanana kadar bu sekmeyi açık tut.",
+  "IPA file": "IPA dosyası",
+  "Select or drop your .ipa": ".ipa dosyanı seç veya buraya bırak",
+  "Signing certificate (.p12)": "İmzalama sertifikası (.p12)",
+  "Select or drop your .p12": ".p12 sertifikanı seç veya buraya bırak",
+  "Provisioning profile": "Provisioning profili",
+  "Select or drop .mobileprovision": ".mobileprovision dosyanı seç veya buraya bırak",
+  "Dylibs (optional)": "Dylib dosyaları (isteğe bağlı)",
+  "Select or drop .dylib files to inject": "Eklenecek .dylib dosyalarını seç veya buraya bırak",
+  "Credentials & Options": "Sertifika ve imzalama ayarları",
+  "Public enterprise certificates": "Genel kurumsal sertifikalar",
+  "Load signed list": "İmzalı listeyi yükle",
+  "Refresh signed list": "İmzalı listeyi yenile",
+  "Sign IPA": "IPA'yı imzala",
+  "Signing...": "İmzalanıyor...",
+  "Download": "İndir",
+  "Clear": "Temizle",
+  "Signing complete": "İmzalama tamamlandı",
+  "Signed output": "İmzalanmış dosya",
+  "About Mehmet IPA": "Mehmet IPA hakkında",
+  "Remove file": "Dosyayı kaldır",
+  "Large IPAs can be slow because unzipping, signing, and re-archiving happen locally. Keep this tab open and ensure the device has several times the IPA size available as free memory. Installation hosting uploads the signed IPA only after you confirm.": "Büyük IPA dosyaları yerel olarak açılıp yeniden paketlendiği için işlem uzun sürebilir. Bu sekmeyi açık tut ve cihazında IPA boyutunun birkaç katı kadar boş alan bulunduğundan emin ol. İmzalanan dosya, yalnızca onayından sonra kurulum sunucusuna yüklenir."
+}
 function translateText(value: string, language: Language) {
-  if (language === 'tr') return value
   const trimmed = value.trim()
-  const translated = translations[trimmed]
-  if (translated) return value.replace(trimmed, translated)
-  return value
+  const translated = language === 'en' ? translations[trimmed] : englishToTurkish[trimmed]
+  return translated ? value.replace(trimmed, translated) : value
 }
 
 const originalText = new WeakMap<Text, string>()
@@ -122,7 +146,7 @@ export function LanguageController() {
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['placeholder','title','aria-label'] })
     return () => observer.disconnect()
   }, [language])
-  return <div className="fixed right-3 top-[max(env(safe-area-inset-top),12px)] z-[9999]">
+  return <div className="shrink-0">
     <div className="flex items-center gap-1 rounded-full border border-white/15 bg-[#111322]/95 p-1 shadow-xl shadow-black/30 backdrop-blur-xl">
       <button type="button" onClick={() => setLanguage('tr')} aria-pressed={language === 'tr'} className={`rounded-full px-3 py-2 text-xs font-bold transition ${language === 'tr' ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-white/10'}`}>🇹🇷 TR</button>
       <button type="button" onClick={() => setLanguage('en')} aria-pressed={language === 'en'} className={`rounded-full px-3 py-2 text-xs font-bold transition ${language === 'en' ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-white/10'}`}>🇬🇧 EN</button>

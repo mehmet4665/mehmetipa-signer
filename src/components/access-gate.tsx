@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { SylvaSigner } from '@/components/sylva-signer'
+import { LanguageController } from '@/components/language-controller'
 import { Capacitor } from '@capacitor/core'
 
 type User = {
@@ -427,7 +428,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
   </div>
 </main>
   if (view === 'signer' && user?.role === 'member') {
-    return <><div className="sticky top-0 z-50 flex items-center justify-between border-b bg-background/95 px-4 py-2 backdrop-blur"><div className="text-sm font-semibold">Mehmet IPA <span className="ml-2 rounded-full bg-muted px-2 py-1 text-xs font-normal">{user.username}</span></div><div className="flex gap-2"><button onClick={() => setView('home')} className="rounded-lg border px-3 py-2 text-sm">Hesabım</button><button onClick={logout} className="rounded-lg border px-3 py-2 text-sm">Çıkış</button></div></div><SylvaSigner /></>
+    return <><div className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-2 border-b bg-background/95 px-3 py-2 backdrop-blur sm:px-4"><div className="text-sm font-semibold">Mehmet IPA <span className="ml-2 rounded-full bg-muted px-2 py-1 text-xs font-normal">{user.username}</span></div><div className="flex items-center gap-2"><LanguageController /><button onClick={() => { setView('method'); setMemberTab('games') }} className="rounded-lg border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-xs font-semibold text-violet-200 sm:text-sm">⌂ Ana sayfaya dön</button><button onClick={logout} className="rounded-lg border px-3 py-2 text-xs sm:text-sm">Çıkış</button></div></div><SylvaSigner /></>
   }
 
   if (view === 'login') return <main className="auth-screen-enter relative flex min-h-screen items-center justify-center overflow-hidden bg-[#080B18] px-4 py-10 text-white"><style>{`@keyframes authScreenEnter{0%{opacity:0;transform:translateY(20px) scale(.985);filter:blur(5px)}100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}.auth-screen-enter{animation:authScreenEnter .48s cubic-bezier(.2,.75,.25,1) both}.auth-panel{box-shadow:0 32px 100px rgba(0,0,0,.5),inset 0 1px rgba(255,255,255,.06)}@media(prefers-reduced-motion:reduce){.auth-screen-enter{animation:none}}`}</style>

@@ -46,6 +46,11 @@ async function verifyPassword(password, stored) {
   return calculated === stored
 }
 
+async function sha256Hex(value) { const digest = await crypto.subtle.digest('SHA-256', encoder.encode(String(value))); return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2, '0')).join('') }
+function randomToken() { return b64url(crypto.getRandomValues(new Uint8Array(32))) }
+async function sendMail(env, { to, subject, html }) { if (!env.RESEND_API_KEY || !env.MAIL_FROM) return false; const response = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: env.MAIL_FROM, to: [to], subject, html }) }); if (!response.ok) throw new Error('E-posta gönderimi başarısız.'); return true }
+async function rateLimit(env, request, action, limit = 6, windowMinutes = 15) { const ip = request.headers.get('cf-connecting-ip') || 'unknown'; const key = await sha256Hex(action + ':' + ip); const now = Date.now(); const row = await env.DB.prepare('SELECT attempts, window_started_at, blocked_until FROM auth_rate_limits WHERE rate_key = ?').bind(key).first(); if (row && row.blocked_until && new Date(row.blocked_until).getTime() > now) return false; const expired = !row || now - new Date(row.window_started_at).getTime() > windowMinutes * 60000; const attempts = expired ? 1 : Number(row.attempts || 0) + 1; const started = expired ? new Date(now).toISOString() : row.window_started_at; const blocked = attempts > limit ? new Date(now + windowMinutes * 60000).toISOString() : null; await env.DB.prepare('INSERT INTO auth_rate_limits (rate_key, attempts, window_started_at, blocked_until) VALUES (?, ?, ?, ?) ON CONFLICT(rate_key) DO UPDATE SET attempts=excluded.attempts, window_started_at=excluded.window_started_at, blocked_until=excluded.blocked_until').bind(key, attempts, started, blocked).run(); return !blocked }
+function emailHtml(title, message, url, label) { return '<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:28px;color:#171727"><h2>' + title + '</h2><p style="line-height:1.7">' + message + '</p><p style="margin:28px 0"><a href="' + url + '" style="background:#7047d8;color:#fff;text-decoration:none;padding:13px 20px;border-radius:10px;display:inline-block">' + label + '</a></p><p style="color:#777;font-size:12px">Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin.</p></div>' }
 async function readBody(request) {
   try {
     return await request.json()
@@ -89,10 +94,42 @@ export async function onRequest({ request, env, params }) {
       return json({ success: true, status: 'online', service: 'Mehmet IPA API', version: '1.1.0' })
     }
 
+    if (path === '/api/auth/register' && method === 'POST') {
+      if (!(await rateLimit(env, request, 'register', 5, 30))) return json({ success: false, error: 'Çok fazla kayıt denemesi. Bir süre sonra tekrar dene.' }, 429)
+      const body = await readBody(request); const name = String(body.name || '').trim().slice(0,80); const username = String(body.username || '').trim().toLowerCase(); const email = String(body.email || '').trim().toLowerCase(); const password = String(body.password || '')
+      if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success:false,error:'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' },400)
+      const existing = await env.DB.prepare('SELECT username FROM users WHERE username=? OR email=? UNION SELECT username FROM registration_requests WHERE username=? OR email=? LIMIT 1').bind(username,email,username,email).first()
+      if (existing) return json({ success:false,error:'Bu kullanıcı adı veya e-posta zaten kayıtlı ya da başvuru bekliyor.' },409)
+      if (!env.RESEND_API_KEY || !env.MAIL_FROM) return json({ success:false,error:'E-posta gönderimi henüz yapılandırılmadı. Yönetici e-posta servisini etkinleştirmeli.' },503)
+      const id=randomId(), verificationToken=randomToken(), tokenHash=await sha256Hex(verificationToken), now=new Date().toISOString(), expires=new Date(Date.now()+1800000).toISOString(), passwordHash=await hashPassword(password)
+      await env.DB.prepare("INSERT INTO registration_requests (id,name,username,email,password_hash,status,verification_token_hash,verification_expires_at,created_at) VALUES (?,?,?,?,?,'verification_pending',?,?,?)").bind(id,name,username,email,passwordHash,tokenHash,expires,now).run()
+      const verifyUrl='https://mehmetipa-signer.pages.dev/verify-email?token='+encodeURIComponent(verificationToken)
+      try { await sendMail(env,{to:email,subject:'Mehmet IPA e-posta doğrulaması',html:emailHtml('E-posta adresini doğrula','Üyelik başvurunu tamamlamak için e-posta adresini doğrula. Bağlantı 30 dakika geçerlidir.',verifyUrl,'E-postamı doğrula')}) } catch { await env.DB.prepare('DELETE FROM registration_requests WHERE id=?').bind(id).run(); return json({success:false,error:'Doğrulama e-postası gönderilemedi.'},502) }
+      return json({success:true,message:'Doğrulama bağlantısı e-posta adresine gönderildi.'},201)
+    }
+    if (path === '/api/auth/verify-email' && method === 'POST') {
+      const body=await readBody(request), hash=await sha256Hex(String(body.token||'')); const row=await env.DB.prepare("SELECT id,status,verification_expires_at FROM registration_requests WHERE verification_token_hash=? LIMIT 1").bind(hash).first()
+      if(!row || row.status!=='verification_pending' || !row.verification_expires_at || new Date(row.verification_expires_at).getTime()<Date.now()) return json({success:false,error:'Doğrulama bağlantısı geçersiz veya süresi dolmuş.'},400)
+      await env.DB.prepare("UPDATE registration_requests SET status='pending',verified_at=?,verification_token_hash=NULL,verification_expires_at=NULL WHERE id=?").bind(new Date().toISOString(),row.id).run()
+      return json({success:true,message:'E-posta doğrulandı. Başvurun yönetici onayına gönderildi.'})
+    }
+    if (path === '/api/auth/forgot-password' && method === 'POST') {
+      if (!(await rateLimit(env,request,'forgot-password',4,30))) return json({success:false,error:'Çok fazla deneme. Daha sonra tekrar dene.'},429)
+      const body=await readBody(request), email=String(body.email||'').trim().toLowerCase(); if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return json({success:false,error:'Geçerli e-posta adresi gir.'},400)
+      const row=await env.DB.prepare("SELECT id,email FROM users WHERE email=? AND status='active' LIMIT 1").bind(email).first()
+      if(row && env.RESEND_API_KEY && env.MAIL_FROM) { const token=randomToken(), tokenHash=await sha256Hex(token), id=randomId(), expires=new Date(Date.now()+1800000).toISOString(); await env.DB.prepare('INSERT INTO password_reset_tokens (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)').bind(id,row.id,tokenHash,expires,new Date().toISOString()).run(); const url='https://mehmetipa-signer.pages.dev/reset-password?token='+encodeURIComponent(token); try { await sendMail(env,{to:email,subject:'Mehmet IPA şifre sıfırlama',html:emailHtml('Şifreni yenile','Şifre sıfırlama bağlantısı 30 dakika geçerlidir ve tek kullanımlıktır.',url,'Şifremi yenile')}) } catch { return json({success:false,error:'E-posta gönderilemedi. Daha sonra tekrar dene.'},502) } }
+      return json({success:true,message:'Bu e-posta kayıtlıysa şifre sıfırlama bağlantısı gönderildi.'})
+    }
+    if (path === '/api/auth/reset-password' && method === 'POST') {
+      const body=await readBody(request), hash=await sha256Hex(String(body.token||'')), password=String(body.password||''); if(password.length<8||password.length>128) return json({success:false,error:'Şifre 8-128 karakter olmalı.'},400)
+      const row=await env.DB.prepare('SELECT id,user_id,expires_at,used_at FROM password_reset_tokens WHERE token_hash=? LIMIT 1').bind(hash).first(); if(!row||row.used_at||new Date(row.expires_at).getTime()<Date.now()) return json({success:false,error:'Bağlantı geçersiz, kullanılmış veya süresi dolmuş.'},400)
+      const passwordHash=await hashPassword(password), now=new Date().toISOString(); await env.DB.batch([env.DB.prepare('UPDATE users SET password_hash=? WHERE id=?').bind(passwordHash,row.user_id),env.DB.prepare('UPDATE password_reset_tokens SET used_at=? WHERE id=?').bind(now,row.id),env.DB.prepare('UPDATE password_reset_tokens SET used_at=? WHERE user_id=? AND used_at IS NULL').bind(now,row.user_id)]); return json({success:true,message:'Şifren yenilendi. Yeni şifrenle giriş yapabilirsin.'})
+    }
     if (path === '/api/auth/login' && method === 'POST') {
       const body = await readBody(request)
       const username = String(body.username || '').trim()
       const password = String(body.password || '')
+      if (!(await rateLimit(env, request, 'login', 10, 15))) return json({ success: false, error: 'Çok fazla giriş denemesi. 15 dakika sonra tekrar dene.' }, 429)
       if (!username || !password) return json({ success: false, error: 'Kullanıcı adı ve şifre gerekli.' }, 400)
 
       if (username === env.ADMIN_USERNAME && password === env.ADMIN_PASSWORD) {

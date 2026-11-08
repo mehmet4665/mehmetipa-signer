@@ -410,6 +410,19 @@ const englishToTurkish: Record<string, string> = {
   "Temporary hosting via Litterbox — expires automatically (max 1 GB)": "Litterbox üzerinden geçici barındırma — süresi otomatik dolar (en fazla 1 GB)",
   "File sent. Waiting for": "Dosya gönderildi. Bağlantı bekleniyor:",
 }
+  "Download canceled.": "İndirme iptal edildi.",
+  "The browser could not download that URL. The host may block cross-origin downloads.": "Tarayıcı bu bağlantıyı indiremedi. Sunucu, farklı kaynaklardan indirmeyi engelliyor olabilir.",
+  "Sylva proxy failed with HTTP": "Sylva proxy bağlantısı HTTP hatası verdi:",
+  "Unknown": "Bilinmiyor",
+  "About Mehmet IPA": "Mehmet IPA hakkında",
+  "Open Mehmet IPA on GitHub": "Mehmet IPA'yı GitHub'da aç",
+  "GitHub": "GitHub",
+  "Fully local IPA signing in your browser": "IPA dosyalarını tarayıcında tamamen yerel olarak imzala",
+  "Credentials &amp; Options": "Kimlik bilgileri ve seçenekler",
+  "Member dashboard": "Üye paneli",
+  "IPA": "IPA",
+  "Open Signing Center": "İmzalama merkezini aç",
+  "Member sign-in": "Üye girişi",
 const turkishToEnglish: Record<string, string> = {
   "Oyuncu merkezi": "Player center",
   "Hesap aktif": "Account active",
@@ -842,6 +855,25 @@ const turkishToEnglish: Record<string, string> = {
   "Dosya gönderildi. Bağlantı bekleniyor:": "File sent. Waiting for",
   "Mobil cihazlara uygun": "Mobile friendly",
 }
+  "İmzalama merkezini aç": "Open Signing Center",
+  "Hesap": "Account",
+  "Üye paneli": "Member dashboard",
+  "Oyun koleksiyonu": "Game collection",
+  "Switch sürümü mevcut": "Switch version available",
+  "İndirme iptal edildi.": "Download canceled.",
+  "Arşivleme tamamlandı": "Archive complete",
+  "Bilinmiyor": "Unknown",
+  "Kimlik bilgileri ve seçenekler": "Credentials & Options",
+  "Mehmet IPA hakkında": "About Mehmet IPA",
+  "Sertifika parolası": "Certificate password",
+  "Çıktı IPA dosyasının adı": "Output IPA name",
+  "Paket kimliği": "Bundle ID",
+  "Yönetici girişi": "Administrator sign-in",
+  "Yönetici paneli": "Admin Panel",
+  "Üye oluştur": "Create Member",
+  "İşlem başarısız oldu.": "Operation failed.",
+  "iOS uygulamaları": "iOS apps",
+  "IPA'yı güncelle": "Update IPA",
 const STORAGE_KEY = 'mehmetipa.language'
 type Language = 'tr' | 'en'
 
@@ -856,47 +888,21 @@ function normalize(value: string) {
   return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-const englishFallback: Record<string, string> = Object.create(null)
-for (const [english, turkish] of Object.entries(englishToTurkish)) {
-  if (!englishFallback[turkish]) englishFallback[turkish] = english
-}
-const turkishFallback: Record<string, string> = Object.create(null)
-for (const [turkish, english] of Object.entries(turkishToEnglish)) {
-  if (!turkishFallback[english]) turkishFallback[english] = turkish
-}
-
 function translateText(value: string, language: Language) {
   const source = normalize(value)
   if (!source) return value
-  const dictionary = language === 'tr'
-    ? { ...englishFallback, ...englishToTurkish }
-    : { ...turkishFallback, ...turkishToEnglish }
+  const dictionary = language === 'tr' ? englishToTurkish : turkishToEnglish
   const exact = dictionary[source]
   if (exact) {
     const leading = value.match(/^\s*/)?.[0] || ''
     const trailing = value.match(/\s*$/)?.[0] || ''
     return leading + exact + trailing
   }
-
-  // Translate dynamic file-picker labels without losing the selected file type.
-  const addMore = source.match(/^Add more (.+)\.\.\.$/i)
-  if (language === 'tr' && addMore) {
-    const label = dictionary[addMore[1]] || addMore[1]
-    return value.replace(source, `Daha fazla ${label.toLocaleLowerCase('tr-TR')} ekle...`)
-  }
-  const removeLabel = source.match(/^Remove (.+)$/i)
-  if (language === 'tr' && removeLabel) {
-    const label = dictionary[removeLabel[1]] || removeLabel[1]
-    return value.replace(source, `Kaldır ${label}`)
-  }
-
-  // Translate known phrases inside dynamic text nodes as well.
   const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((x, y) => y.length - x.length)
   let result = value
   for (const key of keys) {
     const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const boundary = '(^|[^\\p{L}\\p{N}])('
-      + escaped + ')(?=$|[^\\p{L}\\p{N}])'
+    const boundary = '(^|[^\\p{L}\\p{N}])(' + escaped + ')(?=$|[^\\p{L}\\p{N}])'
     const pattern = new RegExp(boundary, 'giu')
     result = result.replace(pattern, (_match, prefix: string, phrase: string) => prefix + (dictionary[phrase] || dictionary[key]))
   }
@@ -910,6 +916,7 @@ function applyLanguage(root: ParentNode, language: Language) {
   const nodes: Text[] = []
   while (walker.nextNode()) nodes.push(walker.currentNode as Text)
   for (const node of nodes) {
+    if (node.parentElement?.closest('script,style,textarea,[contenteditable="true"]')) continue
     const current = node.textContent || ''
     let record = originalText.get(node)
     if (!record || current !== record.rendered) {

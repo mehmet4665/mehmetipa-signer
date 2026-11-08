@@ -24,7 +24,9 @@ type Device = {
 }
 
 const TOKEN_KEY = 'mehmetipa.session.v1'
+const APP_VERSION = '0.1.0'
 const APP_DOWNLOAD = 'https://github.com/mehmet4665/mehmetipa-signer/releases/download/latest/Mehmet-IPA-iOS.ipa'
+const UPDATE_MANIFEST = 'https://mehmetipa-signer.pages.dev/app-update.json'
 const API_BASE = 'https://mehmetipa-signer.pages.dev'
 
 async function api<T>(path: string, token?: string, init: RequestInit = {}): Promise<T> {
@@ -364,6 +366,24 @@ export function AccessGate() {
     window.matchMedia('(display-mode: standalone)').matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   )
+  const [availableUpdate, setAvailableUpdate] = React.useState<{ version: string; ipaUrl: string; notes?: string } | null>(null)
+
+  React.useEffect(() => {
+    if (!isInstalledApp) return
+    let active = true
+    fetch(`${UPDATE_MANIFEST}?t=${Date.now()}`, { cache: 'no-store' })
+      .then(response => response.ok ? response.json() : null)
+      .then((manifest: { version?: string; ipaUrl?: string; notes?: string } | null) => {
+        if (!active || !manifest?.version || !manifest.ipaUrl) return
+        const current = APP_VERSION.split('.').map(Number)
+        const latest = manifest.version.split('.').map(Number)
+        const isNewer = latest.some((part, index) => part > (current[index] || 0) &&
+          latest.slice(0, index).every((value, prior) => value === (current[prior] || 0)))
+        if (isNewer) setAvailableUpdate({ version: manifest.version, ipaUrl: manifest.ipaUrl, notes: manifest.notes })
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [isInstalledApp])
 
   if (isPublicDocument) return <SylvaSigner />
 if (view === 'method' && user?.role === 'member') return <main className="relative min-h-screen bg-[#080B18] px-4 pb-28 pt-5 text-white sm:px-6">
@@ -464,6 +484,10 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
           <div className="flex items-center gap-2"><button onClick={() => { setLoginMode('member'); setView('login'); setError('') }} className="rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-sm font-semibold shadow-lg shadow-violet-950/40 transition hover:brightness-110">Üye girişi →</button><button onClick={() => { setLoginMode('admin'); setView('login'); setError('') }} className="rounded-xl border border-white/15 bg-white/[0.05] px-3 py-2.5 text-xs font-semibold text-slate-300 transition hover:border-amber-300/40 hover:text-amber-200">Yönetici</button></div>
         </div>
       </header>
+      {isInstalledApp && availableUpdate && <section className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-300/25 bg-cyan-400/10 p-4">
+        <div><div className="font-semibold text-cyan-100">Yeni sürüm mevcut · v{availableUpdate.version}</div><p className="mt-1 text-sm text-slate-300">{availableUpdate.notes || 'Mehmet IPA’nın yeni sürümü hazır.'}</p></div>
+        <a href={availableUpdate.ipaUrl} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">IPA’yı Güncelle</a>
+      </section>}
 
       <section className="grid items-center gap-10 pb-10 pt-14 sm:pt-20 lg:grid-cols-[1.1fr_.9fr] lg:pb-16">
         <div>

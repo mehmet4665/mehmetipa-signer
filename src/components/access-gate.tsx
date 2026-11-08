@@ -317,6 +317,10 @@ if (view === 'method' && user?.role === 'member') return <Frame>
             {!isInstalledApp && <a href={APP_DOWNLOAD} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-5 text-sm font-semibold text-white transition hover:bg-white/10">↓ Mehmet IPA uygulamasını indir</a>}
             <button onClick={() => { setView('login'); setError('') }} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-6 text-sm font-bold text-white shadow-xl shadow-violet-950/40 transition hover:scale-[1.02]">Hesabıma giriş yap <span>→</span></button>
           </div>
+          <a href="https://t.me/ajandare" target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-sky-400/30 bg-sky-400/10 px-5 text-sm font-semibold text-sky-200 transition hover:border-sky-300/60 hover:bg-sky-400/20 sm:w-auto">
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M21.7 4.35a1.2 1.2 0 0 0-1.25-.18L2.9 10.9c-.9.35-.88 1.62.04 1.93l4.5 1.45 1.7 5.1c.3.88 1.43 1.08 2.02.36l2.55-3.1 4.42 3.25c.72.53 1.75.14 1.94-.74l2.7-13.5a1.2 1.2 0 0 0-.07-.9ZM9.1 13.65l8.8-5.55-6.9 7.05-.28 2.72-1.62-4.22Z"/></svg>
+            Telegram'dan bize ulaş · @ajandare
+          </a>
           <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-400"><span>✓ Tarayıcı üzerinden</span><span>✓ Mobil uyumlu</span><span>✓ Güvenli sertifika kasası</span></div>
         </div>
         <div className="relative mx-auto w-full max-w-md">

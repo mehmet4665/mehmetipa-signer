@@ -895,8 +895,8 @@ function translateText(value: string, language: Language) {
   let result = value
   for (const key of keys) {
     const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const boundary = '(^|[^' + bs + bs + 'p{L}' + bs + bs + 'p{N}])('
-      + escaped + ')(?=$|[^' + bs + bs + 'p{L}' + bs + bs + 'p{N}])'
+    const boundary = '(^|[^\\p{L}\\p{N}])('
+      + escaped + ')(?=$|[^\\p{L}\\p{N}])'
     const pattern = new RegExp(boundary, 'giu')
     result = result.replace(pattern, (_match, prefix: string, phrase: string) => prefix + (dictionary[phrase] || dictionary[key]))
   }

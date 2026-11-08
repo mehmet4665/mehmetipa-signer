@@ -1913,56 +1913,6 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
               files={ipa}
               onFiles={setIpa}
             />
-            <div className="rounded-xl border border-border bg-muted/20 p-3">
-              <Label htmlFor="ipa-url" className="text-xs font-medium text-foreground">
-                IPA URL
-              </Label>
-              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                <Input
-                  id="ipa-url"
-                  type="url"
-                  inputMode="url"
-                  value={ipaUrl}
-                  onChange={(event) => {
-                    setIpaUrl(event.target.value)
-                    setIpaUrlError('')
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault()
-                      if (!ipaUrlDownloading && state !== 'signing') void handleDownloadIpaUrl()
-                    }
-                  }}
-                  placeholder="https://example.com/app.ipa"
-                  disabled={ipaUrlDownloading || state === 'signing'}
-                  aria-invalid={Boolean(ipaUrlError)}
-                />
-                <Button
-                  type="button"
-                  variant={ipaUrlDownloading ? 'outline' : 'secondary'}
-                  onClick={ipaUrlDownloading ? handleCancelIpaUrlDownload : handleDownloadIpaUrl}
-                  disabled={state === 'signing' || (!ipaUrl.trim() && !ipaUrlDownloading)}
-                  className="sm:w-32"
-                >
-                  {ipaUrlDownloading ? (
-                    <LoaderCircle size={16} />
-                  ) : (
-                    <Download size={16} />
-                  )}
-                  {ipaUrlDownloading ? 'Cancel' : 'Import URL'}
-                </Button>
-              </div>
-              {(ipaUrlProgress || ipaUrlError) && (
-                <p
-                  className={cn(
-                    'mt-2 text-xs leading-5',
-                    ipaUrlError ? 'text-destructive' : 'text-muted-foreground',
-                  )}
-                >
-                  {ipaUrlError || ipaUrlProgress}
-                </p>
-              )}
-            </div>
             <FileDrop
               id="p12"
               label="Signing certificate (.p12)"

@@ -51,14 +51,33 @@ jobs:
           rm -rf "$RUNNER_TEMP/SwiftPackageCache"
           rm -rf "$RUNNER_TEMP/SourcePackages"
 
-      - name: Resolve Swift packages
+      - name: Resolve Swift packages (retry transient download errors)
+        shell: bash
         run: |
-          xcodebuild \
-            -resolvePackageDependencies \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -packageCachePath "$RUNNER_TEMP/SwiftPackageCache" \
-            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
+          set +e
+          for attempt in 1 2 3 4 5; do
+            echo "Swift package resolution attempt $attempt/5"
+            xcodebuild \
+              -resolvePackageDependencies \
+              -project ios/App/App.xcodeproj \
+              -scheme App \
+              -packageCachePath "$RUNNER_TEMP/SwiftPackageCache" \
+              -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
+            result=$?
+
+            if [ "$result" -eq 0 ]; then
+              echo "Swift packages resolved successfully."
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 5 ]; then
+              echo "Package download failed (exit $result). Retrying in 20 seconds..."
+              sleep 20
+            fi
+          done
+
+          echo "Swift package resolution failed after 5 attempts."
+          exit 1
 
       - name: Build iOS app
         run: |

@@ -54,11 +54,6 @@ import {
   upsertIpaHistoryEntry,
   type IpaHistoryEntry,
 } from '@/history-api'
-import {
-  fetchNexCertFiles,
-  fetchSignedNexCerts,
-  type NexCertEntry,
-} from '@/public-certs'
 import { saveOutput, signIpa } from '@/zsign-api'
 import { sylvaProxyBaseUrl } from '@/install-api'
 import type { OutputFile, SignIpaOptions, ZsignProgress } from '@/types'
@@ -1272,10 +1267,9 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
   const [dylibMetadata, setDylibMetadata] = React.useState<Record<string, DylibMetadata>>({})
   const [dylibMetadataLoading, setDylibMetadataLoading] = React.useState(false)
   const [dylibMetadataErrors, setDylibMetadataErrors] = React.useState<Record<string, string>>({})
-  const [publicCerts, setPublicCerts] = React.useState<NexCertEntry[]>([])
-  const [publicCertsLoading, setPublicCertsLoading] = React.useState(false)
-  const [publicCertImportingId, setPublicCertImportingId] = React.useState('')
-  const [publicCertMessage, setPublicCertMessage] = React.useState('')
+  const [vipCertificate, setVipCertificate] = React.useState<{ name: string; profile: string; expires_at: string | null } | null>(null)
+  const [vipCertificateLoading, setVipCertificateLoading] = React.useState(true)
+  const [vipCertificateError, setVipCertificateError] = React.useState('')
 
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [state, setState] = React.useState<SignState>('idle')
@@ -1293,10 +1287,9 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
   const [currentHistoryId, setCurrentHistoryId] = React.useState('')
   const installMetadataRef = React.useRef<Partial<InstallMetadata>>({})
   const consoleRef = React.useRef<HTMLDivElement>(null)
-  const publicCertAbortRef = React.useRef<AbortController | null>(null)
   const ipaUrlAbortRef = React.useRef<AbortController | null>(null)
 
-  const canSign = Boolean(ipa[0] && (p12[0] || cachedCertInfo?.p12) && (profiles.length || cachedCertInfo?.profiles.length)) && state !== 'signing'
+  const canSign = Boolean(ipa[0] && (p12[0] || cachedCertInfo?.p12) && (profiles.length || cachedCertInfo?.profiles.length)) && state !== 'signing' && !vipCertificateLoading && Boolean(vipCertificate)
   const hasCache = Boolean(cachedCertInfo?.p12 || cachedCertInfo?.profiles.length || cachedCertInfo?.password)
   const firstOutput = outputs.find((output) => output.name.toLowerCase().endsWith('.ipa')) ?? outputs[0]
   const certificateBundleId = profileMetadata.find((profile) => profile.bundleId)?.bundleId
@@ -1306,8 +1299,60 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
   }, [])
 
   React.useEffect(() => {
+    let cancelled = false
+    const loadVipCertificate = async () => {
+      setVipCertificateLoading(true)
+      setVipCertificateError('')
+      try {
+        const token = window.sessionStorage.getItem('mehmetipa.session.v1')
+        if (!token) throw new Error('VIP imzalama için hesabına giriş yapmalısın.')
+        const response = await fetch('/api/signing/certificate', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store'
+        })
+        const result = await response.json() as {
+          success?: boolean
+          error?: string
+          certificate?: {
+            name: string
+            profile: string
+            expires_at: string | null
+            p12_base64: string
+            profile_base64: string
+            password: string
+          }
+        }
+        if (!response.ok || !result.success || !result.certificate) {
+          throw new Error(result.error || 'VIP sertifikası yüklenemedi.')
+        }
+        if (cancelled) return
+        const decodeFile = (value: string, name: string, type: string) => {
+          const binary = atob(value)
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+          return new File([bytes], name, { type, lastModified: Date.now() })
+        }
+        const p12File = decodeFile(result.certificate.p12_base64, 'mehmetipa-vip.p12', 'application/x-pkcs12')
+        const profileFile = decodeFile(result.certificate.profile_base64, 'mehmetipa-vip.mobileprovision', 'application/octet-stream')
+        setP12([p12File])
+        setProfiles([profileFile])
+        setCertPassword(result.certificate.password)
+        setVipCertificate({
+          name: result.certificate.name,
+          profile: result.certificate.profile,
+          expires_at: result.certificate.expires_at
+        })
+      } catch (error) {
+        if (!cancelled) setVipCertificateError(error instanceof Error ? error.message : 'VIP sertifikası yüklenemedi.')
+      } finally {
+        if (!cancelled) setVipCertificateLoading(false)
+      }
+    }
+    void loadVipCertificate()
+    return () => { cancelled = true }
+  }, [])
+
+  React.useEffect(() => {
     return () => {
-      publicCertAbortRef.current?.abort()
       ipaUrlAbortRef.current?.abort()
     }
   }, [])
@@ -1486,68 +1531,6 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
     const time = new Date().toLocaleTimeString('en-US', { hour12: false })
     setLogs((prev) => [...prev, { id: ++logCounter, time, level, message }])
   }, [])
-
-  const handleLoadPublicCerts = React.useCallback(async () => {
-    publicCertAbortRef.current?.abort()
-    const controller = new AbortController()
-    publicCertAbortRef.current = controller
-    setPublicCertsLoading(true)
-    setPublicCertMessage('Loading signed public enterprise certificates from NexCerts...')
-
-    try {
-      const entries = await fetchSignedNexCerts(controller.signal)
-      setPublicCerts(entries)
-      setPublicCertMessage(
-        entries.length
-          ? `${entries.length} currently signed public enterprise certificate${entries.length === 1 ? '' : 's'} available.`
-          : 'No signed public enterprise certificates are currently listed by NexCerts.',
-      )
-      addLog(
-        entries.length ? 'info' : 'warn',
-        `NexCerts signed public certificate list loaded (${entries.length} available)`,
-      )
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return
-      const message = error instanceof Error ? error.message : String(error)
-      setPublicCertMessage(message)
-      addLog('error', message)
-    } finally {
-      if (publicCertAbortRef.current === controller) {
-        publicCertAbortRef.current = null
-      }
-      setPublicCertsLoading(false)
-    }
-  }, [addLog])
-
-  const handleImportPublicCert = React.useCallback(
-    async (entry: NexCertEntry) => {
-      publicCertAbortRef.current?.abort()
-      const controller = new AbortController()
-      publicCertAbortRef.current = controller
-      setPublicCertImportingId(entry.id)
-      setPublicCertMessage(`Importing ${entry.company} from NexCerts...`)
-
-      try {
-        const files = await fetchNexCertFiles(entry, controller.signal)
-        setP12([files.p12])
-        setProfiles([files.profile])
-        setCertPassword(files.password)
-        setPublicCertMessage(`${entry.company} imported. Review the certificate details before signing.`)
-        addLog('success', `Imported signed public enterprise certificate: ${entry.company}`)
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return
-        const message = error instanceof Error ? error.message : String(error)
-        setPublicCertMessage(message)
-        addLog('error', message)
-      } finally {
-        if (publicCertAbortRef.current === controller) {
-          publicCertAbortRef.current = null
-        }
-        setPublicCertImportingId('')
-      }
-    },
-    [addLog],
-  )
 
   const handleDownloadIpaUrl = React.useCallback(async () => {
     const value = ipaUrl.trim()
@@ -1929,230 +1912,37 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
               files={ipa}
               onFiles={setIpa}
             />
-            <FileDrop
-              id="p12"
-              label="Signing certificate (.p12)"
-              hint="Select or drop your .p12"
-              accept=".p12,.pfx"
-              icon={BadgeCheck}
-              hoverColor="group-hover:text-emerald-500"
-              files={p12}
-              onFiles={setP12}
-            />
-            <FileDrop
-              id="profiles"
-              label="Provisioning profile"
-              hint="Select or drop .mobileprovision"
-              accept=".mobileprovision,.provisionprofile"
-              multiple
-              icon={LockKeyhole}
-              hoverColor="group-hover:text-amber-500"
-              files={profiles}
-              onFiles={setProfiles}
-            />
-            <FileDrop
-              id="dylibs"
-              label="Dylibs (optional)"
-              hint="Select or drop .dylib files to inject"
-              accept=".dylib"
-              multiple
-              icon={Blocks}
-              hoverColor="group-hover:text-rose-500"
-              files={dylibs}
-              onFiles={setDylibs}
-            />
+
           </section>
 
           <section className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5">
-            <div className="flex items-center gap-2">
-              <AnimateIcon animateOnHover>
-                <Key
-                  size={18}
-                  className="text-muted-foreground transition-colors hover:text-violet-500"
-                />
-              </AnimateIcon>
-              <h2 className="text-sm font-semibold tracking-tight">
-                Credentials &amp; Options
-              </h2>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Lock size={19} className="text-emerald-500" />
+                <h2 className="text-base font-bold tracking-tight">Mehmet IPA VIP Certificate</h2>
+              </div>
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
+                <Lock size={12} /> Locked
+              </span>
             </div>
-
             <div className="rounded-xl border border-border bg-muted/25 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <AnimateIcon animateOnHover>
-                      <BadgeCheck
-                        size={18}
-                        className="text-muted-foreground transition-colors hover:text-emerald-500"
-                      />
-                    </AnimateIcon>
-                    <p className="text-sm font-medium">Public enterprise certificates</p>
+              {vipCertificateLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle size={16} className="animate-spin" /> Loading VIP certificate...</div>
+              ) : vipCertificate ? (
+                <div className="flex items-start gap-3">
+                  <BadgeCheck size={22} className="mt-0.5 shrink-0 text-emerald-500" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{vipCertificate.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Provisioning profile: {vipCertificate.profile}</p>
+                    {vipCertificate.expires_at && <p className="mt-1 text-xs text-muted-foreground">Expires {formatMetadataDate(vipCertificate.expires_at)}</p>}
+                    <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-300">Your account is using the site's managed signing certificate.</p>
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Imports only NexCerts README entries currently marked signed. Public
-                    enterprise certificates are third-party assets and may be revoked.
-                  </p>
                 </div>
-                <AnimateIcon animate={publicCertsLoading} loop={publicCertsLoading} asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleLoadPublicCerts}
-                    disabled={publicCertsLoading || Boolean(publicCertImportingId)}
-                    className="gap-2 sm:self-start"
-                  >
-                    {publicCertsLoading ? <LoaderCircle size={16} /> : <Download size={16} />}
-                    {publicCerts.length ? 'Refresh signed list' : 'Load signed list'}
-                  </Button>
-                </AnimateIcon>
-              </div>
-
-              {publicCertMessage && (
-                <p className="mt-3 text-xs leading-5 text-muted-foreground">{publicCertMessage}</p>
-              )}
-
-              {publicCerts.length > 0 && (
-                <div className="mt-3 grid gap-2">
-                  {publicCerts.map((entry) => {
-                    const importing = publicCertImportingId === entry.id
-                    return (
-                      <div
-                        key={entry.id}
-                        className="flex flex-col gap-3 rounded-lg border border-border bg-background/70 p-3 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="min-w-0 break-words text-sm font-medium">
-                              {entry.company}
-                            </p>
-                            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[0.7rem] font-medium text-emerald-600 dark:text-emerald-300">
-                              Signed
-                            </span>
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Valid {entry.validFrom} to {entry.validTo}
-                          </p>
-                          <a
-                            href={entry.sourceTreeUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 inline-flex text-xs text-sky-400 hover:text-sky-300 hover:underline"
-                          >
-                            View source files
-                          </a>
-                        </div>
-                        <AnimateIcon animate={importing} loop={importing} asChild>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => void handleImportPublicCert(entry)}
-                            disabled={Boolean(publicCertImportingId) || publicCertsLoading}
-                            className="gap-2 sm:self-center"
-                          >
-                            {importing ? <LoaderCircle size={16} /> : <Upload size={16} />}
-                            {importing ? 'Importing...' : 'Import'}
-                          </Button>
-                        </AnimateIcon>
-                      </div>
-                    )
-                  })}
-                </div>
+              ) : (
+                <p className="text-sm text-destructive">{vipCertificateError || 'VIP certificate is unavailable.'}</p>
               )}
             </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="cert-password">Certificate password</Label>
-              <Input
-                id="cert-password"
-                type="password"
-                placeholder="Enter .p12 password"
-                value={certPassword}
-                onChange={(e) => setCertPassword(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="output-name">Output IPA name</Label>
-                <Input
-                  id="output-name"
-                  placeholder="e.g. my-app-signed.ipa"
-                  value={outputName}
-                  onChange={(e) => {
-                    setOutputNameTouched(true)
-                    setOutputName(e.target.value)
-                  }}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="bundle-id" className="flex items-center gap-1.5">
-                    <Fingerprint size={14} className="text-muted-foreground" />
-                    Bundle ID
-                  </Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="xs"
-                    onClick={() => certificateBundleId && setBundleId(certificateBundleId)}
-                    disabled={!certificateBundleId || state === 'signing'}
-                    title={
-                      certificateBundleId
-                        ? `Use ${certificateBundleId} from the provisioning profile`
-                        : 'No exact bundle ID found in the provisioning profile'
-                    }
-                  >
-                    Use cert bundle ID
-                  </Button>
-                </div>
-                <Input
-                  id="bundle-id"
-                  placeholder="Detected from IPA"
-                  value={bundleId}
-                  onChange={(e) => setBundleId(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 px-4 py-3">
-              <AnimateIcon animateOnHover asChild>
-                <label
-                  htmlFor="cache-cert"
-                  className="group flex flex-1 cursor-pointer items-center gap-3"
-                >
-                  <Fingerprint
-                    size={20}
-                    className="text-muted-foreground transition-colors group-hover:text-cyan-500"
-                  />
-                  <div>
-                    <p className="text-sm font-medium">Cache certificate locally</p>
-                    <p className="text-xs text-muted-foreground">
-                      Remember signing assets in this browser
-                    </p>
-                  </div>
-                </label>
-              </AnimateIcon>
-              <Switch
-                id="cache-cert"
-                checked={cacheCert}
-                onCheckedChange={setCacheCert}
-              />
-            </div>
-
-            {hasCache && (
-              <AnimateIcon animateOnHover asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={handleClearCache}
-                  className="w-fit gap-2 text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 size={16} />
-                  Forget cached certificate
-                </Button>
-              </AnimateIcon>
-            )}
+            <p className="text-sm text-muted-foreground">Upload only your IPA file. Certificate and provisioning profile are managed by Mehmet IPA.</p>
           </section>
 
           <div className="flex flex-wrap items-center gap-3">

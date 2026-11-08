@@ -198,6 +198,29 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, status: 'pending' }, 201)
       }
         
+
+      // MEMBER PRESENCE: heartbeat and device/browser details derived from request headers.
+      if (path === '/api/presence/heartbeat' && method === 'POST') {
+        if (isAdmin) return json({ success: true })
+        const ua = request.headers.get('user-agent') || ''
+        const device = /iPhone/i.test(ua) ? 'iPhone' : /iPad/i.test(ua) ? 'iPad' : /Android/i.test(ua) ? 'Android cihaz' : /Windows/i.test(ua) ? 'Windows bilgisayar' : /Macintosh|Mac OS/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux cihaz' : 'Bilinmeyen cihaz'
+        const browser = /Edg\//i.test(ua) ? 'Edge' : /CriOS\//i.test(ua) ? 'Chrome (iOS)' : /FxiOS\//i.test(ua) ? 'Firefox (iOS)' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : /Firefox\//i.test(ua) ? 'Firefox' : 'Bilinmeyen tarayıcı'
+        await env.DB.prepare('UPDATE users SET last_seen_at = ?, device_label = ?, browser_label = ? WHERE id = ?')
+          .bind(new Date().toISOString(), device, browser, session.sub).run()
+        return json({ success: true })
+      }
+      if (path === '/api/admin/presence' && method === 'GET') {
+        const denied = requireAdmin(); if (denied) return denied
+        const { results = [] } = await env.DB.prepare(
+          'SELECT id, name, username, last_seen_at, device_label, browser_label FROM users ORDER BY last_seen_at DESC'
+        ).all()
+        const now = Date.now()
+        return json({ success: true, users: results.map(row => ({
+          ...row,
+          online: !!row.last_seen_at && now - new Date(row.last_seen_at).getTime() <= 90000
+        })) })
+      }
+
       // SIGNING: VIP sertifika durumu
       if (path === '/api/signing/availability' && method === 'GET') {
         const cert = await env.DB.prepare(

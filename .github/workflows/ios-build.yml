@@ -44,19 +44,30 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Restore Swift Package Manager cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm/artifacts
+            ~/Library/Developer/Xcode/DerivedData
+            $RUNNER_TEMP/SwiftPackageCache
+            $RUNNER_TEMP/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('ios/App/Package.swift', 'ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
       - name: Prepare Swift Package Manager
         run: |
-          rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
-          rm -rf "$HOME/Library/Developer/Xcode/DerivedData"
-          rm -rf "$RUNNER_TEMP/SwiftPackageCache"
-          rm -rf "$RUNNER_TEMP/SourcePackages"
+          mkdir -p "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
+          mkdir -p "$RUNNER_TEMP/SwiftPackageCache"
+          mkdir -p "$RUNNER_TEMP/SourcePackages"
 
       - name: Resolve Swift packages (retry transient download errors)
         shell: bash
         run: |
           set +e
-          for attempt in 1 2 3 4 5; do
-            echo "Swift package resolution attempt $attempt/5"
+          for attempt in 1 2 3 4 5 6 7 8; do
+            echo "Swift package resolution attempt $attempt/8"
             xcodebuild \
               -resolvePackageDependencies \
               -project ios/App/App.xcodeproj \
@@ -70,14 +81,26 @@ jobs:
               exit 0
             fi
 
-            if [ "$attempt" -lt 5 ]; then
-              echo "Package download failed (exit $result). Retrying in 20 seconds..."
-              sleep 20
+            if [ "$attempt" -lt 8 ]; then
+              delay=$((attempt * 25))
+              echo "Package download failed (exit $result). Retrying in $delay seconds..."
+              sleep "$delay"
             fi
           done
 
-          echo "Swift package resolution failed after 5 attempts."
+          echo "Swift package resolution failed after 8 attempts."
           exit 1
+
+      - name: Save Swift Package Manager cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm/artifacts
+            ~/Library/Developer/Xcode/DerivedData
+            $RUNNER_TEMP/SwiftPackageCache
+            $RUNNER_TEMP/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('ios/App/Package.swift', 'ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Build iOS app
         run: |

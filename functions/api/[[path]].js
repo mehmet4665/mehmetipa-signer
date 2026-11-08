@@ -75,7 +75,7 @@ function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
 }
 function cleanUser(row) {
-  return { id: row.id, name: row.name, username: row.username, group_name: row.group_name, status: row.status, created_at: row.created_at }
+  return { id: row.id, name: row.name, username: row.username, email: row.email || null, group_name: row.group_name, status: row.status, created_at: row.created_at }
 }
 
 export async function onRequest({ request, env, params }) {
@@ -116,6 +116,7 @@ export async function onRequest({ request, env, params }) {
       return json({success:true,message:'E-posta doğrulandı. Başvurun yönetici onayına gönderildi.'})
     }
     if (path === '/api/auth/forgot-password' && method === 'POST') {
+      if (!env.RESEND_API_KEY || !env.MAIL_FROM) return json({ success:false,error:'Şifre sıfırlama e-postası henüz yapılandırılmadı.' },503)
       if (!(await rateLimit(env,request,'forgot-password',4,30))) return json({success:false,error:'Çok fazla deneme. Daha sonra tekrar dene.'},429)
       const body=await readBody(request), email=String(body.email||'').trim().toLowerCase(); if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({success:false,error:'Geçerli e-posta adresi gir.'},400)
       const row=await env.DB.prepare("SELECT id,email FROM users WHERE email=? AND status='active' LIMIT 1").bind(email).first()
@@ -123,6 +124,7 @@ export async function onRequest({ request, env, params }) {
       return json({success:true,message:'Bu e-posta kayıtlıysa şifre sıfırlama bağlantısı gönderildi.'})
     }
     if (path === '/api/auth/reset-password' && method === 'POST') {
+      if (!(await rateLimit(env,request,'reset-password',6,30))) return json({success:false,error:'Çok fazla deneme. Daha sonra tekrar dene.'},429)
       const body=await readBody(request), hash=await sha256Hex(String(body.token||'')), password=String(body.password||''); if(password.length<8||password.length>128) return json({success:false,error:'Şifre 8-128 karakter olmalı.'},400)
       const row=await env.DB.prepare('SELECT id,user_id,expires_at,used_at FROM password_reset_tokens WHERE token_hash=? LIMIT 1').bind(hash).first(); if(!row||row.used_at||new Date(row.expires_at).getTime()<Date.now()) return json({success:false,error:'Bağlantı geçersiz, kullanılmış veya süresi dolmuş.'},400)
       const passwordHash=await hashPassword(password), now=new Date().toISOString(); await env.DB.batch([env.DB.prepare('UPDATE users SET password_hash=? WHERE id=?').bind(passwordHash,row.user_id),env.DB.prepare('UPDATE password_reset_tokens SET used_at=? WHERE id=?').bind(now,row.id),env.DB.prepare('UPDATE password_reset_tokens SET used_at=? WHERE user_id=? AND used_at IS NULL').bind(now,row.user_id)]); return json({success:true,message:'Şifren yenilendi. Yeni şifrenle giriş yapabilirsin.'})

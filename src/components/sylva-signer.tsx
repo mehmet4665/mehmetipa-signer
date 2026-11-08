@@ -10,7 +10,6 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 
 import { FileDrop } from '@/components/file-drop'
-import { InstallQrDialog } from '@/components/install-qr-dialog'
 import {
   LogConsole,
   type ConsoleActivity,
@@ -30,7 +29,6 @@ import { Trash2 } from '@/components/animate-ui/icons/trash-2'
 import { Download } from '@/components/animate-ui/icons/download'
 import { LoaderCircle } from '@/components/animate-ui/icons/loader-circle'
 import { CircleCheckBig } from '@/components/animate-ui/icons/circle-check-big'
-import { Send } from '@/components/animate-ui/icons/send'
 import { Upload } from '@/components/animate-ui/icons/upload'
 import { Copy } from '@/components/animate-ui/icons/copy'
 import { Lock } from '@/components/animate-ui/icons/lock'
@@ -1234,7 +1232,6 @@ function AppDetailsTile({
 }
 
 function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
-  const directInstallOnDevice = mobileMode && isAppleMobileBrowser()
   const [ipa, setIpa] = React.useState<File[]>([])
   const [p12, setP12] = React.useState<File[]>([])
   const [profiles, setProfiles] = React.useState<File[]>([])
@@ -1859,22 +1856,6 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
           >
             <Info size={16} />
           </Button>
-          <AnimateIcon animateOnHover asChild>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setHistoryEntries(readIpaHistory())
-                setHistoryDialogOpen(true)
-              }}
-              aria-label="Previous IPAs"
-              title="Previous IPAs"
-              className="size-9 gap-2 px-0 sm:w-auto sm:px-2.5"
-            >
-              <ClipboardList size={16} />
-              <span className="hidden sm:inline">Previous IPAs</span>
-            </Button>
-          </AnimateIcon>
           <a
             href="https://github.com/mehmet4665/mehmetipa-signer"
             target="_blank"
@@ -2306,17 +2287,6 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
                   {outputs[0]?.name ?? outputName} is ready to download
                 </p>
               </div>
-              <AnimateIcon animateOnHover asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setInstallDialogOpen(true)}
-                  className="gap-2 border-emerald-500/30 bg-background/70 text-foreground hover:bg-background"
-                >
-                  <Send size={16} />
-                  {directInstallOnDevice ? 'Install on iPhone' : 'Install QR'}
-                </Button>
-              </AnimateIcon>
             </div>
           )}
 
@@ -2340,32 +2310,6 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
       </div>
 
       <SigningGuideAndFaq />
-
-      {installDialogOpen && firstOutput && (
-        <InstallQrDialog
-          output={firstOutput}
-          initialMetadata={installMetadata}
-          directInstall={directInstallOnDevice}
-          onClose={() => setInstallDialogOpen(false)}
-          onLog={(message) => addLog(logLevelFor(message), message)}
-          onUploaded={(result, expiry, provider) => {
-            if (!currentHistoryId) return
-            setHistoryEntries(updateHistoryEntryUpload(currentHistoryId, result, expiry, provider))
-          }}
-        />
-      )}
-
-      {historyDialogOpen && (
-        <PreviousIpasDialog
-          entries={historyEntries}
-          directInstall={directInstallOnDevice}
-          onClose={() => setHistoryDialogOpen(false)}
-          onClear={() => {
-            clearIpaHistory()
-            setHistoryEntries([])
-          }}
-        />
-      )}
 
       {welcomeOpen && (
         <WelcomeDialog onClose={() => setWelcomeOpen(false)} />

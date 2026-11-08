@@ -99,6 +99,7 @@ export async function onRequest({ request, env, params }) {
       if (!(await rateLimit(env, request, 'register', 5, 30))) return json({ success: false, error: 'Çok fazla kayıt denemesi. Bir süre sonra tekrar dene.' }, 429)
       const body = await readBody(request); const name = String(body.name || '').trim().slice(0,80); const username = String(body.username || '').trim().toLowerCase(); const email = String(body.email || '').trim().toLowerCase(); const password = String(body.password || '')
       if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success:false,error:'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' },400)
+      await env.DB.prepare("DELETE FROM registration_requests WHERE status='verification_pending' AND verification_expires_at < ?").bind(new Date().toISOString()).run()
       const existing = await env.DB.prepare('SELECT username FROM users WHERE username=? OR email=? UNION SELECT username FROM registration_requests WHERE username=? OR email=? LIMIT 1').bind(username,email,username,email).first()
       if (existing) return json({ success:false,error:'Bu kullanıcı adı veya e-posta zaten kayıtlı ya da başvuru bekliyor.' },409)
       if (!env.RESEND_API_KEY || !env.MAIL_FROM) return json({ success:false,error:'E-posta gönderimi henüz yapılandırılmadı. Yönetici e-posta servisini etkinleştirmeli.' },503)
@@ -164,6 +165,7 @@ export async function onRequest({ request, env, params }) {
       const session = await readToken(bearer(request), env.ADMIN_PASSWORD)
       if (!session) return json({ success: false, error: 'Oturum açmanız gerekiyor.' }, 401)
       const isAdmin = session.role === 'admin'
+      if (!isAdmin) { const activeUser = await env.DB.prepare("SELECT status FROM users WHERE id=? LIMIT 1").bind(session.sub).first(); if (!activeUser || activeUser.status !== 'active') return json({ success:false,error:'Hesabın devre dışı. Yöneticiyle iletişime geç.' },403) }
       const requireAdmin = () => isAdmin ? null : json({ success: false, error: 'Bu işlem yalnızca yöneticiye açık.' }, 403)
 
       if (path === '/api/admin/registration-requests' && method === 'GET') {

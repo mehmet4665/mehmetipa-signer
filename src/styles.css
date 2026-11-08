@@ -322,3 +322,6 @@
   .signer-step { padding: .65rem .55rem; }
   .signer-step strong { font-size: .68rem; }
 }
+
+/* Language-specific copy is rendered as a whole phrase when word order differs. */
+[data-locale="en"][hidden], [data-locale="tr"][hidden] { display: none !important; }

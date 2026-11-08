@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 
 const englishToTurkish: Record<string, string> = {
   "Welcome,": "Hoş geldin,",
@@ -20,7 +21,7 @@ const englishToTurkish: Record<string, string> = {
   "IPA signing": "IPA imzalama",
   "Open the signing screen to sign your IPA with your own certificate and provisioning profile.": "IPA dosyanı kendi sertifikan ve provisioning profile dosyanla imzalama ekranına geç.",
   "Open Signing Center →": "İmzalama merkezini aç →",
-  "Account": "Hesabım",
+  "Account": "Hesap",
   "Account status: Active": "Hesap durumu: Aktif",
   "Device registration": "Cihaz kaydı",
   "Device UDID": "Cihaz UDID",
@@ -63,7 +64,7 @@ const englishToTurkish: Record<string, string> = {
   "Already have an account? Sign in": "Zaten hesabın var mı? Giriş yap",
   "Enter the email address linked to your account. We will send a reset link.": "Hesabına bağlı e-posta adresini gir. Sıfırlama bağlantısı göndereceğiz.",
   "Email": "E-posta",
-  "Back to sign in": "Girişe dön",
+  "Back to sign in": "Giriş ekranına dön",
   "Set a new password": "Yeni şifre belirle",
   "New password": "Yeni şifre",
   "Confirm new password": "Yeni şifre tekrar",
@@ -144,7 +145,7 @@ const englishToTurkish: Record<string, string> = {
   "VIP membership": "VIP üyelik",
   "Choose the plan that suits you": "Sana uygun paketi seç",
   "Plan options will appear here when VIP service launches.": "VIP hizmeti kullanıma açıldığında paket seçenekleri burada olacak.",
-  "Coming soon": "Yakında aktif",
+  "Coming soon": "Yakında",
   "Starter": "Başlangıç",
   "1-month VIP plan": "1 aylık VIP paket",
   "Best value": "Avantajlı",
@@ -160,14 +161,14 @@ const englishToTurkish: Record<string, string> = {
   "Mehmet IPA Signer runs zsign as WebAssembly inside a dedicated browser worker. Your IPA, certificate, provisioning profile, password, optional dylibs, and signed output remain on this device during signing. Signed files are downloaded directly by your browser; this site does not upload IPA files to its servers or to third-party hosting services.": "Mehmet IPA Signer, zsign'ı özel bir tarayıcı işçisi içinde WebAssembly olarak çalıştırır. IPA dosyan, sertifikan, provisioning profilin, şifren, isteğe bağlı dylib dosyaların ve imzalanmış çıktın imzalama sırasında bu cihazda kalır. İmzalanan dosyalar doğrudan tarayıcından indirilir; bu site IPA dosyalarını kendi sunucularına veya üçüncü taraf barındırma hizmetlerine yüklemez.",
   "Mobile compatibility mode": "Mobil uyumluluk modu",
   "Uses upstream zsign's slower native archive path to reduce browser memory duplication. Keep this tab active until signing and download finish.": "Tarayıcı belleğinin gereksiz yere çoğalmasını azaltmak için zsign'ın daha yavaş yerel arşivleme yöntemi kullanılır. İmzalama ve indirme tamamlanana kadar bu sekmeyi açık tut.",
-  "Credentials & Options": "Sertifika ve imzalama ayarları",
+  "Credentials & Options": "Kimlik bilgileri ve seçenekler",
   "Public enterprise certificates": "Genel kurumsal sertifikalar",
   "Imports only NexCerts README entries currently marked signed. Public enterprise certificates are third-party assets and may be revoked.": "Yalnızca NexCerts listesindeki imzalı olarak işaretlenmiş kayıtları içe aktarır. Genel kurumsal sertifikalar üçüncü taraf kaynaklardır ve iptal edilebilir.",
   "Signed": "İmzalandı",
   "View source files": "Kaynak dosyaları görüntüle",
-  "Certificate password": "Sertifika şifresi",
-  "Output IPA name": "Çıktı IPA dosya adı",
-  "Bundle ID": "Paket kimliği (Bundle ID)",
+  "Certificate password": "Sertifika parolası",
+  "Output IPA name": "Çıktı IPA dosyasının adı",
+  "Bundle ID": "Paket kimliği",
   "Use cert bundle ID": "Sertifikadaki paket kimliğini kullan",
   "Cache certificate locally": "Sertifikayı bu tarayıcıda sakla",
   "Remember signing assets in this browser": "İmzalama dosyalarını bu tarayıcıda hatırla",
@@ -175,9 +176,9 @@ const englishToTurkish: Record<string, string> = {
   "Download": "İndir",
   "Clear": "Temizle",
   "Signing complete": "İmzalama tamamlandı",
-  "Signed output": "İmzalanmış dosya",
+  "Signed output": "İmzalanmış çıktı",
   "Previous IPAs": "Önceki IPA dosyaları",
-  "Local history of signed names and temporary install links.": "İmzalanan dosyaların adlarının ve geçici kurulum bağlantılarının yerel geçmişi.",
+  "Local history of signed names and temporary install links.": "İmzalanmış dosya adlarının ve geçici kurulum bağlantılarının yerel geçmişi.",
   "Close": "Kapat",
   "No signed IPA history yet.": "Henüz imzalanmış IPA geçmişi yok.",
   "Clear History": "Geçmişi temizle",
@@ -202,7 +203,7 @@ const englishToTurkish: Record<string, string> = {
   "Expires": "Son kullanma tarihi",
   "Select or drop your .ipa": " .ipa dosyanı seç veya buraya bırak",
   "Select or drop your .p12": " .p12 dosyanı seç veya buraya bırak",
-  "Select or drop .mobileprovision": ".mobileprovision dosyanı seç veya buraya bırak",
+  "Select or drop .mobileprovision": " .mobileprovision dosyanı seç veya buraya bırak",
   "Select or drop .dylib files to inject": "Eklenecek .dylib dosyalarını seç veya buraya bırak",
   "IPA file": "IPA dosyası",
   "Signing certificate (.p12)": "İmzalama sertifikası (.p12)",
@@ -246,7 +247,7 @@ const englishToTurkish: Record<string, string> = {
   "Upload complete. Preparing the installation link...": "Yükleme tamamlandı. Kurulum bağlantısı hazırlanıyor...",
   "The first attempt failed. Uploading the file again.": "İlk deneme başarısız oldu. Dosya yeniden yükleniyor.",
   "Keep this tab open while the file is sent to": "Dosya gönderilirken bu sekmeyi açık tut:",
-  "Keep Sylva open until the upload finishes.": "Yükleme bitene kadar Sylva'yı açık tut.",
+  "Keep Sylva open until the upload finishes.": "Yükleme tamamlanana kadar Sylva'yı açık tut.",
   "Cancel preparation": "Hazırlığı iptal et",
   "Cancel upload": "Yüklemeyi iptal et",
   "Host retention": "Barındırma süresi",
@@ -354,11 +355,11 @@ const englishToTurkish: Record<string, string> = {
   "Unzipping IPA locally": "IPA yerel olarak açılıyor",
   "IPA extracted": "IPA çıkarıldı",
   "Preparing app signature": "Uygulama imzası hazırlanıyor",
-  "Signing app binaries": "Uygulama ikili dosyaları imzalanıyor",
-  "Writing bundle signatures": "Paket imzaları yazılıyor",
+  "Signing app binaries": "Uygulama dosyaları imzalanıyor",
+  "Writing bundle signatures": "Uygulama paketi imzaları yazılıyor",
   "Signature complete": "İmza tamamlandı",
   "Archiving signed IPA": "İmzalanmış IPA arşivleniyor",
-  "Archive complete": "Arşiv tamamlandı",
+  "Archive complete": "Arşivleme tamamlandı",
   "Reading app details...": "Uygulama bilgileri okunuyor...",
   "Minimum OS unavailable": "Minimum işletim sistemi bilgisi yok",
   "Dependencies unavailable": "Bağımlılık bilgisi yok",
@@ -375,7 +376,7 @@ const englishToTurkish: Record<string, string> = {
   "Could not create member.": "Üye oluşturulamadı.",
   "Operation failed.": "İşlem başarısız.",
   "Group (optional)": "Grup (isteğe bağlı)",
-  "Unblock": "Engeli Kaldır",
+  "Unblock": "Engeli kaldır",
   "Member device": "Üye cihazı",
   "New version available · v": "Yeni sürüm mevcut · v",
   "Application:": "Başvuru:",
@@ -388,7 +389,7 @@ const englishToTurkish: Record<string, string> = {
   "Signing in…": "Giriş yapılıyor…",
   "Submitting application…": "Başvuru gönderiliyor…",
   "Submit membership application →": "Üyelik başvurusunu gönder →",
-  "Send password reset link": "Sıfırlama bağlantısı gönder",
+  "Send password reset link": "Şifre sıfırlama bağlantısını gönder",
   "Sending…": "Gönderiliyor…",
   "Upload certificate securely": "Sertifikayı güvenli yükle",
   "Not detected yet": "Henüz tespit edilmedi",
@@ -403,26 +404,92 @@ const englishToTurkish: Record<string, string> = {
   "Update IPA": "IPA’yı Güncelle",
   "Certificate and signing settings": "Sertifika ve imzalama ayarları",
   "Server connection error.": "Sunucu bağlantı hatası.",
-  "iOS apps": "iOS uygulamalarını",
+  "iOS apps": "iOS uygulamaları",
   "Catbox (permanent public link)": "Catbox (kalıcı herkese açık bağlantı)",
   "Litterbox (public until it expires)": "Litterbox (süre dolana kadar herkese açık)",
   "Permanent hosting via Catbox — link never expires (max 100 MB)": "Catbox üzerinden kalıcı barındırma — bağlantının süresi dolmaz (en fazla 100 MB)",
   "Temporary hosting via Litterbox — expires automatically (max 1 GB)": "Litterbox üzerinden geçici barındırma — süresi otomatik dolar (en fazla 1 GB)",
   "File sent. Waiting for": "Dosya gönderildi. Bağlantı bekleniyor:",
-}
+  "sign.": "imzala.",
+  "Profile": "Profil",
+  "Soulslike · Action RPG": "Soulslike · Aksiyon RPG",
+  "Action · Metroidvania": "Aksiyon · Metroidvania",
+  "Fighting · Action": "Dövüş · Aksiyon",
+  "Open world · Action": "Açık dünya · Aksiyon",
+  "Action · Roguelike": "Aksiyon · Roguelike",
+  "Metroidvania · Adventure": "Metroidvania · Macera",
+  "Platformer · Boss fights": "Platform · Boss savaşı",
+  "Farming · Life simulation": "Çiftçilik · Yaşam",
+  "Action · Roguelite": "Aksiyon · Roguelite",
+  "Platformer · Challenging adventure": "Platform · Zorlu macera",
+  "Open world · RPG": "Açık dünya · RPG",
+  "Platformer · Story": "Platform · Hikâye",
+  "Survival horror": "Hayatta kalma-korku",
+  "Survival horror · Remake": "Hayatta kalma-korku · Yeniden yapım",
+  "Survival horror · Action": "Hayatta kalma-korku · Aksiyon",
+  "Action · Co-op": "Aksiyon · Co-op",
+  "Survival horror · Episodic": "Hayatta kalma-korku · Bölümlü",
+  "Survival horror · Classic": "Hayatta kalma-korku · Klasik",
+  "iPhone 13 or later": "iPhone 13 ve üzeri",
+  "iPhone 14 or later": "iPhone 14 ve üzeri",
+  "iPhone 15 or later": "iPhone 15 ve üzeri",
+  "iPhone 16 or later": "iPhone 16 ve üzeri",
+  "iPhone 16 or later · demanding game": "iPhone 16 ve üzeri · ağır oyun",
+  "iPhone 15 or later · estimated": "iPhone 15 ve üzeri · tahmini",
+  "Not a MeloNX Switch game": "MeloNX Switch oyunu değil",
+  "Power indicator: This is an approximate hardware ranking based on Apple chip generations. The green area indicates the recommended level and the lightning count shows relative performance gains between generations. This is not a guaranteed FPS value or a verified MeloNX compatibility guarantee. Actual results vary by emulator version, game version, RAM and temperature. Cover images are for promotional use.": "Güç göstergesi: Bu, Apple çip nesillerine göre hazırlanmış yaklaşık bir donanım sıralamasıdır. Yeşil alan önerilen seviyeyi, ⚡ sayısı nesiller arasındaki göreceli performans artışını gösterir. Kesin FPS değeri veya doğrulanmış MeloNX uyumluluk garantisi değildir. Gerçek sonuç; emülatör sürümüne, oyun sürümüne, RAM'e ve sıcaklığa göre değişir. Kapak görselleri tanıtım amaçlıdır.",
+  "Accepts": "Desteklenen dosya türleri:",
+  "Local iOS IPA Signer": "Yerel iOS IPA imzalayıcı",
+  "Fully local IPA signing in your browser": "IPA dosyalarını tarayıcında tamamen yerel olarak imzala",
+  "Credentials &amp; Options": "Kimlik bilgileri ve seçenekler",
+  "Unknown": "Bilinmiyor",
+  "dylib selected": "dylib seçildi",
+  "dylibs selected": "dylib seçildi",
+  "Streaming IPA into browser storage": "IPA tarayıcı depolama alanına aktarılıyor",
+  "Compressing signed IPA": "İmzalanmış IPA sıkıştırılıyor",
+  "Starting local signing session": "Yerel imzalama oturumu başlatılıyor",
+  "Signing failed": "İmzalama başarısız",
+  "Expected a GitHub releases URL.": "Geçerli bir GitHub sürüm bağlantısı gerekli.",
+  "Could not open cert cache.": "Sertifika önbelleği açılamadı.",
+  "Cert cache request failed.": "Sertifika önbelleği isteği başarısız.",
+  "Cert cache transaction failed.": "Sertifika önbelleği işlemi başarısız.",
+  "Only HTTP and HTTPS IPA URLs are supported.": "Yalnızca HTTP ve HTTPS IPA bağlantıları desteklenir.",
+  "Download failed with HTTP": "HTTP indirme hatası:",
+  "The downloaded file is empty.": "İndirilen dosya boş.",
+  "Choose an IPA before signing.": "İmzalamadan önce bir IPA dosyası seç.",
+  "Choose a P12/PFX signing certificate.": "Bir P12/PFX imzalama sertifikası seç.",
+  "Choose at least one provisioning profile.": "En az bir provisioning profili seç.",
+  "GitHub releases failed with HTTP": "GitHub sürüm bilgisi alınamadı. HTTP hata kodu:",
+  "Downloading": "İndiriliyor",
+  "Copy logs": "Kayıtları kopyala",
+  "line": "satır",
+  "lines": "satır",
+  "Permanently host the signed IPA on Catbox so iOS can fetch it over HTTPS.": "iOS'un HTTPS üzerinden indirebilmesi için imzalanmış IPA'yı Catbox üzerinde kalıcı olarak barındır.",
+  "Temporarily host the signed IPA so iOS can fetch it over HTTPS.": "iOS'un HTTPS üzerinden indirebilmesi için imzalanmış IPA'yı geçici olarak barındır.",
+  "The signed IPA will be permanently backed up to Catbox.": "İmzalanmış IPA, Catbox'a kalıcı olarak yedeklenecek.",
+  "Only the signed IPA is uploaded for temporary install.": "Geçici kurulum için yalnızca imzalanmış IPA yüklenir.",
+  "Hide limitations": "Sınırlamaları gizle",
+  "View limitations": "Sınırlamaları görüntüle",
+  "Large signed IPAs may take a while to upload. Keep this tab open until the installation link is ready. Sylva limits Catbox backups to 100 MB.": "Büyük imzalanmış IPA dosyalarının yüklenmesi zaman alabilir. Kurulum bağlantısı hazır olana kadar bu sekmeyi açık tut. Sylva, Catbox yedeklerini 100 MB ile sınırlar.",
+  "Large signed IPAs may take a while to upload. Keep this tab open until the installation link is ready. Litterbox accepts files up to 1 GB.": "Büyük imzalanmış IPA dosyalarının yüklenmesi zaman alabilir. Kurulum bağlantısı hazır olana kadar bu sekmeyi açık tut. Litterbox, 1 GB'a kadar dosya kabul eder.",
+  "Backing up signed IPA to Catbox": "İmzalanmış IPA Catbox'a yedekleniyor",
+  "Updated Sep 18, 2026": "18 Eylül 2026 tarihinde güncellendi",
+  "Toggle color theme": "Renk temasını değiştir",
+  "Member dashboard": "Üye paneli",
+  "Open Signing Center": "İmzalama merkezini aç",
   "Download canceled.": "İndirme iptal edildi.",
   "The browser could not download that URL. The host may block cross-origin downloads.": "Tarayıcı bu bağlantıyı indiremedi. Sunucu, farklı kaynaklardan indirmeyi engelliyor olabilir.",
   "Sylva proxy failed with HTTP": "Sylva proxy bağlantısı HTTP hatası verdi:",
-  "Unknown": "Bilinmiyor",
   "About Mehmet IPA": "Mehmet IPA hakkında",
   "Open Mehmet IPA on GitHub": "Mehmet IPA'yı GitHub'da aç",
-  "GitHub": "GitHub",
-  "Fully local IPA signing in your browser": "IPA dosyalarını tarayıcında tamamen yerel olarak imzala",
-  "Credentials &amp; Options": "Kimlik bilgileri ve seçenekler",
-  "Member dashboard": "Üye paneli",
-  "IPA": "IPA",
-  "Open Signing Center": "İmzalama merkezini aç",
+  "New group name:": "Yeni grup adı:",
+  "Delete the account and its device registrations?": "Hesabı ve cihaz kayıtlarını silmek istiyor musun?",
   "Member sign-in": "Üye girişi",
+  "Sign in to access your account, IPA signing tools, the game catalog, and Turkish emulator guides.": "Hesabına giriş yap; IPA imzalama araçlarına, oyun kataloğuna ve Türkçe emülatör rehberlerine ulaş.",
+  "You can open the signing screen after signing in to your account.": "Hesabına giriş yaptıktan sonra imzalama ekranını açabilirsin.",
+  "The dollar equivalents are approximate, calculated using a reference rate of 1 USD ≈ 50.14 TRY. Payments and VIP service are not active yet.": "Dolar karşılıkları 1 USD ≈ 50,14 TL referans kuruyla hesaplanmış yaklaşık tutarlardır. Ödeme ve VIP hizmeti henüz aktif değildir.",
+  "Members could not be loaded.": "Üyeler alınamadı.",
+}
 const turkishToEnglish: Record<string, string> = {
   "Oyuncu merkezi": "Player center",
   "Hesap aktif": "Account active",
@@ -458,7 +525,7 @@ const turkishToEnglish: Record<string, string> = {
   "Mehmet IPA üyelik": "Welcome to Mehmet IPA membership",
   "Oyun ve imzalama dünyana hoş geldin.": "Welcome to your gaming and signing hub.",
   "IPA imzalama araçlarına, oyun vitrinine ve emülatör rehberlerine ulaşmak için hesabına giriş yap.": "Sign in to access IPA signing tools, the game showcase, and emulator guides.",
-  "Üye girişi": "Member sign in",
+  "Üye girişi": "Member sign-in",
   "Yönetici": "Administrator",
   "Kullanıcı adı": "Username",
   "Şifre": "Password",
@@ -488,7 +555,7 @@ const turkishToEnglish: Record<string, string> = {
   "Şifremi yenile": "Reset password",
   "E-posta doğrulama": "Email verification",
   "Bağlantın kontrol ediliyor…": "Checking your link…",
-  "Giriş ekranına dön": "Return to sign in",
+  "Giriş ekranına dön": "Back to sign in",
   "Yenile": "Refresh",
   "Yönetim paneli": "Admin dashboard",
   "Üye hesapları ve cihaz onayları": "Member accounts and device approvals",
@@ -544,7 +611,7 @@ const turkishToEnglish: Record<string, string> = {
   "Mehmet IPA uygulamasını indir": "Download Mehmet IPA app",
   "Telegram'dan bize ulaş · @ajandare": "Contact us on Telegram · @ajandare",
   "Tarayıcı üzerinden": "Browser-based",
-  "Mobil uyumlu": "Mobile friendly",
+  "Mobil uyumlu": "Mobile-friendly",
   "Güvenli sertifika kasası": "Secure certificate vault",
   "İmza merkezi": "Signing center",
   "IPA dosyan hazır mı?": "Ready to sign your IPA?",
@@ -831,7 +898,7 @@ const turkishToEnglish: Record<string, string> = {
   "İmzala": "Sign",
   "MEHMET IPA / İMZALAMA STÜDYOSU": "MEHMET IPA / SIGNING STUDIO",
   "ÖZEL İMZALAMA ALANI": "PRIVATE SIGNING WORKSPACE",
-  "Üyeler alınamadı.": "Could not load members.",
+  "Üyeler alınamadı.": "Members could not be loaded.",
   "İsim, kullanıcı adı ve şifre gerekli.": "Name, username, and password are required.",
   "Üye oluşturulamadı.": "Could not create member.",
   "Üye oluşturuldu.": "Member created.",
@@ -854,26 +921,121 @@ const turkishToEnglish: Record<string, string> = {
   "Litterbox üzerinden geçici barındırma — süresi otomatik dolar (en fazla 1 GB)": "Temporary hosting via Litterbox — expires automatically (max 1 GB)",
   "Dosya gönderildi. Bağlantı bekleniyor:": "File sent. Waiting for",
   "Mobil cihazlara uygun": "Mobile friendly",
-}
-  "İmzalama merkezini aç": "Open Signing Center",
+  "iOS uygulamaları": "iOS apps",
+  "imzala.": "sign.",
   "Hesap": "Account",
-  "Üye paneli": "Member dashboard",
-  "Oyun koleksiyonu": "Game collection",
-  "Switch sürümü mevcut": "Switch version available",
-  "İndirme iptal edildi.": "Download canceled.",
-  "Arşivleme tamamlandı": "Archive complete",
-  "Bilinmiyor": "Unknown",
-  "Kimlik bilgileri ve seçenekler": "Credentials & Options",
-  "Mehmet IPA hakkında": "About Mehmet IPA",
+  "Profil": "Profile",
+  "Hayatta kalma-korku": "Survival horror",
+  "Hayatta kalma-korku · Yeniden yapım": "Survival horror · Remake",
+  "Hayatta kalma-korku · Aksiyon": "Survival horror · Action",
+  "Aksiyon · Co-op": "Action · Co-op",
+  "Hayatta kalma-korku · Bölümlü": "Survival horror · Episodic",
+  "Hayatta kalma-korku · Klasik": "Survival horror · Classic",
+  "iPhone 13 ve üzeri": "iPhone 13 or later",
+  "iPhone 14 ve üzeri": "iPhone 14 or later",
+  "iPhone 15 ve üzeri": "iPhone 15 or later",
+  "iPhone 16 ve üzeri": "iPhone 16 or later",
+  "Güç göstergesi: Bu, Apple çip nesillerine göre hazırlanmış yaklaşık bir donanım sıralamasıdır. Yeşil alan önerilen seviyeyi, ⚡ sayısı nesiller arasındaki göreceli performans artışını gösterir. Kesin FPS değeri veya doğrulanmış MeloNX uyumluluk garantisi değildir. Gerçek sonuç; emülatör sürümüne, oyun sürümüne, RAM'e ve sıcaklığa göre değişir. Kapak görselleri tanıtım amaçlıdır.": "Power indicator: This is an approximate hardware ranking based on Apple chip generations. The green area indicates the recommended level and the lightning count shows relative performance gains between generations. This is not a guaranteed FPS value or a verified MeloNX compatibility guarantee. Actual results vary by emulator version, game version, RAM and temperature. Cover images are for promotional use.",
+  " .mobileprovision dosyanı seç veya buraya bırak": "Select or drop .mobileprovision",
+  "Birden fazla dosya kabul edilir": "Accepts multiple",
+  "Desteklenen dosya türleri:": "Accepts",
+  "Yerel iOS IPA imzalayıcı": "Local iOS IPA Signer",
+  "IPA dosyalarını tarayıcında tamamen yerel olarak imzala": "Fully local IPA signing in your browser",
+  "Kimlik bilgileri ve seçenekler": "Credentials &amp; Options",
   "Sertifika parolası": "Certificate password",
   "Çıktı IPA dosyasının adı": "Output IPA name",
   "Paket kimliği": "Bundle ID",
+  "İmzalanmış çıktı": "Signed output",
+  "İmzalanmış dosya adlarının ve geçici kurulum bağlantılarının yerel geçmişi.": "Local history of signed names and temporary install links.",
+  "Uygulama bilgileri okunuyor...": "Reading app details...",
+  "Bilinmiyor": "Unknown",
+  "Minimum işletim sistemi bilgisi yok": "Minimum OS unavailable",
+  "Bağımlılık bilgisi yok": "Dependencies unavailable",
+  "Kurulum adı bilgisi yok": "Install name unavailable",
+  "dylib seçildi": "dylibs selected",
+  "İmzalama bekleniyor": "Waiting to sign",
+  "Düşük bellek kullanan tarayıcı depolaması hazırlanıyor": "Preparing low-memory browser storage",
+  "IPA yerel olarak açılıyor": "Unzipping IPA locally",
+  "IPA çıkarıldı": "IPA extracted",
+  "Uygulama imzası hazırlanıyor": "Preparing app signature",
+  "Uygulama dosyaları imzalanıyor": "Signing app binaries",
+  "Uygulama paketi imzaları yazılıyor": "Writing bundle signatures",
+  "İmza tamamlandı": "Signature complete",
+  "İmzalanmış IPA arşivleniyor": "Archiving signed IPA",
+  "Arşivleme tamamlandı": "Archive complete",
+  "IPA tarayıcı depolama alanına aktarılıyor": "Streaming IPA into browser storage",
+  "İmzalanmış IPA sıkıştırılıyor": "Compressing signed IPA",
+  "Yerel imzalama oturumu başlatılıyor": "Starting local signing session",
+  "İmzalama başarısız": "Signing failed",
+  "Geçerli bir GitHub sürüm bağlantısı gerekli.": "Expected a GitHub releases URL.",
+  "Sertifika önbelleği açılamadı.": "Could not open cert cache.",
+  "Sertifika önbelleği isteği başarısız.": "Cert cache request failed.",
+  "Sertifika önbelleği işlemi başarısız.": "Cert cache transaction failed.",
+  "Yalnızca HTTP ve HTTPS IPA bağlantıları desteklenir.": "Only HTTP and HTTPS IPA URLs are supported.",
+  "HTTP indirme hatası:": "Download failed with HTTP",
+  "İndirilen dosya boş.": "The downloaded file is empty.",
+  "İmzalamadan önce bir IPA dosyası seç.": "Choose an IPA before signing.",
+  "Bir P12/PFX imzalama sertifikası seç.": "Choose a P12/PFX signing certificate.",
+  "En az bir provisioning profili seç.": "Choose at least one provisioning profile.",
+  "GitHub sürüm bilgisi alınamadı. HTTP hata kodu:": "GitHub releases failed with HTTP",
+  "İndiriliyor": "Downloading",
+  "Kayıtları kopyala": "Copy logs",
+  "satır": "lines",
+  "Girdi bekleniyor. Dosyalarını bırak ve İmzala düğmesine bas.": "Waiting for input. Drop your files and press Sign.",
+  "Palera kurulum manifesti hazır": "Palera installation manifest is ready",
+  "Palera kullanılamıyor; Sylva yedek manifesti kullanılıyor": "Palera unavailable; using Sylva backup manifest",
+  "Kurulum hazırlığı iptal edildi.": "Installation preparation was cancelled.",
+  "iOS'un HTTPS üzerinden indirebilmesi için imzalanmış IPA'yı Catbox üzerinde kalıcı olarak barındır.": "Permanently host the signed IPA on Catbox so iOS can fetch it over HTTPS.",
+  "iOS'un HTTPS üzerinden indirebilmesi için imzalanmış IPA'yı geçici olarak barındır.": "Temporarily host the signed IPA so iOS can fetch it over HTTPS.",
+  "İmzalanmış IPA, Catbox'a kalıcı olarak yedeklenecek.": "The signed IPA will be permanently backed up to Catbox.",
+  "Geçici kurulum için yalnızca imzalanmış IPA yüklenir.": "Only the signed IPA is uploaded for temporary install.",
+  "Sınırlamaları gizle": "Hide limitations",
+  "Sınırlamaları görüntüle": "View limitations",
+  "Büyük imzalanmış IPA dosyalarının yüklenmesi zaman alabilir. Kurulum bağlantısı hazır olana kadar bu sekmeyi açık tut. Sylva, Catbox yedeklerini 100 MB ile sınırlar.": "Large signed IPAs may take a while to upload. Keep this tab open until the installation link is ready. Sylva limits Catbox backups to 100 MB.",
+  "Büyük imzalanmış IPA dosyalarının yüklenmesi zaman alabilir. Kurulum bağlantısı hazır olana kadar bu sekmeyi açık tut. Litterbox, 1 GB'a kadar dosya kabul eder.": "Large signed IPAs may take a while to upload. Keep this tab open until the installation link is ready. Litterbox accepts files up to 1 GB.",
+  "Doğrudan yükleme": "Direct installation",
+  "QR koduyla yükleme": "QR installation",
+  "İmzalanmış IPA Catbox'a yedekleniyor": "Backing up signed IPA to Catbox",
+  "Yükleme tamamlanana kadar Sylva'yı açık tut.": "Keep Sylva open until the upload finishes.",
+  "18 Eylül 2026 tarihinde güncellendi": "Updated Sep 18, 2026",
+  "Renk temasını değiştir": "Toggle color theme",
+  "Mehmet IPA ile iOS IPA dosyalarını doğrudan tarayıcında imzala.": "Sign iOS IPA files directly in your browser with Mehmet IPA.",
+  "Üye paneli": "Member dashboard",
+  "İmzalama merkezini aç": "Open Signing Center",
+  "İndirme iptal edildi.": "Download canceled.",
+  "Tarayıcı bu bağlantıyı indiremedi. Sunucu, farklı kaynaklardan indirmeyi engelliyor olabilir.": "The browser could not download that URL. The host may block cross-origin downloads.",
+  "Sylva proxy bağlantısı HTTP hatası verdi:": "Sylva proxy failed with HTTP",
+  "Mehmet IPA hakkında": "About Mehmet IPA",
+  "Mehmet IPA'yı GitHub'da aç": "Open Mehmet IPA on GitHub",
+  "Yeni grup adı:": "New group name:",
+  "Hesabı ve cihaz kayıtlarını silmek istiyor musun?": "Delete the account and its device registrations?",
+  "Şifre sıfırlama bağlantısını gönder": "Send password reset link",
   "Yönetici girişi": "Administrator sign-in",
-  "Yönetici paneli": "Admin Panel",
-  "Üye oluştur": "Create Member",
-  "İşlem başarısız oldu.": "Operation failed.",
-  "iOS uygulamaları": "iOS apps",
-  "IPA'yı güncelle": "Update IPA",
+  "Hesabına giriş yap; IPA imzalama araçlarına, oyun kataloğuna ve Türkçe emülatör rehberlerine ulaş.": "Sign in to access your account, IPA signing tools, the game catalog, and Turkish emulator guides.",
+  "Hesabına giriş yaptıktan sonra imzalama ekranını açabilirsin.": "You can open the signing screen after signing in to your account.",
+  "Dolar karşılıkları 1 USD ≈ 50,14 TL referans kuruyla hesaplanmış yaklaşık tutarlardır. Ödeme ve VIP hizmeti henüz aktif değildir.": "The dollar equivalents are approximate, calculated using a reference rate of 1 USD ≈ 50.14 TRY. Payments and VIP service are not active yet.",
+  "Yakında": "Coming soon",
+  "Oyun koleksiyonu": "Game collection",
+  "OYUN KOLEKSİYONU": "GAME COLLECTION",
+  "OYUN DÜNYASI": "GAME WORLD",
+  "OYUN DÜNYASI ": "GAME WORLD ",
+  "İmzalandı": "Signed",
+  "Yükleme yapılıyor...": "Uploading...",
+  "Could not save device.": "Cihaz kaydedilemedi.",
+  "Game collection": "Oyun koleksiyonu",
+  "Daha fazla IPA dosyası ekle...": "Add more IPA file...",
+  "İmzalanmış IPA Litterbox'a yükleniyor": "Uploading signed IPA to Litterbox",
+  "İsteğe bağlı sertifika önbelleği, seçtiğin imzalama dosyalarını ve şifreyi bu cihazdaki tarayıcının IndexedDB alanında saklar. Bu önbelleği imzalama ekranından temizleyebilirsin.": "Optional certificate caching stores selected signing material and password data in this browser's IndexedDB storage on this device. You can clear that cache from the signer interface.",
+  "URL kopyalandı": "Copied URL",
+  "İndirme bağlantısını kopyala": "Copy Download URL",
+  "Bağlantı kopyalandı": "Copied Link",
+  "iPhone kurulum bağlantısını kopyala": "Copy iPhone Install Link",
+  "İmzalı listeyi yenile": "Refresh signed list",
+  "İmzalı listeyi yükle": "Load signed list",
+  "İçe aktarılıyor...": "Importing...",
+  "İçe aktar": "Import",
+  "Konsol": "Console",
+}
 const STORAGE_KEY = 'mehmetipa.language'
 type Language = 'tr' | 'en'
 
@@ -898,16 +1060,40 @@ function translateText(value: string, language: Language) {
     const trailing = value.match(/\s*$/)?.[0] || ''
     return leading + exact + trailing
   }
-  const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((x, y) => y.length - x.length)
+
+  if (language === 'tr') {
+    const addMore = source.match(/^Add more (.+?)(?:\.{3}|…)?$/i)
+    if (addMore) {
+      const label = dictionary[addMore[1]] || addMore[1]
+      return 'Daha fazla ' + label.toLocaleLowerCase('tr-TR') + ' ekle...'
+    }
+    const removeLabel = source.match(/^Remove (.+)$/i)
+    if (removeLabel) return 'Kaldır ' + (dictionary[removeLabel[1]] || removeLabel[1])
+    const selected = source.match(/^(\d+)\s+selected\s+\((.+?)\s+total\)$/i)
+    if (selected) return selected[1] + ' seçildi (' + selected[2] + ' toplam)'
+  } else {
+    const addMore = source.match(/^Daha fazla (.+?) ekle(?:\.{3}|…)?$/i)
+    if (addMore) {
+      const label = dictionary[addMore[1]] || addMore[1]
+      return 'Add more ' + label.toLocaleLowerCase('en-US') + '...'
+    }
+    const removeLabel = source.match(/^Kaldır\s+(.+)$/i)
+    if (removeLabel) return 'Remove ' + (dictionary[removeLabel[1]] || removeLabel[1])
+    const selected = source.match(/^(\d+)\s+seçildi\s+\((.+?)\s+toplam\)$/i)
+    if (selected) return selected[1] + ' selected (' + selected[2] + ' total)'
+  }
+
+  const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((a,b) => b.length-a.length)
   let result = value
   for (const key of keys) {
-    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const escaped = key.replace(/[.*+?^$()|[\]\\]/g, '\\$&')
     const boundary = '(^|[^\\p{L}\\p{N}])(' + escaped + ')(?=$|[^\\p{L}\\p{N}])'
     const pattern = new RegExp(boundary, 'giu')
     result = result.replace(pattern, (_match, prefix: string, phrase: string) => prefix + (dictionary[phrase] || dictionary[key]))
   }
   return result
 }
+
 const originalText = new WeakMap<Text, { source: string; rendered: string }>()
 const originalAttributes = new WeakMap<Element, Map<string, { source: string; rendered: string }>>()
 
@@ -927,15 +1113,21 @@ function applyLanguage(root: ParentNode, language: Language) {
     if (current !== translated) node.textContent = translated
     record.rendered = translated
   }
+
   const elements = root instanceof Element
     ? [root, ...Array.from(root.querySelectorAll('*'))]
     : Array.from((root as Document).querySelectorAll?.('*') || [])
   for (const element of elements) {
-    for (const attr of ['placeholder', 'title', 'aria-label', 'alt']) {
+    const locale = element.getAttribute('data-locale')
+    if (locale) element.toggleAttribute('hidden', locale !== language)
+    for (const attr of ['placeholder','title','aria-label','alt']) {
       const current = element.getAttribute(attr)
       if (!current) continue
       let attrs = originalAttributes.get(element)
-      if (!attrs) { attrs = new Map(); originalAttributes.set(element, attrs) }
+      if (!attrs) {
+        attrs = new Map()
+        originalAttributes.set(element, attrs)
+      }
       let record = attrs.get(attr)
       if (!record || current !== record.rendered) {
         record = { source: current, rendered: current }
@@ -950,30 +1142,51 @@ function applyLanguage(root: ParentNode, language: Language) {
 
 export function LanguageController() {
   const [language, setLanguage] = React.useState<Language>(getLanguage)
-  const [showControl, setShowControl] = React.useState(false)
+  const [target, setTarget] = React.useState<HTMLElement | null>(null)
+
+  React.useEffect(() => {
+    const findTarget = () => {
+      const next = document.getElementById('language-picker-slot')
+      setTarget(current => current === next ? current : next)
+    }
+    findTarget()
+    const observer = new MutationObserver(findTarget)
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [])
+
   React.useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, language)
     document.documentElement.lang = language
+    document.documentElement.dataset.appLanguage = language
     applyLanguage(document.body, language)
     const observer = new MutationObserver(() => applyLanguage(document.body, language))
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['placeholder','title','aria-label','alt'] })
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['placeholder','title','aria-label','alt','hidden'],
+    })
     return () => observer.disconnect()
   }, [language])
-  React.useEffect(() => {
-    const update = () => {
-      const view = document.body.dataset.appView || ''
-      setShowControl(view === 'home' || view === 'method')
-    }
-    update()
-    const observer = new MutationObserver(update)
-    observer.observe(document.body, { attributes: true, attributeFilter: ['data-app-view'] })
-    return () => observer.disconnect()
-  }, [])
-  if (!showControl) return null
-  return <div className="fixed left-3 top-[max(env(safe-area-inset-top),12px)] z-[9999]">
-    <div className="flex items-center gap-1 rounded-full border border-white/15 bg-[#111322]/95 p-1 shadow-xl shadow-black/30 backdrop-blur-xl">
-      <button type="button" onClick={() => setLanguage('tr')} aria-pressed={language === 'tr'} className={`rounded-full px-3 py-2 text-xs font-bold transition ${language === 'tr' ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-white/10'}`}>🇹🇷 Türkçe</button>
-      <button type="button" onClick={() => setLanguage('en')} aria-pressed={language === 'en'} className={`rounded-full px-3 py-2 text-xs font-bold transition ${language === 'en' ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-white/10'}`}>🇬🇧 English</button>
-    </div>
-  </div>
+
+  if (!target) return null
+  return createPortal(
+    <div className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-[#111322]/95 p-1 shadow-lg shadow-black/20 backdrop-blur-xl">
+      <button
+        type="button"
+        onClick={() => setLanguage('tr')}
+        aria-pressed={language === 'tr'}
+        className={'rounded-full px-2.5 py-2 text-xs font-bold transition ' + (language === 'tr' ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-white/10')}
+      >🇹🇷 Türkçe</button>
+      <button
+        type="button"
+        onClick={() => setLanguage('en')}
+        aria-pressed={language === 'en'}
+        className={'rounded-full px-2.5 py-2 text-xs font-bold transition ' + (language === 'en' ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-white/10')}
+      >🇬🇧 English</button>
+    </div>,
+    target,
+  )
 }

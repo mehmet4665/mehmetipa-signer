@@ -180,7 +180,7 @@ export function signIpa(
   return runZsign(args, files, {
     outputPaths: [outputPath],
     collectDirectories: options.metadata ? [metadataPath] : [],
-    persistCache: true,
+    persistCache: false,
     ...runOptions
   });
 }

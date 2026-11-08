@@ -89,7 +89,7 @@ export function FileDrop({
             setNextFiles(e.dataTransfer.files)
           }}
           className={cn(
-            'group flex w-full items-center gap-3 rounded-xl border border-dashed border-border bg-card px-4 py-3.5 text-left transition-all hover:border-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'group relative flex w-full items-center gap-4 overflow-hidden rounded-2xl border border-dashed border-border/80 bg-gradient-to-br from-muted/50 via-card to-card px-4 py-5 text-left shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-5 sm:py-6',
             hasFiles && 'pr-12',
             dragging && 'border-foreground/60 bg-muted/60',
             hasFiles && 'border-solid border-emerald-500/70 bg-emerald-500/5 hover:border-emerald-500',
@@ -97,7 +97,7 @@ export function FileDrop({
         >
           <span
             className={cn(
-              'flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors',
+              'flex size-12 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-gradient-to-br from-background to-muted text-muted-foreground shadow-sm transition-all duration-300 group-hover:scale-105 group-hover:shadow-md',
               hasFiles && 'text-emerald-500',
               hoverColor,
             )}

@@ -251,38 +251,34 @@ export function AccessGate() {
   )
 
   if (isPublicDocument) return <SylvaSigner />
-if (view === 'method' && user?.role === 'member') return <Frame>
-  <header className="flex items-center justify-between">
-    <div className="text-lg font-bold">
-      Mehmet IPA <span className="ml-2 rounded-full bg-muted px-2 py-1 text-xs font-normal">{user.username}</span>
-    </div>
-    <button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button>
-  </header>
-
-  <section className="mx-auto mt-10 max-w-xl">
-    <h1 className="text-2xl font-bold">İmza yöntemini seç</h1>
-    <p className="mt-2 text-sm text-muted-foreground">IPA dosyanı hangi sertifika ile imzalamak istediğini seç.</p>
-
-    <div className="mt-6 grid gap-4">
-      <button onClick={() => { setError(''); setView('signer') }} className="rounded-2xl border bg-card p-5 text-left">
-        <span className="text-lg font-semibold">Kendi sertifikam</span>
-        <span className="mt-2 block text-sm text-muted-foreground">Kendi P12/PFX dosyanı ve provisioning profile dosyanı kullan.</span>
-        <span className="mt-4 inline-flex rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Devam et</span>
-      </button>
-
-      <div className="rounded-2xl border border-dashed bg-card/60 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-lg font-semibold">Mehmet IPA VIP</span>
-          <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-700">Hazırlanıyor</span>
-        </div>
-        <p className="mt-2 text-sm text-muted-foreground">Merkezi sertifika ve sunucu tarafı imzalama tamamlandığında açılacak.</p>
-        <button disabled className="mt-4 rounded-lg border px-4 py-2 text-sm opacity-50">VIP yakında</button>
+if (view === 'method' && user?.role === 'member') return <main className="relative min-h-screen overflow-hidden bg-[#080B18] px-4 py-5 text-white sm:px-6 sm:py-8">
+  <div aria-hidden="true" className="pointer-events-none absolute -right-32 top-20 h-96 w-96 rounded-full bg-violet-600/15 blur-3xl" />
+  <div className="relative mx-auto max-w-6xl">
+    <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 backdrop-blur-xl sm:px-6">
+      <div className="flex items-center gap-3"><img src="/icon-dark-512.PNG" alt="Mehmet IPA" className="h-10 w-10 rounded-xl" /><div><div className="font-bold">Mehmet IPA</div><div className="text-xs text-slate-400">Oyuncu kontrol merkezi</div></div></div>
+      <div className="flex items-center gap-2"><span className="hidden rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-300 sm:inline">● Hesap aktif</span><button onClick={logout} className="rounded-xl border border-white/15 px-3 py-2 text-sm text-slate-300 transition hover:bg-white/10">Çıkış yap</button></div>
+    </header>
+    <section className="mt-7 overflow-hidden rounded-3xl border border-violet-300/20 bg-gradient-to-br from-violet-600/25 via-indigo-600/15 to-cyan-500/10 p-6 shadow-2xl shadow-violet-950/20 sm:p-9">
+      <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.2em] text-violet-200">Hoş geldin</p><h1 className="mt-2 text-3xl font-black sm:text-4xl">{user.name}</h1><p className="mt-2 text-sm text-slate-300">Oyunlarını keşfet, emülatör rehberlerine göz at ve IPA işlemlerini yönet.</p></div><div className="rounded-2xl border border-white/15 bg-black/20 px-4 py-3"><div className="text-xs text-slate-400">Kullanıcı hesabı</div><div className="mt-1 font-semibold">@{user.username}</div></div></div>
+      <div className="mt-7 grid gap-3 sm:grid-cols-2"><button onClick={() => { setError(''); setView('signer') }} className="rounded-xl bg-white px-5 py-3.5 text-left font-bold text-slate-950 transition hover:bg-violet-100"><span className="mr-2">✍️</span> IPA imzalama merkezini aç <span className="float-right">→</span></button><a href="https://t.me/ajandare" target="_blank" rel="noopener noreferrer" className="rounded-xl border border-white/20 bg-white/10 px-5 py-3.5 font-bold text-white transition hover:bg-white/15"><span className="mr-2">✈️</span> Telegram destek <span className="float-right">↗</span></a></div>
+    </section>
+    <section className="mt-9">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-cyan-300">Oyun kütüphanesi</p><h2 className="mt-2 text-2xl font-extrabold sm:text-3xl">Emülatör dünyasını keşfet</h2><p className="mt-1 text-sm text-slate-400">Rehberleri ve oyun deneyimlerini incele.</p></div><span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-400">Öne çıkanlar</span></div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <article className="group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.05] transition hover:-translate-y-1 hover:border-violet-300/40"><img src="https://cdn.cloudflare.steamstatic.com/steam/apps/570940/header.jpg" alt="Dark Souls Remastered oyun görseli" loading="lazy" className="aspect-[16/9] w-full object-cover transition duration-500 group-hover:scale-[1.03]" /><div className="p-3 sm:p-4"><h3 className="font-bold leading-tight">Dark Souls Remastered</h3><p className="mt-1 text-xs text-slate-400">Performans ve kurulum rehberi</p><span className="mt-3 inline-flex rounded-lg bg-violet-400/10 px-2.5 py-1.5 text-[11px] font-semibold text-violet-200">Rehber yakında</span></div></article>
+        <article className="group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.05] transition hover:-translate-y-1 hover:border-cyan-300/40"><img src="https://cdn.cloudflare.steamstatic.com/steam/apps/2221490/header.jpg" alt="Prince of Persia The Lost Crown oyun görseli" loading="lazy" className="aspect-[16/9] w-full object-cover transition duration-500 group-hover:scale-[1.03]" /><div className="p-3 sm:p-4"><h3 className="font-bold leading-tight">Prince of Persia</h3><p className="mt-1 text-xs text-slate-400">Oyun deneyimi ve ayarlar</p><span className="mt-3 inline-flex rounded-lg bg-cyan-400/10 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-200">Rehber yakında</span></div></article>
+        <article className="group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.05] transition hover:-translate-y-1 hover:border-amber-300/40"><img src="https://cdn.cloudflare.steamstatic.com/steam/apps/976310/header.jpg" alt="Mortal Kombat 11 oyun görseli" loading="lazy" className="aspect-[16/9] w-full object-cover transition duration-500 group-hover:scale-[1.03]" /><div className="p-3 sm:p-4"><h3 className="font-bold leading-tight">Mortal Kombat 11</h3><p className="mt-1 text-xs text-slate-400">Kontrol ve performans notları</p><span className="mt-3 inline-flex rounded-lg bg-amber-400/10 px-2.5 py-1.5 text-[11px] font-semibold text-amber-200">Rehber yakında</span></div></article>
+        <article className="group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.05] transition hover:-translate-y-1 hover:border-emerald-300/40"><img src="https://cdn.cloudflare.steamstatic.com/steam/apps/271590/header.jpg" alt="Grand Theft Auto V oyun görseli" loading="lazy" className="aspect-[16/9] w-full object-cover transition duration-500 group-hover:scale-[1.03]" /><div className="p-3 sm:p-4"><h3 className="font-bold leading-tight">Grand Theft Auto V</h3><p className="mt-1 text-xs text-slate-400">Uyumluluk bilgileri</p><span className="mt-3 inline-flex rounded-lg bg-emerald-400/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-200">İncele</span></div></article>
       </div>
-    </div>
-
-    <button onClick={() => setView('home')} className="mt-6 text-sm text-muted-foreground">← Hesabıma dön</button>
-  </section>
-</Frame>
+      <p className="mt-3 text-xs leading-5 text-slate-500">Oyun görselleri tanıtım amaçlıdır. Emülatör ve oyun uyumluluğu cihazına ve sürüme göre değişebilir.</p>
+    </section>
+    <section className="mt-9 grid gap-4 lg:grid-cols-2">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5 sm:p-6"><div className="flex items-center gap-3"><span className="text-2xl">🔐</span><div><h2 className="font-bold">Kendi sertifikan</h2><p className="text-xs text-slate-400">IPA imzalama işlemlerine geç</p></div></div><p className="mt-3 text-sm leading-6 text-slate-400">P12/PFX ve provisioning profile dosyalarınla imzalama ekranını kullan.</p><button onClick={() => { setError(''); setView('signer') }} className="mt-4 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-sm font-bold">İmzalama ekranını aç →</button></div>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5 sm:p-6"><div className="flex items-center gap-3"><span className="text-2xl">📱</span><div><h2 className="font-bold">Cihaz kayıtları</h2><p className="text-xs text-slate-400">Hesabına bağlı cihazları yönet</p></div></div><form onSubmit={registerDevice} className="mt-4 grid gap-3"><Field label="Cihaz UDID" value={udid} onChange={e => setUdid(e.target.value)} placeholder="UDID değerini gir" required /><button disabled={busy} className="rounded-xl border border-white/15 bg-white/10 px-4 py-2.5 text-sm font-semibold transition hover:bg-white/15">Cihazı onaya gönder</button></form><div className="mt-3 grid gap-2">{myDevices.map(d => <div key={d.id} className="flex items-center justify-between gap-2 rounded-xl bg-black/20 p-3 text-xs"><span className="break-all text-slate-300">{d.udid}</span><span className="shrink-0 text-slate-400">{d.status === 'approved' ? 'Onaylandı' : d.status === 'blocked' ? 'Engellendi' : 'Bekliyor'}</span></div>)}</div></div>
+    </section>
+    <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 py-6 text-xs text-slate-500"><span>© Mehmet IPA · Oyuncu kontrol merkezi</span><a href="https://www.tiktok.com/@m3hm3t_m" target="_blank" rel="noopener noreferrer" className="text-pink-300">TikTok @m3hm3t_m ↗</a></div>
+  </div>
+</main>
   if (view === 'signer' && user?.role === 'member') {
     return <><div className="sticky top-0 z-50 flex items-center justify-between border-b bg-background/95 px-4 py-2 backdrop-blur"><div className="text-sm font-semibold">Mehmet IPA <span className="ml-2 rounded-full bg-muted px-2 py-1 text-xs font-normal">{user.username}</span></div><div className="flex gap-2"><button onClick={() => setView('home')} className="rounded-lg border px-3 py-2 text-sm">Hesabım</button><button onClick={logout} className="rounded-lg border px-3 py-2 text-sm">Çıkış</button></div></div><SylvaSigner /></>
   }

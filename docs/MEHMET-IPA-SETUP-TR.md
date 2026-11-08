@@ -9,20 +9,27 @@ Bu sürüm mevcut IPA imzalama motorunu korur ve aynı Cloudflare Pages projesin
 3. Pages projesi → Settings → Variables and Secrets bölümünde Production için şu iki secret'ı tanımlayın:
    - `ADMIN_USERNAME`: yönetici kullanıcı adı
    - `ADMIN_PASSWORD`: yeni ve güçlü yönetici şifresi (tercihen en az 24 karakter)
+   - `RESEND_API_KEY`: Resend hesabından alınan API anahtarı (üyelik doğrulama ve parola e-postaları için)
+   - `MAIL_FROM`: Resend üzerinde doğrulanmış gönderici, ör. `Mehmet IPA <hesap@alanadiniz.com>`
+   - `ADMIN_NOTIFICATION_EMAIL`: yeni ve doğrulanmış üyelik başvurularının bildirileceği yönetici e-posta adresi
    Önceden sohbet içinde paylaşılan bir şifreyi tekrar kullanma. Worker secret'ları Pages projesine otomatik aktarılmaz; bu değerleri Pages projesinde ayrıca tanımlamalısın.
 4. Yeni deployment tamamlanınca `https://mehmetipa-signer.pages.dev/api/health` adresini açın. `success: true` görünmelidir.
 
 ## Veritabanı
 
-Daha önce oluşturulmuş `users` ve `devices` tabloları bu API tarafından kullanılır. Tablolar henüz yoksa `migrations/0001_mehmetipa.sql` dosyasını D1 Console'da bir kez çalıştırın. Tablolar zaten varsa migration'ı tekrar çalıştırmanız gerekmez.
+Mevcut `mehmetipa-db` veritabanına `migrations/0003_self_service_accounts.sql` şeması uygulanmalıdır. Bu migration yeni e-posta, kayıt başvurusu, parola sıfırlama ve hız sınırı tablolarını ekler. Bu migration üretim D1 veritabanına 8 Kasım 2026 tarihinde uygulanmıştır; tekrar çalıştırmayın.
 
 ## Kullanım
 
 - Ziyaretçi yalnızca Mehmet IPA uygulamasının indirme bağlantısını görür; imzalama ekranına erişemez.
 - Yönetici giriş bilgileri Pages secret'larından doğrulanır.
-- Yönetici panelinden üyeler açılır. Üye kaydı herkese açık değildir.
+- Ziyaretçi kayıt formundan başvuru gönderir; önce e-posta doğrulanır, sonra yönetici başvuruyu kabul veya reddeder.
+- Onaylanan hesap otomatik olarak aktif üye olur. Yönetici başvuruları panelde görebilir; doğrulanan başvurular `ADMIN_NOTIFICATION_EMAIL` adresine bildirilir.
+- Şifre sıfırlama bağlantıları e-posta ile gönderilir ve 30 dakika içinde tek kullanımlık olarak çalışır.
+- Giriş, kayıt ve şifre sıfırlama denemeleri IP tabanlı hız sınırına tabidir. Yönetici hesabı herkese açık kayıt formundan oluşturulamaz.
+- Yönetici tarafından elle üye oluştururken e-posta adresi de girilmelidir.
 - Üye hesabı aktifse giriş yapıp mevcut yerel imzalama ekranına erişir.
-- Üye şifresi PBKDF2-SHA-256 ile salt'lı olarak saklanır; düz metin saklanmaz.
+- Üye şifresi PBKDF2-SHA-256 ile salt'lı olarak saklanır; düz metin saklanmaz. E-posta doğrulama ve parola sıfırlama token'ları veritabanında yalnızca SHA-256 özetiyle saklanır.
 - Oturum belirteci tarayıcı oturum deposunda tutulur ve 7 gün geçerlidir.
 
 ## Önemli sınırlar

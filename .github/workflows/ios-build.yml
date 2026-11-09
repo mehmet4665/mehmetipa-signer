@@ -6,9 +6,6 @@ on:
     branches:
       - master
 
-concurrency:
-  group: mehmet-ipa-ios-build
-  cancel-in-progress: false
 
 permissions:
   contents: write

@@ -526,11 +526,11 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
 
   if (view === 'home' && user?.role === 'member') return <Frame><header className="flex items-center justify-between"><Brand /><button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button></header><section className="mx-auto mt-10 max-w-xl rounded-3xl border bg-card p-6"><h1 className="text-2xl font-bold">Merhaba, {user.name}</h1><p className="mt-2 text-sm text-muted-foreground">Hesabın aktif. Kayıtlı cihazlarını buradan yönetebilirsin.</p><p className="mt-2 text-xs text-muted-foreground">UDID kaydı Safari tarafından otomatik doğrulanmaz; yönetici onayı şu an kayıt takibi içindir.</p><form onSubmit={registerDevice} className="mt-6 grid gap-3"><Field label="Cihaz UDID" value={udid} onChange={e => setUdid(e.target.value)} placeholder="UDID değerini gir" required /><button type="submit" disabled={busy} aria-live="polite" className="h-11 rounded-xl bg-primary font-semibold text-primary-foreground transition disabled:cursor-wait disabled:opacity-60">{busy ? "⏳ Gönderiliyor..." : "Cihazı onaya gönder →"}</button></form><ErrorText error={error} /><NoticeText notice={notice} /><div className="mt-5 grid gap-2">{myDevices.map(d => <div key={d.id} className="flex items-center justify-between rounded-xl border p-3 text-sm"><span className="break-all">{d.udid}</span><span>{d.status === 'approved' ? 'Onaylandı' : d.status === 'blocked' ? 'Engellendi' : 'Bekliyor'}</span></div>)}</div><button onClick={() => setView('signer')} className="mt-6 h-11 w-full rounded-xl bg-primary font-semibold text-primary-foreground">İmzalama ekranını aç</button></section></Frame>
 
-  return <main className="relative min-h-screen overflow-hidden bg-[#080B18] px-4 py-6 text-white sm:px-6 sm:py-8">
+  return <main className="relative min-h-screen overflow-hidden bg-[#070A16] bg-[radial-gradient(ellipse_at_12%_5%,rgba(124,58,237,.20),transparent_34%),radial-gradient(ellipse_at_90%_30%,rgba(6,182,212,.12),transparent_32%),linear-gradient(180deg,#080b18_0%,#090d1b_48%,#070a14_100%)] px-4 py-5 text-white sm:px-6 sm:py-8">
     <div aria-hidden="true" className="pointer-events-none absolute -left-32 top-20 h-80 w-80 rounded-full bg-violet-600/20 blur-3xl" />
     <div aria-hidden="true" className="pointer-events-none absolute -right-24 top-96 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl" />
     <div className="relative mx-auto w-full max-w-6xl">
-      <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl sm:px-6">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-[22px] border border-violet-300/20 bg-[#0f1427]/80 px-4 py-3 shadow-[0_18px_55px_rgba(0,0,0,.24)] backdrop-blur-xl sm:px-6">
         <div className="flex items-center gap-3">
           <img src="/icon-dark-512.PNG" alt="Mehmet IPA" className="h-11 w-11 rounded-xl object-cover ring-1 ring-white/15" />
           <div><div className="font-bold tracking-tight">Mehmet IPA</div><div className="text-xs text-slate-400">iOS Signing Platform</div></div>
@@ -541,7 +541,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
           <div className="flex items-center gap-2"><button onClick={() => { setLoginMode('member'); setView('login'); setError('') }} className="rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-sm font-semibold shadow-lg shadow-violet-950/40 transition hover:brightness-110">Üye girişi →</button><button onClick={() => { setLoginMode('admin'); setView('login'); setError('') }} className="rounded-xl border border-white/15 bg-white/[0.05] px-3 py-2.5 text-xs font-semibold text-slate-300 transition hover:border-amber-300/40 hover:text-amber-200">Yönetici</button></div>
         </div>
       </header>
-      <section className="mt-5 overflow-hidden rounded-3xl border border-violet-300/20 bg-gradient-to-br from-violet-600/20 via-indigo-600/15 to-cyan-500/10 p-5 shadow-xl shadow-violet-950/10 sm:p-7">
+      <section className="relative mt-5 overflow-hidden rounded-[28px] border border-violet-300/25 bg-[radial-gradient(circle_at_85%_10%,rgba(34,211,238,.12),transparent_32%),linear-gradient(120deg,rgba(91,33,182,.25),rgba(30,41,92,.25)_52%,rgba(8,145,178,.13))] p-5 shadow-[0_25px_80px_rgba(0,0,0,.25)] sm:p-8">
         <div className="max-w-3xl">
           <p className="text-xs font-black uppercase tracking-[.22em] text-cyan-300"><span data-locale="tr">MEHMET IPA'YI KEŞFET</span><span data-locale="en" hidden>DISCOVER MEHMET IPA</span></p>
           <h2 className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl"><span data-locale="tr">Oyunlarını keşfet, IPA'larını kendi sertifikanla imzala.</span><span data-locale="en" hidden>Explore games. Sign your IPAs with your own certificate.</span></h2>
@@ -551,7 +551,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
           </p>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <button type="button" onClick={() => document.getElementById('vip-membership')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} aria-label="Abonelik paketlerine git" className="w-full cursor-pointer rounded-2xl border border-white/10 bg-black/15 p-4 text-left transition hover:-translate-y-1 hover:border-cyan-300/40 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
+          <button type="button" onClick={() => document.getElementById('vip-membership')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} aria-label="Abonelik paketlerine git" className="min-h-[112px] w-full cursor-pointer rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.075] to-slate-950/50 p-4 text-left shadow-[inset_0_1px_rgba(255,255,255,.045)] transition duration-200 hover:-translate-y-1 hover:border-cyan-300/40 hover:from-violet-500/15 hover:to-slate-950/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 sm:min-h-[132px]">
             <div className="text-2xl">🎮</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">Oyunları keşfet</span><span data-locale="en" hidden>Explore games</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Oyunları, bilgileri ve rehberleri incele.</span><span data-locale="en" hidden>Browse games, details, and guides.</span></p>
           </button>
           <button type="button" onClick={() => document.getElementById('vip-membership')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} aria-label="Abonelik paketlerine git" className="w-full cursor-pointer rounded-2xl border border-white/10 bg-black/15 p-4 text-left transition hover:-translate-y-1 hover:border-cyan-300/40 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
@@ -567,7 +567,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
         <a href={availableUpdate.ipaUrl} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">IPA’yı Güncelle</a>
       </section>}
 
-      <section className="grid items-center gap-10 pb-10 pt-14 sm:pt-20 lg:grid-cols-[1.1fr_.9fr] lg:pb-16">
+      <section className="grid items-center gap-10 pb-10 pt-10 sm:pt-16 lg:grid-cols-[1.1fr_.9fr] lg:pb-16">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-violet-300/20 bg-violet-400/10 px-3 py-1.5 text-xs font-medium text-violet-200"><span className="h-2 w-2 rounded-full bg-violet-300 shadow-[0_0_12px_#a78bfa]" /> IPA signing made simple</div>
           <h1 className="mt-6 max-w-2xl text-4xl font-black leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl"><span data-locale="tr">iOS uygulamalarını <span className="bg-gradient-to-r from-violet-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">özgürce</span> imzala.</span><span data-locale="en" hidden>Sign iOS apps <span className="bg-gradient-to-r from-violet-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">freely</span>.</span></h1>
@@ -582,9 +582,9 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
           </a>
           <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-400"><span>✓ Tarayıcı üzerinden</span><span>✓ Mobil uyumlu</span><span>✓ Güvenli sertifika kasası</span></div>
         </div>
-        <div className="relative mx-auto w-full max-w-md">
+        <div className="relative mx-auto w-full max-w-md rounded-[30px] border border-cyan-300/20 bg-gradient-to-br from-slate-900/90 to-violet-950/70 p-2 shadow-[0_25px_70px_rgba(0,0,0,.35)]">
           <div className="absolute -inset-5 rounded-[2rem] bg-gradient-to-br from-violet-500/20 via-indigo-500/10 to-cyan-400/20 blur-2xl" />
-          <div className="relative rounded-[2rem] border border-white/10 bg-gradient-to-br from-white/[0.11] to-white/[0.03] p-5 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-7">
+          <div className="relative rounded-[26px] border border-white/10 bg-gradient-to-br from-white/[0.09] to-white/[0.025] p-5 backdrop-blur-xl sm:p-7">
             <div className="flex items-center justify-between"><div className="text-sm font-semibold text-slate-200">İmza merkezi</div><span className="rounded-full bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold text-cyan-200">MEHMET IPA</span></div>
             <div className="mt-7 rounded-2xl border border-dashed border-violet-300/30 bg-violet-400/[0.07] px-5 py-9 text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 text-2xl shadow-lg shadow-violet-950/50">↑</div>

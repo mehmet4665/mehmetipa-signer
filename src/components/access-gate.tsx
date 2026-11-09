@@ -536,9 +536,15 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
           </p>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-black/15 p-4"><div className="text-2xl">🎮</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">Oyunları keşfet</span><span data-locale="en" hidden>Explore games</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Oyunları, bilgileri ve rehberleri incele.</span><span data-locale="en" hidden>Browse games, details, and guides.</span></p></div>
-          <div className="rounded-2xl border border-white/10 bg-black/15 p-4"><div className="text-2xl">✍️</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">IPA dosyalarını imzala</span><span data-locale="en" hidden>Sign IPA files</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Kendi sertifikanla tarayıcı üzerinden imzalama yap.</span><span data-locale="en" hidden>Sign in your browser with your own certificate.</span></p></div>
-          <div className="rounded-2xl border border-white/10 bg-black/15 p-4"><div className="text-2xl">📘</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">Rehberlerden yararlan</span><span data-locale="en" hidden>Use helpful guides</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Kurulum ve kullanım adımlarını öğren.</span><span data-locale="en" hidden>Learn setup and usage steps.</span></p></div>
+          <button type="button" onClick={() => document.getElementById('vip-membership')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} aria-label="Abonelik paketlerine git" className="w-full cursor-pointer rounded-2xl border border-white/10 bg-black/15 p-4 text-left transition hover:-translate-y-1 hover:border-cyan-300/40 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
+            <div className="text-2xl">🎮</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">Oyunları keşfet</span><span data-locale="en" hidden>Explore games</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Oyunları, bilgileri ve rehberleri incele.</span><span data-locale="en" hidden>Browse games, details, and guides.</span></p>
+          </button>
+          <button type="button" onClick={() => document.getElementById('vip-membership')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} aria-label="Abonelik paketlerine git" className="w-full cursor-pointer rounded-2xl border border-white/10 bg-black/15 p-4 text-left transition hover:-translate-y-1 hover:border-cyan-300/40 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
+            <div className="text-2xl">✍️</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">IPA dosyalarını imzala</span><span data-locale="en" hidden>Sign IPA files</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Kendi sertifikanla tarayıcı üzerinden imzalama yap.</span><span data-locale="en" hidden>Sign in your browser with your own certificate.</span></p>
+          </button>
+          <button type="button" onClick={() => document.getElementById('vip-membership')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} aria-label="Abonelik paketlerine git" className="w-full cursor-pointer rounded-2xl border border-white/10 bg-black/15 p-4 text-left transition hover:-translate-y-1 hover:border-cyan-300/40 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
+            <div className="text-2xl">📘</div><h3 className="mt-2 text-sm font-bold text-white"><span data-locale="tr">Rehberlerden yararlan</span><span data-locale="en" hidden>Use helpful guides</span></h3><p className="mt-1 text-xs leading-5 text-slate-400"><span data-locale="tr">Kurulum ve kullanım adımlarını öğren.</span><span data-locale="en" hidden>Learn setup and usage steps.</span></p>
+          </button>
         </div>
       </section>
       {isInstalledApp && availableUpdate && <section className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-300/25 bg-cyan-400/10 p-4">
@@ -602,7 +608,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
           <a href="https://t.me/ajandare" target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2.5 text-sm font-semibold text-sky-200 sm:mt-0">Telegram destek · @ajandare</a>
         </div>
       </section>
-      <section className="border-t border-white/10 py-10 sm:py-12">
+      <section id="vip-membership" className="scroll-mt-6 border-t border-white/10 py-10 sm:py-12">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div><p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-300">VIP üyelik</p><h2 className="mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl">Sana uygun paketi seç</h2><p className="mt-2 text-sm text-slate-400">VIP hizmeti kullanıma açıldığında paket seçenekleri burada olacak.</p></div>
           <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs text-amber-200">Yakında aktif</span>

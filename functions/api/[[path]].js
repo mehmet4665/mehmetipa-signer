@@ -102,7 +102,7 @@ export async function onRequest({ request, env, params }) {
       const username = String(body.username || '').trim().toLowerCase()
       const email = String(body.email || '').trim().toLowerCase()
       const password = String(body.password || '')
-      if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success: false, error: 'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' }, 400)
+      if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success: false, error: 'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' }, 400)
       const existing = await env.DB.prepare("SELECT username FROM users WHERE username=? OR email=? UNION SELECT username FROM registration_requests WHERE (username=? OR email=?) AND status IN ('pending','verification_pending') LIMIT 1").bind(username, email, username, email).first()
       if (existing) return json({ success: false, error: 'Bu kullanıcı adı veya e-posta zaten kayıtlı ya da başvuru bekliyor.' }, 409)
       const id = randomId(), now = new Date().toISOString(), passwordHash = await hashPassword(password)

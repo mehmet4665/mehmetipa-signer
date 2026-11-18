@@ -515,7 +515,6 @@ const englishToTurkish: Record<string, string> = {
   "Start signing": "İmzalamaya başla",
   "The download button will appear here after a real signing operation succeeds.": "İndirme butonu gerçek bir imzalama işlemi başarıyla tamamlandıktan sonra burada görünecek.",
   "Member home": "Üye ana sayfası",
-  "Sign out": "Çıkış yap",
 }
 const turkishToEnglish: Record<string, string> = {
   "Oyuncu merkezi": "Player center",

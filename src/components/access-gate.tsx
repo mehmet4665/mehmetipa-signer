@@ -253,7 +253,6 @@ export function AccessGate() {
   const [p12File, setP12File] = React.useState<File|null>(null)
   const [profileFile, setProfileFile] = React.useState<File|null>(null)
   const [certificatePassword, setCertificatePassword] = React.useState('')
-  const [certificateExpiry, setCertificateExpiry] = React.useState('')
   const [currentLocation, setCurrentLocation] = React.useState(() => typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.hash}`)
   const isPublicDocument = currentLocation === '/privacy' || currentLocation === '/legal' || currentLocation.endsWith('#privacy') || currentLocation.endsWith('#legal')
 
@@ -433,7 +432,7 @@ export function AccessGate() {
           profile_base64: profileBase64,
         }),
       })
-      setP12File(null); setProfileFile(null); setCertificatePassword(''); setCertificateExpiry('')
+      setP12File(null); setProfileFile(null); setCertificatePassword('')
       setNotice('Tamamlandı: P12, profil ve parola şifrelenerek özel kasaya kaydedildi.')
       await loadAdmin(token)
     } catch (e) {

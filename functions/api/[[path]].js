@@ -474,7 +474,12 @@ export async function onRequest({ request, env, params }) {
           return json({ success: false, error: 'P12 en fazla 5 MB, profil en fazla 1 MB olmalı.' }, 413)
         }
 
-        const validation = validateSigningMaterials(p12Bytes, profileBytes, password)
+        let validation
+        try {
+          validation = validateSigningMaterials(p12Bytes, profileBytes, password)
+        } catch (error) {
+          return json({ success: false, error: error instanceof Error ? error.message : 'Sertifika doğrulaması başarısız.' }, 400)
+        }
         certificateName = validation.certificate_name
         const expiresAt = validation.certificate_expires_at
 

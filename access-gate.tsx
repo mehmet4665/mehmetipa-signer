@@ -64,6 +64,9 @@ export function AccessGate() {
   const [newGroup, setNewGroup] = React.useState('Standart')
   const [udid, setUdid] = React.useState('')
   const [myDevices, setMyDevices] = React.useState<Device[]>([])
+  const [certificateAvailable, setCertificateAvailable] = React.useState(false)
+  const [certificateChecked, setCertificateChecked] = React.useState(false)
+  const [ipaFile, setIpaFile] = React.useState<File | null>(null)
   const [currentLocation, setCurrentLocation] = React.useState(() => typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.hash}`)
   const isPublicDocument = currentLocation === '/privacy' || currentLocation === '/legal' || currentLocation.endsWith('#privacy') || currentLocation.endsWith('#legal')
 
@@ -102,10 +105,19 @@ export function AccessGate() {
   }, [])
 
   React.useEffect(() => {
+    if (!token || user?.role !== 'member') return
+    let alive = true
+    api<{ available: boolean }>('/api/signing/availability', token)
+      .then(result => { if (alive) setCertificateAvailable(Boolean(result.available)) })
+      .catch(() => { if (alive) setCertificateAvailable(false) })
+      .finally(() => { if (alive) setCertificateChecked(true) })
+    return () => { alive = false }
+  }, [token, user])
+
+  React.useEffect(() => {
     if (!token || !user) return
     if (user.role === 'admin' && view === 'admin') loadAdmin(token).catch((e) => setError(e.message))
-    if (user.role === 'member' && view === 'signer') loadMemberDevices(token).catch((e) => setError(e.message))
-  }, [token, user, view, loadAdmin, loadMemberDevices])
+  }, [token, user, view, loadAdmin])
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -177,15 +189,37 @@ export function AccessGate() {
 
   if (isPublicDocument) return <SylvaSigner />
 
-  if (view === 'signer' && user?.role === 'member') {
-    return <><div className="sticky top-0 z-50 flex items-center justify-between border-b bg-background/95 px-4 py-2 backdrop-blur"><div className="text-sm font-semibold">Mehmet IPA <span className="ml-2 rounded-full bg-muted px-2 py-1 text-xs font-normal">{user.username}</span></div><div className="flex gap-2"><button onClick={() => setView('home')} className="rounded-lg border px-3 py-2 text-sm">Hesabım</button><button onClick={logout} className="rounded-lg border px-3 py-2 text-sm">Çıkış</button></div></div><SylvaSigner /></>
-  }
-
   if (view === 'login') return <Frame><section className="mx-auto max-w-md rounded-3xl border bg-card p-6 shadow-sm sm:p-8"><Brand /><h1 className="mt-8 text-2xl font-bold">Hesabına giriş yap</h1><p className="mt-2 text-sm text-muted-foreground">Üyelikler yönetici tarafından oluşturulur. Açık kayıt bulunmuyor.</p><form onSubmit={login} className="mt-6 grid gap-4"><Field label="Kullanıcı adı" autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /><Field label="Şifre" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /><ErrorText error={error} /><button disabled={busy} className="h-11 rounded-xl bg-primary px-4 font-semibold text-primary-foreground disabled:opacity-50">{busy ? 'Giriş yapılıyor…' : 'Giriş yap'}</button></form><button onClick={() => { setView('home'); setError('') }} className="mt-5 w-full text-sm text-muted-foreground">← Ana sayfa</button></section></Frame>
 
   if (view === 'admin' && user?.role === 'admin') return <Frame><header className="flex flex-wrap items-center justify-between gap-3"><Brand /><div className="flex gap-2"><button onClick={() => loadAdmin(token).catch(e => setError(e.message))} className="rounded-xl border px-3 py-2 text-sm">Yenile</button><button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button></div></header><div className="mt-8"><h1 className="text-2xl font-bold">Yönetim paneli</h1><p className="mt-1 text-sm text-muted-foreground">Üye hesapları ve cihaz onayları</p><ErrorText error={error} /><NoticeText notice={notice} /></div><div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]"><section className="rounded-2xl border bg-card p-5"><h2 className="text-lg font-semibold">Yeni kullanıcı oluştur</h2><form className="mt-4 grid gap-3" onSubmit={createUser}><Field label="Ad soyad" value={newName} onChange={e => setNewName(e.target.value)} required /><Field label="Kullanıcı adı" value={newUsername} onChange={e => setNewUsername(e.target.value)} autoCapitalize="none" required /><Field label="İlk şifre (en az 8 karakter)" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={8} /><Field label="Grup" value={newGroup} onChange={e => setNewGroup(e.target.value)} /><button disabled={busy} className="mt-1 h-11 rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-50">Kullanıcı oluştur</button></form></section><section className="rounded-2xl border bg-card p-5"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Kullanıcılar</h2><span className="text-sm text-muted-foreground">{users.length} hesap</span></div><div className="mt-4 grid gap-3">{users.length === 0 ? <p className="text-sm text-muted-foreground">Henüz üye yok.</p> : users.map(item => <article key={item.id} className="rounded-xl border p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="font-semibold">{item.name}</div><div className="text-sm text-muted-foreground">@{item.username} · {item.group_name || 'Standart'}</div></div><span className={`rounded-full px-2.5 py-1 text-xs ${item.status === 'active' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-red-500/10 text-red-700'}`}>{item.status === 'active' ? 'Aktif' : 'Engelli'}</span></div><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => updateUser(item, { status: item.status === 'active' ? 'blocked' : 'active' })} className="rounded-lg border px-3 py-2 text-xs">{item.status === 'active' ? 'Engelle' : 'Engeli kaldır'}</button><button onClick={() => { const group = window.prompt('Yeni grup adı:', item.group_name || 'Standart'); if (group !== null) updateUser(item, { group_name: group }) }} className="rounded-lg border px-3 py-2 text-xs">Grubu değiştir</button><button onClick={() => deleteUser(item)} className="rounded-lg border border-red-500/30 px-3 py-2 text-xs text-red-600">Sil</button></div></article>)}</div></section></div><section className="mt-6 rounded-2xl border bg-card p-5"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">UDID kayıtları / yönetimi</h2><span className="text-sm text-muted-foreground">{devices.length} cihaz</span></div><p className="mt-2 text-xs text-muted-foreground">Not: Safari UDID değerini otomatik doğrulayamaz; bu ekrandaki durumlar şu an kayıt ve takip amaçlıdır.</p><div className="mt-4 grid gap-3">{devices.length === 0 ? <p className="text-sm text-muted-foreground">Bekleyen cihaz kaydı yok.</p> : devices.map(device => <article key={device.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"><div className="min-w-0"><div className="font-medium">{device.name || device.username || 'Üye'} · <span className="font-normal text-muted-foreground">{device.udid}</span></div><div className="text-xs text-muted-foreground">Durum: {device.status}</div></div><div className="flex flex-wrap gap-2"><button onClick={() => updateDevice(device, 'approved')} className="rounded-lg border px-3 py-2 text-xs">Onayla</button><button onClick={() => updateDevice(device, 'pending')} className="rounded-lg border px-3 py-2 text-xs">Beklet</button><button onClick={() => updateDevice(device, 'blocked')} className="rounded-lg border border-red-500/30 px-3 py-2 text-xs text-red-600">Engelle</button></div></article>)}</div></section></Frame>
 
-  if (view === 'home' && user?.role === 'member') return <Frame><header className="flex items-center justify-between"><Brand /><button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button></header><section className="mx-auto mt-10 max-w-xl rounded-3xl border bg-card p-6"><h1 className="text-2xl font-bold">Merhaba, {user.name}</h1><p className="mt-2 text-sm text-muted-foreground">Hesabın aktif. Kayıtlı cihazlarını buradan yönetebilirsin.</p><p className="mt-2 text-xs text-muted-foreground">UDID kaydı Safari tarafından otomatik doğrulanmaz; yönetici onayı şu an kayıt takibi içindir.</p><form onSubmit={registerDevice} className="mt-6 grid gap-3"><Field label="Cihaz UDID" value={udid} onChange={e => setUdid(e.target.value)} placeholder="UDID değerini gir" required /><button disabled={busy} className="h-11 rounded-xl bg-primary font-semibold text-primary-foreground">Cihazı onaya gönder</button></form><div className="mt-5 grid gap-2">{myDevices.map(d => <div key={d.id} className="flex items-center justify-between rounded-xl border p-3 text-sm"><span className="break-all">{d.udid}</span><span>{d.status === 'approved' ? 'Onaylandı' : d.status === 'blocked' ? 'Engellendi' : 'Bekliyor'}</span></div>)}</div><button onClick={() => setView('signer')} className="mt-6 h-11 w-full rounded-xl bg-primary font-semibold text-primary-foreground">İmzalama ekranını aç</button></section></Frame>
+  if (view === 'home' && user?.role === 'member') return <Frame>
+    <header className="flex items-center justify-between gap-3">
+      <Brand />
+      <button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button>
+    </header>
+    <section className="mx-auto mt-8 max-w-xl rounded-3xl border bg-card p-5 shadow-sm sm:p-7">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><p className="text-sm text-muted-foreground">Üye hesabı</p><h1 className="mt-1 text-2xl font-bold">Merhaba, {user.name}</h1><p className="mt-1 text-sm text-muted-foreground">@{user.username}</p></div>
+        <span className="rounded-full border px-3 py-1.5 text-xs font-semibold">{user.group_name || 'Standart'}</span>
+      </div>
+      <div className="mt-6 rounded-2xl border p-4">
+        <div className="flex items-center justify-between gap-3"><h2 className="font-semibold">IPA imzalama</h2><span className={`rounded-full px-2.5 py-1 text-xs ${certificateAvailable ? 'bg-emerald-500/10 text-emerald-700' : 'bg-amber-500/10 text-amber-700'}`}>{!certificateChecked ? 'Kontrol ediliyor' : certificateAvailable ? 'Sertifika aktif' : 'Sertifika hazır değil'}</span></div>
+        <p className="mt-2 text-sm text-muted-foreground">iPhone veya bilgisayarından IPA dosyanı seç. İmzalama tamamlandığında indirme bağlantısı burada görünecek.</p>
+        <label className="mt-5 grid cursor-pointer gap-2 rounded-xl border border-dashed p-5 text-center transition hover:bg-muted/40">
+          <span className="font-semibold">IPA dosyası seç</span>
+          <span className="text-xs text-muted-foreground">Yalnızca .ipa dosyası</span>
+          <input type="file" accept=".ipa,application/octet-stream" className="block w-full text-sm" onChange={e => setIpaFile(e.target.files?.[0] || null)} />
+        </label>
+        {ipaFile && <p className="mt-3 break-all text-sm">Seçilen dosya: <strong>{ipaFile.name}</strong></p>}
+        <button type="button" disabled className="mt-4 h-12 w-full cursor-not-allowed rounded-xl bg-primary font-semibold text-primary-foreground opacity-50">İmzalama servisi hazırlanıyor</button>
+        <p className="mt-3 text-xs leading-5 text-muted-foreground">Güvenli sunucu tarafı imzalama henüz etkinleştirilmedi. P12 sertifikası ve parolası bu ekranda üyeye gösterilmez. İmzalama açıldığında aynı ekrandan devam edeceksin.</p>
+      </div>
+      <div className="mt-4 rounded-xl bg-muted/50 p-3 text-xs leading-5 text-muted-foreground">Üyelik ve sertifika bilgilerin hesabına bağlıdır. UDID kaydı veya ayrıca sertifika dosyası yüklemen gerekmiyor.</div>
+    </section>
+  </Frame>
+
+  if (false) return <Frame>
 
   return <Frame><section className="mx-auto max-w-xl pt-8 text-center sm:pt-16"><Brand /><div className="mt-10 rounded-3xl border bg-card p-6 shadow-sm sm:p-10"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-2xl font-bold">IPA</div><h1 className="mt-6 text-3xl font-bold tracking-tight">Mehmet IPA</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">iOS IPA dosyalarını tarayıcı üzerinden imzalama aracı. Üyeler giriş yaparak imzalama ekranına erişebilir.</p><a href={APP_DOWNLOAD} className="mt-7 flex h-12 w-full items-center justify-center rounded-xl border font-semibold">Mehmet IPA uygulamasını indir</a><button onClick={() => { setView('login'); setError('') }} className="mt-3 h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground">Üye / Yönetici girişi</button><p className="mt-5 text-xs text-muted-foreground">Yeni üyelik oluşturma kapalıdır. Hesaplar yönetici tarafından tanımlanır.</p></div><p className="mt-6 text-xs text-muted-foreground">© Mehmet IPA</p></section></Frame>
 }

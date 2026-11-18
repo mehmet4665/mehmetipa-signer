@@ -297,13 +297,6 @@ export async function onRequest({ request, env, params }) {
           return json({ success: false, error: 'Ad ve geçerli e-posta gerekli; kullanıcı adı 3-40 karakter (a-z, 0-9, . _ -), şifre en az 8 karakter olmalı.' }, 400)
         }
         const hash = await hashPassword(password)
-        const validation = validateSigningMaterials(p12Bytes, profileBytes, password)
-        if (requestedExpiry && Math.abs(new Date(requestedExpiry).getTime() - new Date(validation.certificate_expires_at).getTime()) > 86400000) {
-          return json({ success: false, error: 'Bitiş tarihi P12 sertifikasından otomatik okunur; elle girilen tarih gerçek sertifika tarihiyle uyuşmuyor.' }, 400)
-        }
-        certificateName = validation.certificate_name
-        const expiresAt = validation.certificate_expires_at
-
         const id = randomId()
         try {
           await env.DB.prepare('INSERT INTO users (id, name, username, email, password_hash, group_name, status, created_at, email_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)')
@@ -450,7 +443,6 @@ export async function onRequest({ request, env, params }) {
         let certificateName = String(body.certificate_name || '').trim().slice(0, 180)
         const profileName = String(body.profile_name || '').trim().slice(0, 180)
         const password = String(body.password || '')
-        const requestedExpiry = body.expires_at ? String(body.expires_at).slice(0, 40) : null
         const p12Base64 = String(body.p12_base64 || '')
         const profileBase64 = String(body.profile_base64 || '')
 
@@ -481,6 +473,10 @@ export async function onRequest({ request, env, params }) {
             !profileBytes.length || profileBytes.length > 1024 * 1024) {
           return json({ success: false, error: 'P12 en fazla 5 MB, profil en fazla 1 MB olmalı.' }, 413)
         }
+
+        const validation = validateSigningMaterials(p12Bytes, profileBytes, password)
+        certificateName = validation.certificate_name
+        const expiresAt = validation.certificate_expires_at
 
         const id = randomId()
         const p12Key = `certificates/${id}/certificate.p12.enc`

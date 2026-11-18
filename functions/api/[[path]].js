@@ -144,14 +144,28 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
   } catch {
     throw new Error('Provisioning profile dijital imzası doğrulanamadı.')
   }
-  const appleProfileSigner = (profileMessage.certificates || []).some((cert) => {
-    const cn = cert.subject?.getField('CN')?.value || ''
-    const issuerOrg = cert.issuer?.getField('O')?.value || ''
-    return /Apple Worldwide Developer Relations/i.test(String(cn)) &&
-      /Apple Inc\./i.test(String(issuerOrg))
+  const trustedWwdrFingerprint = 'dcf21878c77f4198e4b4614f03d696d89c66c66008d4244e1b99161aac91601f'
+  const trustedWwdr = (profileMessage.certificates || []).find((cert) => {
+    const der = forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes()
+    const digest = forge.md.sha256.create()
+    digest.update(der)
+    return digest.digest().toHex().toLowerCase() === trustedWwdrFingerprint
   })
-  if (!appleProfileSigner) {
-    throw new Error('Provisioning profile içinde Apple WWDR imzalayıcı sertifikası bulunamadı.')
+  if (!trustedWwdr) {
+    throw new Error('Provisioning profile, Apple tarafından yayımlanan güvenilir WWDR G3 sertifikasıyla imzalanmamış.')
+  }
+  const signerMatchesTrustedWwdr = (profileMessage.signerInfos || []).some((info) =>
+    String(info.serialNumber || '').toLowerCase() === String(trustedWwdr.serialNumber || '').toLowerCase()
+  )
+  if (!signerMatchesTrustedWwdr) {
+    throw new Error('Provisioning profile imzalayıcısı doğrulanmış Apple WWDR G3 sertifikası değil.')
+  }
+  try {
+    if (!certificate.verify(trustedWwdr)) {
+      throw new Error('Apple WWDR certificate signature mismatch')
+    }
+  } catch {
+    throw new Error('P12 içindeki Apple Distribution sertifikasının Apple WWDR G3 imzası doğrulanamadı.')
   }
 
   const profileExpiry = certificate.validity.notAfter.toISOString().slice(0, 10)

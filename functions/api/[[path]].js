@@ -60,16 +60,22 @@ async function readBody(request) {
   }
 }
 
-async function encryptSecret(value, secret) {
+async function encryptionKey(secret) {
+  if (!secret || String(secret).length < 32) throw new Error('SIGNING_ENCRYPTION_KEY en az 32 karakter olmalı.')
   const rawKey = await crypto.subtle.digest('SHA-256', encoder.encode(secret))
-  const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['encrypt'])
+  return crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['encrypt'])
+}
+async function encryptSecret(value, secret) {
+  const key = await encryptionKey(secret)
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    encoder.encode(value)
-  )
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(value))
   return { ciphertext: b64url(ciphertext), iv: b64url(iv) }
+}
+async function encryptBytes(value, secret) {
+  const key = await encryptionKey(secret)
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, value)
+  return { ciphertext: new Uint8Array(ciphertext), iv: b64url(iv) }
 }
 function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
@@ -366,27 +372,37 @@ export async function onRequest({ request, env, params }) {
         }
 
         const id = randomId()
-        const p12Key = `certificates/${id}/certificate.p12`
-        const profileKey = `certificates/${id}/profile.mobileprovision`
-        const encrypted = await encryptSecret(password, env.SIGNING_ENCRYPTION_KEY)
+        const p12Key = `certificates/${id}/certificate.p12.enc`
+        const profileKey = `certificates/${id}/profile.mobileprovision.enc`
+        const [encryptedP12, encryptedProfile, encryptedPassword] = await Promise.all([
+          encryptBytes(p12Bytes, env.SIGNING_ENCRYPTION_KEY),
+          encryptBytes(profileBytes, env.SIGNING_ENCRYPTION_KEY),
+          encryptSecret(password, env.SIGNING_ENCRYPTION_KEY)
+        ])
+        const previous = await env.DB.prepare(
+          'SELECT id, p12_key, profile_key FROM signing_certificate'
+        ).all()
 
         try {
-          await env.CERTS.put(p12Key, p12Bytes, {
-            httpMetadata: { contentType: 'application/x-pkcs12' }
+          await env.CERTS.put(p12Key, encryptedP12.ciphertext, {
+            httpMetadata: { contentType: 'application/octet-stream' },
+            customMetadata: { encryption: 'AES-256-GCM', iv: encryptedP12.iv }
           })
-          await env.CERTS.put(profileKey, profileBytes, {
-            httpMetadata: { contentType: 'application/octet-stream' }
+          await env.CERTS.put(profileKey, encryptedProfile.ciphertext, {
+            httpMetadata: { contentType: 'application/octet-stream' },
+            customMetadata: { encryption: 'AES-256-GCM', iv: encryptedProfile.iv }
           })
 
           await env.DB.prepare(
             `INSERT INTO signing_certificate
-            (id, status, certificate_name, profile_name, password_ciphertext, password_iv, p12_key, profile_key, expires_at, updated_at)
-            VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`
+            (id, status, certificate_name, profile_name, password_ciphertext, password_iv,
+             p12_key, profile_key, p12_iv, profile_iv, expires_at, updated_at)
+            VALUES (?, 'stored', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).bind(
             id, certificateName, profileName,
-            encrypted.ciphertext, encrypted.iv,
-            p12Key, profileKey, expiresAt,
-            new Date().toISOString()
+            encryptedPassword.ciphertext, encryptedPassword.iv,
+            p12Key, profileKey, encryptedP12.iv, encryptedProfile.iv,
+            expiresAt, new Date().toISOString()
           ).run()
         } catch (error) {
           try { await env.CERTS.delete(p12Key) } catch {}
@@ -394,16 +410,25 @@ export async function onRequest({ request, env, params }) {
           throw error
         }
 
+        // Delete older objects, including the previous plaintext uploads, only after
+        // the new encrypted copy and its database row have been committed.
+        for (const old of (previous.results || [])) {
+          if (old.id === id) continue
+          if (old.p12_key) { try { await env.CERTS.delete(old.p12_key) } catch {} }
+          if (old.profile_key) { try { await env.CERTS.delete(old.profile_key) } catch {} }
+          try { await env.DB.prepare('DELETE FROM signing_certificate WHERE id = ?').bind(old.id).run() } catch {}
+        }
+
         return json({
           success: true,
           certificate: {
             id,
-            status: 'pending',
+            status: 'stored',
             certificate_name: certificateName,
             profile_name: profileName,
             expires_at: expiresAt
           },
-          message: 'Sertifika dosyaları özel kasaya kaydedildi. Doğrulama bekleniyor.'
+          message: 'P12, provisioning profili ve parola AES-256-GCM ile şifrelenerek özel kasaya kaydedildi.'
         }, 201)
       }
 

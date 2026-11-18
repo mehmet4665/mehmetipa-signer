@@ -630,13 +630,13 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
   <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
       <h2 className="text-lg font-semibold">VIP sertifikası</h2>
-      <p className="mt-1 text-sm text-muted-foreground">P12 parolası, özel anahtar eşleşmesi, Apple sertifikasının geçerlilik süresi ve provisioning profile CMS imzası sunucuda kontrol edilir. Dosyalar AES-256-GCM ile şifrelenerek özel R2 kasasında tutulur.</p>
+      <p className="mt-1 text-sm text-muted-foreground">P12 parolası ve özel anahtar eşleşmesi, sertifikanın süresi, Apple WWDR G3 imza zinciri ve provisioning profile CMS imzası kontrol edilir. Dosyalar AES-256-GCM ile şifrelenerek özel R2 kasasında tutulur. Apple OCSP/CRL iptal sorgusu henüz yapılmaz.</p>
     </div>
     {certificate && <button type="button" onClick={deleteCertificate} disabled={busy} className="rounded-xl border border-red-500/40 px-4 py-2 text-sm font-semibold text-red-600 disabled:opacity-50">Sertifikayı sil</button>}
   </div>
   <div className="mt-3 rounded-xl bg-muted/50 p-3 text-sm">
     {certificate ? <>
-      <div><strong>Doğrulama:</strong> {certificate.status === 'active' ? <span className="font-semibold text-emerald-600">✓ Doğrulandı · Kullanıma hazır</span> : certificate.status === 'stored' ? <span className="font-semibold text-amber-600">Eski kayıt · Gerçekliği henüz kontrol edilmedi; yeniden yükle</span> : <span>{certificate.status}</span>}</div>
+      <div><strong>Doğrulama:</strong> {certificate.status === 'active' ? <span className="font-semibold text-emerald-600">✓ Teknik doğrulama geçti · Apple WWDR G3</span> : certificate.status === 'stored' ? <span className="font-semibold text-amber-600">Eski kayıt · Gerçekliği henüz kontrol edilmedi; yeniden yükle</span> : <span>{certificate.status}</span>}</div>
       <div><strong>Apple sertifikası:</strong> {certificate.certificate_name || '—'}</div>
       <div><strong>Profil:</strong> {certificate.profile_name || '—'}</div>
       <div><strong>Gerçek bitiş:</strong> {certificate.expires_at ? new Date(certificate.expires_at).toLocaleString(getAppLocale()) : 'Belirtilmedi'}</div>

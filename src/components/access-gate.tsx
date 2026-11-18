@@ -173,7 +173,7 @@ function MemberSigningPanel({ username, onHome, onLogout }: { username: string; 
     setMessage('The signing service is not connected yet. Your file has not been signed.')
   }
 
-  return <main className="relative min-h-screen overflow-hidden bg-[#070A16] bg-[radial-gradient(ellipse_at_10%_0%,rgba(124,58,237,.18),transparent_34%),radial-gradient(ellipse_at_95%_35%,rgba(6,182,212,.10),transparent_30%),linear-gradient(180deg,#080b18,#090d1b_55%,#070a14)] px-4 pb-10 pt-5 text-white sm:px-6">
+  return <section className="relative min-h-screen overflow-hidden bg-[#070A16] bg-[radial-gradient(ellipse_at_10%_0%,rgba(124,58,237,.18),transparent_34%),radial-gradient(ellipse_at_95%_35%,rgba(6,182,212,.10),transparent_30%),linear-gradient(180deg,#080b18,#090d1b_55%,#070a14)] px-4 pb-10 pt-5 text-white sm:px-6">
     <div className="pointer-events-none absolute -right-32 top-20 h-96 w-96 rounded-full bg-violet-600/15 blur-3xl" />
     <div className="relative mx-auto max-w-3xl">
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-violet-300/20 bg-[#11182c]/85 px-4 py-3 shadow-[0_18px_55px_rgba(0,0,0,.24)] backdrop-blur-xl">
@@ -213,7 +213,7 @@ function MemberSigningPanel({ username, onHome, onLogout }: { username: string; 
       <button type="button" disabled={!ipaFile} onClick={startSigning} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-500 px-5 py-4 font-bold text-white shadow-[0_14px_35px_rgba(109,40,217,.25)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">Start signing <span>→</span></button>
       <p className="mt-3 text-center text-xs text-slate-500">The download button will appear here after a real signing operation succeeds.</p>
     </div>
-  </main>
+  </section>
 }
 
 export function AccessGate() {

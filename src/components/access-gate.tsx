@@ -427,7 +427,6 @@ export function AccessGate() {
           certificate_name: p12File.name,
           profile_name: profileFile.name,
           password: certificatePassword,
-          expires_at: certificateExpiry || null,
           p12_base64: p12Base64,
           profile_base64: profileBase64,
         }),

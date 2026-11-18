@@ -219,8 +219,6 @@ export function AccessGate() {
     </section>
   </Frame>
 
-  if (false) return <Frame>
-
   return <Frame><section className="mx-auto max-w-xl pt-8 text-center sm:pt-16"><Brand /><div className="mt-10 rounded-3xl border bg-card p-6 shadow-sm sm:p-10"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-2xl font-bold">IPA</div><h1 className="mt-6 text-3xl font-bold tracking-tight">Mehmet IPA</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">iOS IPA dosyalarını tarayıcı üzerinden imzalama aracı. Üyeler giriş yaparak imzalama ekranına erişebilir.</p><a href={APP_DOWNLOAD} className="mt-7 flex h-12 w-full items-center justify-center rounded-xl border font-semibold">Mehmet IPA uygulamasını indir</a><button onClick={() => { setView('login'); setError('') }} className="mt-3 h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground">Üye / Yönetici girişi</button><p className="mt-5 text-xs text-muted-foreground">Yeni üyelik oluşturma kapalıdır. Hesaplar yönetici tarafından tanımlanır.</p></div><p className="mt-6 text-xs text-muted-foreground">© Mehmet IPA</p></section></Frame>
 }
 

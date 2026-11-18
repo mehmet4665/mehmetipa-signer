@@ -1,3 +1,5 @@
+import forge from 'node-forge'
+
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: {
@@ -77,6 +79,91 @@ async function encryptBytes(value, secret) {
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, value)
   return { ciphertext: new Uint8Array(ciphertext), iv: b64url(iv) }
 }
+
+function bytesToBinary(bytes) {
+  let output = ''
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    output += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)))
+  }
+  return output
+}
+
+function certificateField(certificate, name) {
+  const field = certificate?.subject?.getField(name) || certificate?.issuer?.getField(name)
+  return typeof field?.value === 'string' ? field.value : ''
+}
+
+function validateSigningMaterials(p12Bytes, profileBytes, password) {
+  let p12
+  try {
+    const p12Asn1 = forge.asn1.fromDer(bytesToBinary(p12Bytes))
+    p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, password)
+  } catch {
+    throw new Error('P12 dosyası okunamadı veya P12 şifresi yanlış.')
+  }
+
+  const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || []
+  const certificate = certBags.find((bag) => bag.cert)?.cert
+  if (!certificate) throw new Error('P12 içinde imzalama sertifikası bulunamadı.')
+
+  const keyBags = [
+    ...(p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[forge.pki.oids.pkcs8ShroudedKeyBag] || []),
+    ...(p12.getBags({ bagType: forge.pki.oids.keyBag })[forge.pki.oids.keyBag] || []),
+  ]
+  const privateKey = keyBags.find((bag) => bag.key)?.key
+  if (!privateKey) throw new Error('P12 içinde özel imzalama anahtarı bulunamadı.')
+  if (!certificate.publicKey?.n || !privateKey.n || !privateKey.e ||
+      certificate.publicKey.n.compareTo(privateKey.n) !== 0 ||
+      certificate.publicKey.e.compareTo(privateKey.e) !== 0) {
+    throw new Error('P12 içindeki sertifika ile özel anahtar eşleşmiyor veya desteklenmeyen anahtar türü.')
+  }
+
+  const now = new Date()
+  if (certificate.validity.notBefore > now) throw new Error('İmzalama sertifikası henüz geçerli değil.')
+  if (certificate.validity.notAfter <= now) throw new Error('İmzalama sertifikasının süresi dolmuş.')
+  const certificateName = certificateField(certificate, 'CN')
+  const certificateIssuer = certificate.issuer?.getField('O')?.value || ''
+  if (!/Apple Distribution|iPhone Distribution|Apple Development/i.test(certificateName) ||
+      !/Apple Inc\./i.test(String(certificateIssuer))) {
+    throw new Error('P12 sertifikası beklenen Apple dağıtım/geliştirici sertifikası biçiminde değil.')
+  }
+
+  let profileMessage
+  try {
+    const profileAsn1 = forge.asn1.fromDer(bytesToBinary(profileBytes))
+    profileMessage = forge.pkcs7.messageFromAsn1(profileAsn1)
+  } catch {
+    throw new Error('Provisioning profile geçerli bir imzalı Apple CMS dosyası olarak okunamadı.')
+  }
+  if (profileMessage.type !== forge.pki.oids.signedData) {
+    throw new Error('Provisioning profile imzalı CMS verisi değil.')
+  }
+  try {
+    if (!profileMessage.verify()) throw new Error('CMS signature invalid')
+  } catch {
+    throw new Error('Provisioning profile dijital imzası doğrulanamadı.')
+  }
+  const appleProfileSigner = (profileMessage.certificates || []).some((cert) => {
+    const cn = cert.subject?.getField('CN')?.value || ''
+    const issuerOrg = cert.issuer?.getField('O')?.value || ''
+    return /Apple Worldwide Developer Relations/i.test(String(cn)) &&
+      /Apple Inc\./i.test(String(issuerOrg))
+  })
+  if (!appleProfileSigner) {
+    throw new Error('Provisioning profile içinde Apple WWDR imzalayıcı sertifikası bulunamadı.')
+  }
+
+  const profileExpiry = certificate.validity.notAfter.toISOString().slice(0, 10)
+  return {
+    certificate_name: certificateName || 'Apple signing certificate',
+    certificate_expires_at: certificate.validity.notAfter.toISOString(),
+    profile_signature_valid: true,
+    validation_status: 'validated',
+    suggested_expiry: profileExpiry,
+  }
+}
+
 function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
 }
@@ -210,6 +297,11 @@ export async function onRequest({ request, env, params }) {
           return json({ success: false, error: 'Ad ve geçerli e-posta gerekli; kullanıcı adı 3-40 karakter (a-z, 0-9, . _ -), şifre en az 8 karakter olmalı.' }, 400)
         }
         const hash = await hashPassword(password)
+        const validation = validateSigningMaterials(p12Bytes, profileBytes, password)
+        if (expiresAt && new Date(expiresAt).getTime() > new Date(validation.certificate_expires_at).getTime()) {
+          return json({ success: false, error: 'Girilen bitiş tarihi P12 sertifikasının gerçek bitiş tarihinden sonra olamaz.' }, 400)
+        }
+
         const id = randomId()
         try {
           await env.DB.prepare('INSERT INTO users (id, name, username, email, password_hash, group_name, status, created_at, email_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)')
@@ -314,6 +406,23 @@ export async function onRequest({ request, env, params }) {
         })
       }
 
+
+      // SIGNING: Yönetici sertifikayı ve özel kasadaki dosyalarını siler
+      if (path === '/api/admin/certificate' && method === 'DELETE') {
+        const denied = requireAdmin()
+        if (denied) return denied
+        if (!env.CERTS) return json({ success: false, error: 'Sertifika kasası bağlı değil.' }, 503)
+        const { results = [] } = await env.DB.prepare(
+          'SELECT id, p12_key, profile_key FROM signing_certificate'
+        ).all()
+        for (const item of results) {
+          if (item.p12_key) await env.CERTS.delete(item.p12_key)
+          if (item.profile_key) await env.CERTS.delete(item.profile_key)
+        }
+        await env.DB.prepare('DELETE FROM signing_certificate').run()
+        return json({ success: true, deleted: results.length })
+      }
+
       // SIGNING: Yönetici sertifika bilgisi
       if (path === '/api/admin/certificate' && method === 'GET') {
         const denied = requireAdmin()
@@ -397,7 +506,7 @@ export async function onRequest({ request, env, params }) {
             `INSERT INTO signing_certificate
             (id, status, certificate_name, profile_name, password_ciphertext, password_iv,
              p12_key, profile_key, p12_iv, profile_iv, expires_at, updated_at)
-            VALUES (?, 'stored', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            VALUES (?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).bind(
             id, certificateName, profileName,
             encryptedPassword.ciphertext, encryptedPassword.iv,
@@ -423,12 +532,13 @@ export async function onRequest({ request, env, params }) {
           success: true,
           certificate: {
             id,
-            status: 'stored',
+            status: 'active',
             certificate_name: certificateName,
             profile_name: profileName,
             expires_at: expiresAt
           },
-          message: 'P12, provisioning profili ve parola AES-256-GCM ile şifrelenerek özel kasaya kaydedildi.'
+          validation,
+          message: 'P12 parolası, sertifika-anahtar eşleşmesi, sertifika süresi ve provisioning profile CMS imzası kontrol edildi. Dosyalar AES-256-GCM ile şifrelenerek özel kasaya kaydedildi.'
         }, 201)
       }
 

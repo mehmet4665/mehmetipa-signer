@@ -298,9 +298,11 @@ export async function onRequest({ request, env, params }) {
         }
         const hash = await hashPassword(password)
         const validation = validateSigningMaterials(p12Bytes, profileBytes, password)
-        if (expiresAt && new Date(expiresAt).getTime() > new Date(validation.certificate_expires_at).getTime()) {
-          return json({ success: false, error: 'Girilen bitiş tarihi P12 sertifikasının gerçek bitiş tarihinden sonra olamaz.' }, 400)
+        if (requestedExpiry && Math.abs(new Date(requestedExpiry).getTime() - new Date(validation.certificate_expires_at).getTime()) > 86400000) {
+          return json({ success: false, error: 'Bitiş tarihi P12 sertifikasından otomatik okunur; elle girilen tarih gerçek sertifika tarihiyle uyuşmuyor.' }, 400)
         }
+        certificateName = validation.certificate_name
+        const expiresAt = validation.certificate_expires_at
 
         const id = randomId()
         try {
@@ -445,10 +447,10 @@ export async function onRequest({ request, env, params }) {
         }
 
         const body = await readBody(request)
-        const certificateName = String(body.certificate_name || '').trim().slice(0, 180)
+        let certificateName = String(body.certificate_name || '').trim().slice(0, 180)
         const profileName = String(body.profile_name || '').trim().slice(0, 180)
         const password = String(body.password || '')
-        const expiresAt = body.expires_at ? String(body.expires_at).slice(0, 40) : null
+        const requestedExpiry = body.expires_at ? String(body.expires_at).slice(0, 40) : null
         const p12Base64 = String(body.p12_base64 || '')
         const profileBase64 = String(body.profile_base64 || '')
 

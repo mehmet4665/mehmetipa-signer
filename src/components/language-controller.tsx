@@ -513,7 +513,14 @@ const englishToTurkish: Record<string, string> = {
   "The signing service has not been connected yet. No signing process will be started and no successful output will be shown until the real service is integrated.": "İmzalama servisi henüz bağlanmadı. Gerçek servis entegre edilene kadar imzalama başlatılmayacak ve başarılı çıktı gösterilmeyecek.",
   "The signing service is not connected yet. Your file has not been signed.": "İmzalama servisi henüz bağlı değil. Dosyan henüz imzalanmadı.",
   "Start signing": "İmzalamaya başla",
-  "The download button will appear here after a real signing operation succeeds.": "İndirme butonu gerçek bir imzalama işlemi başarıyla tamamlandıktan sonra burada görünecek.",
+  "The IPA is sent to the private signing engine. Your certificate stays protected.": "IPA dosyan özel imzalama motoruna gönderilir. Sertifikan koruma altında kalır.",
+  "Your IPA was signed successfully. Download it below.": "IPA dosyan başarıyla imzalandı. Aşağıdan indirebilirsin.",
+  "The signed IPA download will appear here after the signing service returns a valid file.": "İmzalama servisi geçerli bir dosya döndürdüğünde indirme bağlantısı burada görünecek.",
+  "Download signed IPA": "İmzalanmış IPA'yı indir",
+  "Signing…": "İmzalanıyor…",
+  "Complete": "Tamamlandı",
+  "In progress": "İşleniyor",
+  "Failed": "Başarısız",
   "Member home": "Üye ana sayfası",
 }
 const turkishToEnglish: Record<string, string> = {
@@ -1062,6 +1069,14 @@ const turkishToEnglish: Record<string, string> = {
   "İçe aktarılıyor...": "Importing...",
   "İçe aktar": "Import",
   "Konsol": "Console",
+  "IPA dosyan özel imzalama motoruna gönderilir. Sertifikan koruma altında kalır.": "The IPA is sent to the private signing engine. Your certificate stays protected.",
+  "IPA dosyan başarıyla imzalandı. Aşağıdan indirebilirsin.": "Your IPA was signed successfully. Download it below.",
+  "İmzalama servisi geçerli bir dosya döndürdüğünde indirme bağlantısı burada görünecek.": "The signed IPA download will appear here after the signing service returns a valid file.",
+  "İmzalanmış IPA'yı indir": "Download signed IPA",
+  "İmzalanıyor…": "Signing…",
+  "Tamamlandı": "Complete",
+  "İşleniyor": "In progress",
+  "Başarısız": "Failed",
 }
 const STORAGE_KEY = 'mehmetipa.language'
 type Language = 'tr' | 'en'

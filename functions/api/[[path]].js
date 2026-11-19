@@ -844,13 +844,14 @@ export async function onRequest({ request, env, params }) {
           const bundleId = signed.headers.get('x-app-bundle-id') || ''
           const appVersion = signed.headers.get('x-app-version') || '1.0'
           if (bundleId !== 'com.mehmetipa.signer') throw new Error('İmzalı uygulamanın Bundle ID bilgisi provisioning profile ile eşleşmiyor.')
-          const signedBytes = await signed.arrayBuffer()
-          if (signedBytes.byteLength < 1024) throw new Error('İmzalı IPA çıktısı geçersiz.')
+          const signedSize = Number(signed.headers.get('content-length') || 0)
+          if (signedSize > 100 * 1024 * 1024) throw new Error('İmzalı IPA dosyası 100 MB sınırını aşıyor.')
+          if (signedSize > 0 && signedSize < 1024) throw new Error('İmzalı IPA çıktısı geçersiz.')
           const installToken = randomToken()
           const installKey = 'signed-installs/' + installToken + '.ipa'
           const expiresAt = Date.now() + 24 * 60 * 60 * 1000
           const fileName = ipa.name.replace(/\\.ipa$/i, '') + '-signed.ipa'
-          await env.CERTS.put(installKey, signedBytes, {
+          await env.CERTS.put(installKey, signed.body, {
             httpMetadata: { contentType: 'application/octet-stream' },
             customMetadata: { bundleId, version: appVersion, title: 'Mehmet IPA', fileName, expiresAt: String(expiresAt), username: member.username }
           })

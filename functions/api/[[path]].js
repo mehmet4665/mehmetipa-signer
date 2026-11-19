@@ -933,7 +933,7 @@ export async function onRequest({ request, env, params }) {
           await writeProgress(5, 88, 'İmza doğrulaması yapılıyor', '05/05 · İmzalı IPA çıktısı alındı; Bundle ID ve sürüm bilgileri doğrulanıyor.')
           const bundleId = signed.headers.get('x-app-bundle-id') || ''
           const appVersion = signed.headers.get('x-app-version') || '1.0'
-          if (bundleId !== 'com.mehmetipa.signer') throw new Error('İmzalı uygulamanın Bundle ID bilgisi provisioning profile ile eşleşmiyor.')
+          if (!bundleId || !/^[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$/.test(bundleId)) throw new Error('İmzalı uygulamanın Bundle ID bilgisi geçersiz.')
           const signedSize = Number(signed.headers.get('content-length') || 0)
           if (signedSize > 100 * 1024 * 1024) throw new Error('İmzalı IPA dosyası 100 MB sınırını aşıyor.')
           if (signedSize > 0 && signedSize < 1024) throw new Error('İmzalı IPA çıktısı geçersiz.')

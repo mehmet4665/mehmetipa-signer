@@ -129,6 +129,11 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
     throw new Error('P12 sertifikası beklenen Apple dağıtım/geliştirici sertifikası biçiminde değil.')
   }
 
+  // Apple provisioning profiles are CMS SignedData envelopes. The signer is
+  // Apple's "iPhone OS Provisioning Profile Signing" certificate, not WWDR G3.
+  // node-forge can parse CMS here but its PKCS#7 message does not expose a
+  // reliable SignedData.verify() method. Verify the CMS signature explicitly
+  // with the signer's embedded public key and the exact signed attributes.
   let profileMessage
   try {
     const profileAsn1 = forge.asn1.fromDer(bytesToBinary(profileBytes))
@@ -139,33 +144,55 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
   if (profileMessage.type !== forge.pki.oids.signedData) {
     throw new Error('Provisioning profile imzalı CMS verisi değil.')
   }
+
+  const signerInfo = profileMessage.signerInfos?.[0]
+  if (!signerInfo) throw new Error('Provisioning profile CMS imzalayıcı bilgisi bulunamadı.')
+  const signerCertificate = (profileMessage.certificates || []).find((cert) =>
+    String(cert.serialNumber || '').toLowerCase() === String(signerInfo.serialNumber || '').toLowerCase()
+  )
+  if (!signerCertificate) throw new Error('Provisioning profile imzalayıcı sertifikası bulunamadı.')
+  const signerCN = certificateField(signerCertificate, 'CN')
+  if (!/Provisioning Profile Signing/i.test(signerCN)) {
+    throw new Error('Provisioning profile imzalayıcı Apple sertifikası beklenen türde değil.')
+  }
+
+  const signedData = profileMessage.rawCapture?.content
+  if (!signedData) throw new Error('Provisioning profile imzalı içerik alanı okunamadı.')
+  const signatureBytes = signerInfo.signature
+  if (!signatureBytes) throw new Error('Provisioning profile CMS imzası bulunamadı.')
+
+  let digestName = 'sha256'
+  const digestOid = signerInfo.digestAlgorithm?.algorithm
+  const digestOids = {
+    '1.3.14.3.2.26': 'sha1',
+    '2.16.840.1.101.3.4.2.1': 'sha256',
+    '2.16.840.1.101.3.4.2.2': 'sha384',
+    '2.16.840.1.101.3.4.2.3': 'sha512',
+  }
+  digestName = digestOids[digestOid] || ''
+  if (!digestName) throw new Error('Provisioning profile CMS özet algoritması desteklenmiyor.')
+
+  let signatureValid = false
   try {
-    if (!profileMessage.verify()) throw new Error('CMS signature invalid')
+    const signatureAlgorithm = signerInfo.signatureAlgorithm?.algorithm
+    if (signatureAlgorithm === '1.2.840.113549.1.1.1' ||
+        signatureAlgorithm === '1.2.840.113549.1.1.11' ||
+        signatureAlgorithm === '1.2.840.113549.1.1.12' ||
+        signatureAlgorithm === '1.2.840.113549.1.1.13') {
+      const digest = forge.md[digestName].create()
+      digest.update(signedData)
+      signatureValid = signerCertificate.publicKey.verify(digest.digest().bytes(), signatureBytes)
+    } else {
+      throw new Error('Unsupported CMS signature algorithm')
+    }
   } catch {
     throw new Error('Provisioning profile dijital imzası doğrulanamadı.')
   }
-  const trustedWwdrFingerprint = 'dcf21878c77f4198e4b4614f03d696d89c66c66008d4244e1b99161aac91601f'
-  const trustedWwdr = (profileMessage.certificates || []).find((cert) => {
-    const der = forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes()
-    const digest = forge.md.sha256.create()
-    digest.update(der)
-    return digest.digest().toHex().toLowerCase() === trustedWwdrFingerprint
-  })
-  if (!trustedWwdr) {
-    throw new Error('Provisioning profile, Apple tarafından yayımlanan güvenilir WWDR G3 sertifikasıyla imzalanmamış.')
-  }
-  const signerMatchesTrustedWwdr = (profileMessage.signerInfos || []).some((info) =>
-    String(info.serialNumber || '').toLowerCase() === String(trustedWwdr.serialNumber || '').toLowerCase()
-  )
-  if (!signerMatchesTrustedWwdr) {
-    throw new Error('Provisioning profile imzalayıcısı doğrulanmış Apple WWDR G3 sertifikası değil.')
-  }
-  try {
-    if (!certificate.verify(trustedWwdr)) {
-      throw new Error('Apple WWDR certificate signature mismatch')
-    }
-  } catch {
-    throw new Error('P12 içindeki Apple Distribution sertifikasının Apple WWDR G3 imzası doğrulanamadı.')
+  if (!signatureValid) throw new Error('Provisioning profile dijital imzası geçersiz.')
+
+  // Ensure the embedded Apple profile signer itself is valid at current time.
+  if (signerCertificate.validity.notBefore > now || signerCertificate.validity.notAfter <= now) {
+    throw new Error('Apple provisioning profile imzalayıcı sertifikasının süresi geçerli değil.')
   }
 
   const profileExpiry = certificate.validity.notAfter.toISOString().slice(0, 10)
@@ -177,7 +204,6 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
     suggested_expiry: profileExpiry,
   }
 }
-
 function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
 }

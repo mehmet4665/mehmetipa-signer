@@ -375,7 +375,10 @@ export async function onRequest({ request, env, params }) {
       if (!env.CERTS || typeof env.CERTS.get !== 'function') return json({ success: false, error: 'Install storage unavailable.' }, 503)
       const [, token, artifact] = installMatch
       const key = 'signed-installs/' + token + '.ipa'
-      const object = await env.CERTS.get(key)
+      // Pass byte-range requests through to R2 so iOS can resume large OTA IPA downloads.
+      const object = artifact === 'app.ipa' && request.headers.has('range')
+        ? await env.CERTS.get(key, { range: request.headers })
+        : await env.CERTS.get(key)
       if (!object) return json({ success: false, error: 'Install link expired or not found.' }, 404)
       const metadata = object.customMetadata || {}
       if (!metadata.expiresAt || Date.now() > Number(metadata.expiresAt)) {
@@ -385,13 +388,32 @@ export async function onRequest({ request, env, params }) {
       if (artifact === 'manifest.plist') {
         const origin = new URL(request.url).origin
         const appUrl = origin + '/api/install/' + token + '/app.ipa'
+        const iconUrl = origin + '/icon-light-192.png'
         const esc = (value) => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
         const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>items</key><array><dict><key>assets</key><array><dict><key>kind</key><string>software-package</string><key>url</key><string>${esc(appUrl)}</string></dict></array><key>metadata</key><dict><key>bundle-identifier</key><string>${esc(metadata.bundleId)}</string><key>bundle-version</key><string>${esc(metadata.version || '1.0')}</string><key>kind</key><string>software</string><key>title</key><string>${esc(metadata.title || 'Mehmet IPA')}</string></dict></dict></array></dict></plist>`
-        return new Response(xml, { headers: { 'content-type': 'text/xml; charset=utf-8', 'cache-control': 'no-store' } })
+<plist version="1.0"><dict><key>items</key><array><dict><key>assets</key><array>
+<dict><key>kind</key><string>software-package</string><key>url</key><string>${esc(appUrl)}</string></dict>
+<dict><key>kind</key><string>display-image</string><key>url</key><string>${esc(iconUrl)}</string></dict>
+<dict><key>kind</key><string>full-size-image</string><key>url</key><string>${esc(iconUrl)}</string></dict>
+</array><key>metadata</key><dict><key>bundle-identifier</key><string>${esc(metadata.bundleId)}</string><key>bundle-version</key><string>${esc(metadata.version || '1.0')}</string><key>kind</key><string>software</string><key>title</key><string>${esc(metadata.title || 'Mehmet IPA')}</string></dict></dict></array></dict></plist>`
+        return new Response(xml, { headers: { 'content-type': 'text/xml; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } })
       }
-      return new Response(object.body, { headers: { 'content-type': 'application/octet-stream', 'content-length': String(object.size), 'content-disposition': 'attachment; filename="' + String(metadata.fileName || 'signed.ipa').replace(/["\\r\\n]/g, '') + '"', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' } })
+      const headers = new Headers({
+        'content-type': 'application/octet-stream',
+        'content-length': String(object.range?.length ?? object.size),
+        'accept-ranges': 'bytes',
+        'cache-control': 'private, no-store',
+        'x-content-type-options': 'nosniff',
+      })
+      if (object.range) {
+        const start = object.range.offset
+        const end = start + object.range.length - 1
+        headers.set('content-range', 'bytes ' + start + '-' + end + '/' + object.size)
+      }
+      if (object.httpEtag) headers.set('etag', object.httpEtag)
+      // Do not force Content-Disposition: iOS OTA downloads this as a software package, not a browser attachment.
+      return new Response(object.body, { status: object.range ? 206 : 200, headers })
     }
 
     if (path === '/api/auth/register' && method === 'POST') {

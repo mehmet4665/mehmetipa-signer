@@ -587,6 +587,26 @@ const englishToTurkish: Record<string, string> = {
 
 }
 const turkishToEnglish: Record<string, string> = {
+  "Kayıtlı cihazın": "Your registered device",
+  "Cihaz onaylandı": "Device approved",
+  "Cihaz engellendi · Yöneticiyle iletişime geç": "Device blocked · Contact the administrator",
+  "Yönetici onayı bekleniyor": "Awaiting administrator approval",
+  "Henüz kayıtlı cihazın yok. UDID değerini yalnızca ilk kayıt için gir.": "You have no registered devices yet. Enter your UDID only for the initial registration.",
+  "Hesabına giriş yap; IPA imzalama araçlarına, oyun vitrinine ve Türkçe emülatör rehberlerine ulaş.": "Sign in to access IPA signing tools, the game showcase, and Turkish emulator guides.",
+  "Beni hatırla": "Remember me",
+  "(Bu cihazda hesabımı hatırla)": "(Remember my account on this device)",
+  "Bu cihazda hatırlanan hesap": "Account remembered on this device",
+  "Hesabı seç →": "Choose account →",
+  "Yeni üyelik kayıtları geçici olarak kapalı": "New membership registrations are temporarily closed",
+  "Ücretsiz hesabını oluştur ve Mehmet IPA dünyasına katıl.": "Create your free account and join the Mehmet IPA community.",
+  "Hesabın kayıt tamamlandığında hemen kullanıma açılır.": "Your account becomes available as soon as registration is complete.",
+  "✓ Teknik doğrulama geçti · Apple WWDR G3": "✓ Technical verification passed · Apple WWDR G3",
+  "Eski kayıt · Gerçekliği henüz kontrol edilmedi; yeniden yükle": "Legacy record · Authenticity has not been checked; upload it again",
+  "MEHMET IPA'YI KEŞFET": "DISCOVER MEHMET IPA",
+  "Oyunlarını keşfet, Mehmet IPA'nın sunduğu sertifikayla IPA'larını imzala.": "Discover games and sign your IPAs with the certificate provided by Mehmet IPA.",
+  "Oyunları keşfet": "Explore games",
+  "Oyunları, bilgileri ve rehberleri incele.": "Browse games, information, and guides.",
+  "MEHMET IPA ÜYELİĞİ": "MEHMET IPA MEMBERSHIP",
 
   "Güç göstergesi Apple çip nesillerine göre hazırlanmış yaklaşık donanım sıralamasıdır; yeşil alan önerilen seviyeyi, ⚡ sayısı nesiller arası göreceli güç artışını gösterir. Bunlar kesin FPS veya doğrulanmış MeloNX uyumluluk garantisi değildir. Gerçek sonuç emülatör sürümüne, oyun sürümüne, RAM'e ve ısınmaya göre değişir. Kapak görselleri tanıtım amaçlıdır.": "The power indicator is an approximate hardware ranking based on Apple chip generations. The green area marks the recommended level, and the ⚡ count shows relative generational performance. This is not a guaranteed FPS result or verified MeloNX compatibility. Actual results depend on emulator and game versions, RAM, and thermal conditions. Cover images are for presentation only.",
   "P12 parolası ve özel anahtar eşleşmesi, sertifikanın süresi, Apple WWDR G3 imza zinciri ve provisioning profile CMS imzası kontrol edilir. Dosyalar AES-256-GCM ile şifrelenerek özel R2 kasasında tutulur. Apple OCSP/CRL iptal sorgusu henüz yapılmaz.": "The P12 password and private-key match, certificate validity period, Apple WWDR G3 signing chain, and provisioning profile CMS signature are checked. Files are encrypted with AES-256-GCM and stored in a private R2 vault. Apple OCSP/CRL revocation checks are not performed yet.",

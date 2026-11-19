@@ -1169,42 +1169,43 @@ function translateText(value: string, language: Language) {
   const dictionary = language === 'tr' ? englishToTurkish : turkishToEnglish
   const exact = dictionary[source]
   if (exact) {
-    const leading = value.match(/^\s*/)?.[0] || ''
-    const trailing = value.match(/\s*$/)?.[0] || ''
+    const leading = value.match(/^\\s*/)?.[0] || ''
+    const trailing = value.match(/\\s*$/)?.[0] || ''
     return leading + exact + trailing
   }
 
   if (language === 'tr') {
-    const addMore = source.match(/^Add more (.+?)(?:\.{3}|…)?$/i)
+    const addMore = source.match(/^Add more (.+?)(?:\\.{3}|…)?$/i)
     if (addMore) {
       const label = dictionary[addMore[1]] || addMore[1]
       return 'Daha fazla ' + label.toLocaleLowerCase('tr-TR') + ' ekle...'
     }
     const removeLabel = source.match(/^Remove (.+)$/i)
     if (removeLabel) return 'Kaldır ' + (dictionary[removeLabel[1]] || removeLabel[1])
-    const selected = source.match(/^(\d+)\s+selected\s+\((.+?)\s+total\)$/i)
+    const selected = source.match(/^(\\d+)\\s+selected\\s+\\((.+?)\\s+total\\)$/i)
     if (selected) return selected[1] + ' seçildi (' + selected[2] + ' toplam)'
   } else {
-    const addMore = source.match(/^Daha fazla (.+?) ekle(?:\.{3}|…)?$/i)
+    const addMore = source.match(/^Daha fazla (.+?) ekle(?:\\.{3}|…)?$/i)
     if (addMore) {
       const label = dictionary[addMore[1]] || addMore[1]
       return 'Add more ' + label.toLocaleLowerCase('en-US') + '...'
     }
-    const removeLabel = source.match(/^Kaldır\s+(.+)$/i)
+    const removeLabel = source.match(/^Kaldır\\s+(.+)$/i)
     if (removeLabel) return 'Remove ' + (dictionary[removeLabel[1]] || removeLabel[1])
-    const selected = source.match(/^(\d+)\s+seçildi\s+\((.+?)\s+toplam\)$/i)
+    const selected = source.match(/^(\\d+)\\s+seçildi\\s+\\((.+?)\\s+toplam\\)$/i)
     if (selected) return selected[1] + ' selected (' + selected[2] + ' total)'
   }
 
-  const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((a,b) => b.length-a.length)
-  let result = value
-  for (const key of keys) {
-    const escaped = key.replace(/[.*+?^$()|[\]\\]/g, '\\$&')
-    const boundary = '(^|[^\\p{L}\\p{N}])(' + escaped + ')(?=$|[^\\p{L}\\p{N}])'
-    const pattern = new RegExp(boundary, 'giu')
-    result = result.replace(pattern, (_match, prefix: string, phrase: string) => prefix + (dictionary[phrase] || dictionary[key]))
-  }
-  return result
+  // Translate each match against the original source exactly once. Replacing
+  // keys in a loop can translate freshly-created target-language text again.
+  const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((a, b) => b.length - a.length)
+  if (!keys.length) return value
+  const translatedByKey = new Map(keys.map(key => [key.toLocaleLowerCase(), dictionary[key]]))
+  const alternatives = keys.map(key => key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')).join('|')
+  const pattern = new RegExp('(^|[^\\\\p{L}\\\\p{N}])(' + alternatives + ')(?=$|[^\\\\p{L}\\\\p{N}])', 'giu')
+  return value.replace(pattern, (_match, prefix: string, phrase: string) =>
+    prefix + (translatedByKey.get(phrase.toLocaleLowerCase()) || phrase)
+  )
 }
 
 const originalText = new WeakMap<Text, { source: string; rendered: string }>()
@@ -1215,10 +1216,19 @@ function applyLanguage(root: ParentNode, language: Language) {
   const nodes: Text[] = []
   while (walker.nextNode()) nodes.push(walker.currentNode as Text)
   for (const node of nodes) {
-    if (node.parentElement?.closest('script,style,textarea,[contenteditable="true"]')) continue
+    if (node.parentElement?.closest('script,style,textarea,[contenteditable="true"],[data-locale]')) continue
     const current = node.textContent || ''
     let record = originalText.get(node)
-    if (!record || current !== record.rendered) {
+    if (!record) {
+      record = { source: current, rendered: current }
+      originalText.set(node, record)
+    } else if (
+      current !== record.rendered &&
+      current !== translateText(record.source, 'tr') &&
+      current !== translateText(record.source, 'en')
+    ) {
+      // React supplied genuinely new source text for this node. Keep the
+      // canonical source when the visible value is one of its translations.
       record = { source: current, rendered: current }
       originalText.set(node, record)
     }
@@ -1242,7 +1252,14 @@ function applyLanguage(root: ParentNode, language: Language) {
         originalAttributes.set(element, attrs)
       }
       let record = attrs.get(attr)
-      if (!record || current !== record.rendered) {
+      if (!record) {
+        record = { source: current, rendered: current }
+        attrs.set(attr, record)
+      } else if (
+        current !== record.rendered &&
+        current !== translateText(record.source, 'tr') &&
+        current !== translateText(record.source, 'en')
+      ) {
         record = { source: current, rendered: current }
         attrs.set(attr, record)
       }
@@ -1272,6 +1289,7 @@ export function LanguageController() {
     window.localStorage.setItem(STORAGE_KEY, language)
     document.documentElement.lang = language
     document.documentElement.dataset.appLanguage = language
+    window.dispatchEvent(new CustomEvent('mehmetipa:language-change', { detail: { language } }))
     applyLanguage(document.body, language)
     const observer = new MutationObserver(() => applyLanguage(document.body, language))
     observer.observe(document.body, {
@@ -1279,7 +1297,7 @@ export function LanguageController() {
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ['placeholder','title','aria-label','alt','hidden'],
+      attributeFilter: ['placeholder','title','aria-label','alt'],
     })
     return () => observer.disconnect()
   }, [language])

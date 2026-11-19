@@ -9,9 +9,12 @@
   "containers": [
     {
       "class_name": "SigningContainer",
-      "image": "./Dockerfile",
-        "instance_type": "standard-1",
-      "max_instances": 1
+      "scheduling_policy": "durable_object",
+      "images": {
+        "base": {
+          "dockerfile": "./Dockerfile"
+        }
+      }
     }
   ],
   "durable_objects": {

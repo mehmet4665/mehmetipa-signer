@@ -104,7 +104,8 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
   }
 
   const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || []
-  const certificate = certBags.find((bag) => bag.cert)?.cert
+  const certificates = certBags.filter((bag) => bag.cert).map((bag) => bag.cert)
+  const certificate = certificates.find(Boolean)
   if (!certificate) throw new Error('P12 içinde imzalama sertifikası bulunamadı.')
 
   const keyBags = [
@@ -129,14 +130,10 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
     throw new Error('P12 sertifikası beklenen Apple dağıtım/geliştirici sertifikası biçiminde değil.')
   }
 
-  // Apple provisioning profiles are CMS SignedData envelopes. The signer is
-  // Apple's "iPhone OS Provisioning Profile Signing" certificate, not WWDR G3.
-  // node-forge can parse CMS here but its PKCS#7 message does not expose a
-  // reliable SignedData.verify() method. Verify the CMS signature explicitly
-  // with the signer's embedded public key and the exact signed attributes.
+  let profileAsn1
   let profileMessage
   try {
-    const profileAsn1 = forge.asn1.fromDer(bytesToBinary(profileBytes))
+    profileAsn1 = forge.asn1.fromDer(bytesToBinary(profileBytes))
     profileMessage = forge.pkcs7.messageFromAsn1(profileAsn1)
   } catch {
     throw new Error('Provisioning profile geçerli bir imzalı Apple CMS dosyası olarak okunamadı.')
@@ -145,54 +142,158 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
     throw new Error('Provisioning profile imzalı CMS verisi değil.')
   }
 
-  const signerInfo = profileMessage.signerInfos?.[0]
-  if (!signerInfo) throw new Error('Provisioning profile CMS imzalayıcı bilgisi bulunamadı.')
-  const signerCertificate = (profileMessage.certificates || []).find((cert) =>
-    String(cert.serialNumber || '').toLowerCase() === String(signerInfo.serialNumber || '').toLowerCase()
+  // Apple profiles are signed by Apple's iPhone OS Provisioning Profile
+  // Signing certificate, chained through Apple iPhone Certification Authority
+  // to the pinned Apple Root CA. node-forge parses CMS but its verify() method
+  // is intentionally unimplemented, so verify the CMS signed attributes here.
+  const contentInfo = profileAsn1.value
+  const signedData = contentInfo?.[1]?.value?.[0]
+  const signedDataFields = signedData?.value || []
+  const encapContentInfo = signedDataFields.find((node) =>
+    node?.tagClass === forge.asn1.Class.UNIVERSAL &&
+    node?.type === forge.asn1.Type.SEQUENCE &&
+    node?.value?.[0]?.type === forge.asn1.Type.OID &&
+    forge.asn1.derToOid(node.value[0].value) === forge.pki.oids.data
   )
-  if (!signerCertificate) throw new Error('Provisioning profile imzalayıcı sertifikası bulunamadı.')
-  const signerCN = certificateField(signerCertificate, 'CN')
-  if (!/Provisioning Profile Signing/i.test(signerCN)) {
-    throw new Error('Provisioning profile imzalayıcı Apple sertifikası beklenen türde değil.')
+  const signerSet = signedDataFields.find((node) =>
+    node?.tagClass === forge.asn1.Class.UNIVERSAL &&
+    node?.type === forge.asn1.Type.SET &&
+    Array.isArray(node.value) &&
+    node.value.length > 0 &&
+    node.value[0]?.type === forge.asn1.Type.SEQUENCE
+  )
+  const signerInfoAsn1 = signerSet?.value?.[0]
+  if (!encapContentInfo || !signerInfoAsn1) {
+    throw new Error('Provisioning profile CMS içeriği veya imzalayıcı kaydı bulunamadı.')
+  }
+  const eContentWrapper = encapContentInfo.value?.[1]
+  const eContentNode = eContentWrapper?.value?.[0]
+  if (!eContentNode || eContentNode.type !== forge.asn1.Type.OCTETSTRING) {
+    throw new Error('Provisioning profile imzalı içerik alanı okunamadı.')
+  }
+  const eContentBytes = eContentNode.value
+
+  const signerFields = signerInfoAsn1.value || []
+  const versionNode = signerFields[0]
+  const issuerAndSerialNode = signerFields[1]
+  const digestAlgorithmNode = signerFields[2]
+  const authenticatedAttributesNode = signerFields.find((node) =>
+    node?.tagClass === forge.asn1.Class.CONTEXT_SPECIFIC && node?.type === 0 && node?.constructed
+  )
+  const signatureAlgorithmNode = signerFields.find((node) =>
+    node?.tagClass === forge.asn1.Class.UNIVERSAL &&
+    node?.type === forge.asn1.Type.SEQUENCE &&
+    node?.value?.[0]?.type === forge.asn1.Type.OID &&
+    forge.asn1.derToOid(node.value[0].value) === forge.pki.oids.rsaEncryption
+  )
+  const signatureNode = signerFields.find((node) =>
+    node?.tagClass === forge.asn1.Class.UNIVERSAL && node?.type === forge.asn1.Type.OCTETSTRING
+  )
+  if (!versionNode || !issuerAndSerialNode || !digestAlgorithmNode ||
+      !authenticatedAttributesNode || !signatureAlgorithmNode || !signatureNode) {
+    throw new Error('Provisioning profile CMS imzası eksik veya desteklenmiyor.')
   }
 
-  const signedData = profileMessage.rawCapture?.content
-  if (!signedData) throw new Error('Provisioning profile imzalı içerik alanı okunamadı.')
-  const signatureBytes = signerInfo.signature
-  if (!signatureBytes) throw new Error('Provisioning profile CMS imzası bulunamadı.')
+  const signerSerialNode = issuerAndSerialNode.value?.[1]
+  const signerSerial = signerSerialNode?.value
+  const signerCertificate = (profileMessage.certificates || []).find((cert) =>
+    String(cert.serialNumber || '').replace(/^0+/, '').toLowerCase() ===
+    String(forge.util.bytesToHex(signerSerial || '')).replace(/^0+/, '').toLowerCase()
+  )
+  if (!signerCertificate) throw new Error('Apple provisioning profile imzalayıcı sertifikası bulunamadı.')
 
-  let digestName = 'sha256'
-  const digestOid = signerInfo.digestAlgorithm?.algorithm
-  const digestOids = {
+  const digestOid = forge.asn1.derToOid(digestAlgorithmNode.value[0].value)
+  const digestNames = {
     '1.3.14.3.2.26': 'sha1',
     '2.16.840.1.101.3.4.2.1': 'sha256',
     '2.16.840.1.101.3.4.2.2': 'sha384',
     '2.16.840.1.101.3.4.2.3': 'sha512',
   }
-  digestName = digestOids[digestOid] || ''
+  const digestName = digestNames[digestOid]
   if (!digestName) throw new Error('Provisioning profile CMS özet algoritması desteklenmiyor.')
 
+  const attributes = authenticatedAttributesNode.value || []
+  const messageDigestAttribute = attributes.find((attr) =>
+    attr?.type === forge.asn1.Type.SEQUENCE &&
+    attr?.value?.[0]?.type === forge.asn1.Type.OID &&
+    forge.asn1.derToOid(attr.value[0].value) === forge.pki.oids.messageDigest
+  )
+  const contentTypeAttribute = attributes.find((attr) =>
+    attr?.type === forge.asn1.Type.SEQUENCE &&
+    attr?.value?.[0]?.type === forge.asn1.Type.OID &&
+    forge.asn1.derToOid(attr.value[0].value) === forge.pki.oids.contentType
+  )
+  const expectedDigest = messageDigestAttribute?.value?.[1]?.value?.[0]?.value
+  const contentTypeValue = contentTypeAttribute?.value?.[1]?.value?.[0]?.value
+  if (!expectedDigest || !contentTypeValue ||
+      forge.asn1.derToOid(contentTypeValue) !== forge.pki.oids.data) {
+    throw new Error('Provisioning profile CMS imzalı öznitelikleri eksik veya geçersiz.')
+  }
+
+  const contentDigest = forge.md[digestName].create()
+  contentDigest.update(eContentBytes)
+  const actualDigest = contentDigest.digest().getBytes()
+  if (actualDigest.length !== expectedDigest.length ||
+      !actualDigest.split('').every((char, index) => char === expectedDigest[index])) {
+    throw new Error('Provisioning profile içerik özeti imzalı CMS verisiyle eşleşmiyor.')
+  }
+
+  // CMS signs the DER encoding of the signedAttrs as a universal SET OF,
+  // replacing the context-specific [0] tag used in SignerInfo.
+  const signedAttributesSet = forge.asn1.create(
+    forge.asn1.Class.UNIVERSAL,
+    forge.asn1.Type.SET,
+    true,
+    attributes
+  )
+  const signedAttributesDer = forge.asn1.toDer(signedAttributesSet).getBytes()
+  const signatureDigest = forge.md[digestName].create()
+  signatureDigest.update(signedAttributesDer)
   let signatureValid = false
   try {
-    const signatureAlgorithm = signerInfo.signatureAlgorithm?.algorithm
-    if (signatureAlgorithm === '1.2.840.113549.1.1.1' ||
-        signatureAlgorithm === '1.2.840.113549.1.1.11' ||
-        signatureAlgorithm === '1.2.840.113549.1.1.12' ||
-        signatureAlgorithm === '1.2.840.113549.1.1.13') {
-      const digest = forge.md[digestName].create()
-      digest.update(signedData)
-      signatureValid = signerCertificate.publicKey.verify(digest.digest().bytes(), signatureBytes)
-    } else {
-      throw new Error('Unsupported CMS signature algorithm')
-    }
+    signatureValid = signerCertificate.publicKey.verify(
+      signatureDigest.digest().getBytes(),
+      signatureNode.value
+    )
   } catch {
-    throw new Error('Provisioning profile dijital imzası doğrulanamadı.')
+    signatureValid = false
   }
-  if (!signatureValid) throw new Error('Provisioning profile dijital imzası geçersiz.')
+  if (!signatureValid) {
+    throw new Error('Provisioning profile dijital imzası geçersiz.')
+  }
 
-  // Ensure the embedded Apple profile signer itself is valid at current time.
-  if (signerCertificate.validity.notBefore > now || signerCertificate.validity.notAfter <= now) {
-    throw new Error('Apple provisioning profile imzalayıcı sertifikasının süresi geçerli değil.')
+  const sameName = (left, right) => {
+    const key = (name) => (name?.attributes || [])
+      .map((attribute) => String(attribute.type) + '=' + String(attribute.value))
+      .sort()
+      .join('|')
+    return !!key(left) && key(left) === key(right)
+  }
+  const profileCertificates = profileMessage.certificates || []
+  const intermediate = profileCertificates.find((cert) =>
+    cert !== signerCertificate && sameName(signerCertificate.issuer, cert.subject)
+  )
+  if (!intermediate || !intermediate.verify(signerCertificate)) {
+    throw new Error('Apple provisioning profile imzalayıcı sertifikasının ara CA imzası doğrulanamadı.')
+  }
+  const root = profileCertificates.find((cert) =>
+    cert !== signerCertificate && cert !== intermediate && sameName(intermediate.issuer, cert.subject)
+  )
+  if (!root) throw new Error('Apple Root CA sertifikası provisioning profile içinde bulunamadı.')
+  const rootDer = forge.asn1.toDer(forge.pki.certificateToAsn1(root)).getBytes()
+  const rootDigest = forge.md.sha256.create()
+  rootDigest.update(rootDer)
+  const appleRootFingerprint = 'b0b1730ecbc7ff4505142c49f1295e6eda6bcaed7e2c68c5be91b5a11001f024'
+  if (rootDigest.digest().toHex().toLowerCase() !== appleRootFingerprint) {
+    throw new Error('Provisioning profile güvenilir Apple Root CA sertifikasıyla zincirlenmiyor.')
+  }
+  if (!root.verify(intermediate) || !root.verify(root)) {
+    throw new Error('Apple provisioning profile sertifika zinciri doğrulanamadı.')
+  }
+  for (const cert of [signerCertificate, intermediate, root]) {
+    if (cert.validity.notBefore > now || cert.validity.notAfter <= now) {
+      throw new Error('Apple provisioning profile sertifika zincirinde süresi geçersiz bir sertifika var.')
+    }
   }
 
   const profileExpiry = certificate.validity.notAfter.toISOString().slice(0, 10)

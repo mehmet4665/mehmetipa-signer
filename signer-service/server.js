@@ -54,12 +54,23 @@ app.post("/sign", upload.fields([
     const safeBase = path.basename(ipa.originalname, ".ipa").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "app";
     const downloadName = `${safeBase}-signed.ipa`;
 
-    // The active Ad Hoc profile is scoped to com.mehmetipa.signer.
-    // Rewrite the incoming app's bundle ID to the exact App ID allowed by that profile.
+    // Read the original app identity before signing. Never rewrite it to a shared
+    // Mehmet IPA bundle ID: that would make separately installed apps overwrite each other.
+    let originalBundleId = "";
+    try {
+      const original = await execFileAsync("python3", ["-c", "import zipfile,plistlib,sys,json; z=zipfile.ZipFile(sys.argv[1]); n=next((x for x in z.namelist() if x.startswith('Payload/') and x.count('/')==2 and x.endswith('.app/Info.plist')),None); p=plistlib.loads(z.read(n)) if n else {}; print(json.dumps({'id':p.get('CFBundleIdentifier','')}))", inputPath], { encoding: "utf8", maxBuffer: 1024 * 1024 });
+      originalBundleId = String(JSON.parse(original.stdout).id || "");
+      if (!/^[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$/.test(originalBundleId)) throw new Error("IPA içinde geçerli bir CFBundleIdentifier bulunamadı.");
+    } catch (error) {
+      return res.status(422).json({ error: "IPA uygulama kimliği okunamadı.", diagnostic: String(error?.message || error) });
+    }
+
+    // zsign uses the supplied provisioning profile and preserves the IPA's own Bundle ID.
+    // A wildcard App ID profile can therefore sign multiple apps without changing identities.
     try {
       await execFileAsync("zsign", [
         "-f", "-k", p12Path, "-p", password,
-        "-m", profilePath, "-b", "com.mehmetipa.signer",
+        "-m", profilePath,
         "-o", outputPath, inputPath
       ], { timeout: 15 * 60 * 1000, maxBuffer: 8 * 1024 * 1024 });
     } catch (error) {
@@ -77,7 +88,7 @@ app.post("/sign", upload.fields([
     try {
       const parsed = await execFileAsync("python3", ["-c", "import zipfile,plistlib,sys,json; z=zipfile.ZipFile(sys.argv[1]); n=next((x for x in z.namelist() if x.startswith('Payload/') and x.count('/')==2 and x.endswith('.app/Info.plist')),None); p=plistlib.loads(z.read(n)) if n else {}; print(json.dumps({'id':p.get('CFBundleIdentifier',''),'version':p.get('CFBundleVersion',p.get('CFBundleShortVersionString','1.0'))}))", outputPath], { encoding: "utf8", maxBuffer: 1024 * 1024 });
       const metadata = JSON.parse(parsed.stdout);
-      if (metadata.id !== "com.mehmetipa.signer") throw new Error("Signed bundle identifier does not match the active provisioning profile.");
+      if (!metadata.id || metadata.id !== originalBundleId) throw new Error("İmzalama Bundle ID bilgisini değiştirdi; işlem durduruldu.");
       appVersion = String(metadata.version || "1.0");
     } catch (error) {
       return res.status(422).json({ error: "Signed IPA installation metadata could not be verified.", diagnostic: String(error?.message || error) });
@@ -86,7 +97,7 @@ app.post("/sign", upload.fields([
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader("Content-Length", String(outputStat.size));
     res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
-    res.setHeader("X-App-Bundle-ID", "com.mehmetipa.signer");
+    res.setHeader("X-App-Bundle-ID", originalBundleId);
     res.setHeader("X-App-Version", appVersion);
     res.setHeader("X-Signing-Engine", "zsign");
     res.sendFile(outputPath, (error) => {

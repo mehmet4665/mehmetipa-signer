@@ -160,7 +160,9 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
     node?.type === forge.asn1.Type.SET &&
     Array.isArray(node.value) &&
     node.value.length > 0 &&
-    node.value[0]?.type === forge.asn1.Type.SEQUENCE
+    node.value[0]?.type === forge.asn1.Type.SEQUENCE &&
+    node.value[0]?.value?.[0]?.type === forge.asn1.Type.INTEGER &&
+    node.value[0]?.value?.[1]?.type === forge.asn1.Type.SEQUENCE
   )
   const signerInfoAsn1 = signerSet?.value?.[0]
   if (!encapContentInfo || !signerInfoAsn1) {

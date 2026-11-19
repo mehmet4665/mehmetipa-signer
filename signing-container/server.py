@@ -1,5 +1,4 @@
 """Private, isolated signing engine. Not exposed publicly; deploy only behind an authenticated Worker."""
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -29,13 +28,13 @@ def sign():
         output = root / "signed.ipa"
         for field, target in (("ipa", ipa), ("p12", p12), ("profile", profile)):
             request.files[field].save(target)
-        if not ipa.read_bytes()[:4] == b"PK\\x03\\x04":
+        if not ipa.read_bytes()[:4] == b"PK\x03\x04":
             return jsonify(error="Invalid IPA archive"), 400
         try:
             # zsign -k password is passed as a process argument; isolate the
             # container, never log arguments, and avoid shared multi-user hosts.
             result = subprocess.run(
-                ["zsign", "-k", password, "-p", str(p12), "-m", str(profile),
+                ["zsign", "-k", str(p12), "-p", password, "-m", str(profile),
                  "-o", str(output), str(ipa)],
                 capture_output=True, text=True, timeout=240, check=False,
             )

@@ -939,8 +939,26 @@ export async function onRequest({ request, env, params }) {
           if (signedSize > 0 && signedSize < 1024) throw new Error('İmzalı IPA çıktısı geçersiz.')
           const installToken = randomToken()
           const installKey = 'signed-installs/' + installToken + '.ipa'
-          const expiresAt = Date.now() + 24 * 60 * 60 * 1000
+          const expiresAt = Date.now() + 60 * 60 * 1000
           const fileName = ipa.name.replace(/\\.ipa$/i, '') + '-signed.ipa'
+          // Remove expired signed IPA artifacts during the next signing run.
+          // Only the signed-installs/ prefix is touched; certificates and user uploads are preserved.
+          try {
+            let cursor
+            do {
+              const page = await env.CERTS.list({ prefix: 'signed-installs/', cursor, limit: 1000, include: ['customMetadata'] })
+              const now = Date.now()
+              const expired = (page.objects || []).filter((item) =>
+                item.key !== installKey &&
+                Number(item.customMetadata?.expiresAt || 0) > 0 &&
+                Number(item.customMetadata.expiresAt) <= now
+              )
+              await Promise.all(expired.map((item) => env.CERTS.delete(item.key).catch(() => {})))
+              cursor = page.truncated ? page.cursor : undefined
+            } while (cursor)
+          } catch (cleanupError) {
+            console.warn('[Mehmet IPA cleanup]', cleanupError instanceof Error ? cleanupError.message : 'cleanup failed')
+          }
           await env.CERTS.put(installKey, signed.body, {
             httpMetadata: { contentType: 'application/octet-stream' },
             customMetadata: { bundleId, version: appVersion, title: 'Mehmet IPA', fileName, expiresAt: String(expiresAt), username: member.username }

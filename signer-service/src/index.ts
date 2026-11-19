@@ -48,7 +48,17 @@ export class SigningContainer extends DurableObject<Env> {
     url.host = "container";
     const forwarded = new Request(url, request);
     forwarded.headers.delete("host");
-    return container.getTcpPort(PORT).fetch(forwarded);
+    try {
+      return await container.getTcpPort(PORT).fetch(forwarded);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error("Mehmet IPA container request forwarding failed", { detail, running: container.running });
+      return Response.json({
+        error: "Container request forwarding failed.",
+        detail,
+        running: container.running,
+      }, { status: 503 });
+    }
   }
 
   private async startAndWaitForPort(

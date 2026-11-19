@@ -152,25 +152,106 @@ function PublicGameCard({ game }: { game: PublicGame }) {
 }
 
 
-function MemberSigningPanel({ username, onHome, onLogout }: { username: string; onHome: () => void; onLogout: () => void }) {
+function MemberSigningPanel({ username, token, onHome, onLogout }: { username: string; token: string; onHome: () => void; onLogout: () => void }) {
   const [ipaFile, setIpaFile] = React.useState<File | null>(null)
   const [message, setMessage] = React.useState('')
+  const [messageType, setMessageType] = React.useState<'info' | 'success' | 'error'>('info')
+  const [isSigning, setIsSigning] = React.useState(false)
+  const [completedSteps, setCompletedSteps] = React.useState(0)
+  const [signedUrl, setSignedUrl] = React.useState<string | null>(null)
+  const [signedFileName, setSignedFileName] = React.useState('')
+  const signedUrlRef = React.useRef<string | null>(null)
   const fileInput = React.useRef<HTMLInputElement>(null)
+
+  React.useEffect(() => () => {
+    if (signedUrlRef.current) URL.revokeObjectURL(signedUrlRef.current)
+  }, [])
+
+  const clearSignedOutput = () => {
+    if (signedUrlRef.current) URL.revokeObjectURL(signedUrlRef.current)
+    signedUrlRef.current = null
+    setSignedUrl(null)
+    setSignedFileName('')
+    setCompletedSteps(0)
+  }
 
   const chooseFile = (file?: File) => {
     setMessage('')
+    setMessageType('info')
+    clearSignedOutput()
     if (!file) { setIpaFile(null); return }
     if (!file.name.toLowerCase().endsWith('.ipa')) {
       setIpaFile(null)
       setMessage('Please select a valid .ipa file.')
+      setMessageType('error')
+      return
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      setIpaFile(null)
+      setMessage('IPA upload exceeds the 100 MB limit.')
+      setMessageType('error')
       return
     }
     setIpaFile(file)
   }
 
-  const startSigning = () => {
-    if (!ipaFile) return
-    setMessage('The signing service is not connected yet. Your file has not been signed.')
+  const startSigning = async () => {
+    if (!ipaFile || isSigning) return
+    if (!token) {
+      setMessage('Sign in again to continue.')
+      setMessageType('error')
+      return
+    }
+
+    setIsSigning(true)
+    setCompletedSteps(0)
+    setMessage('')
+    setMessageType('info')
+    clearSignedOutput()
+
+    try {
+      const formData = new FormData()
+      formData.append('ipa', ipaFile, ipaFile.name)
+      const response = await fetch(API_BASE + '/api/signing/vip', {
+        method: 'POST',
+        headers: { authorization: 'Bearer ' + token },
+        body: formData,
+        cache: 'no-store',
+      })
+
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({})) as { error?: string; diagnostic?: string }
+        const detail = [failure.error || ('Signing failed (' + response.status + ').'), failure.diagnostic].filter(Boolean).join('\\n')
+        throw new Error(detail)
+      }
+
+      const contentType = response.headers.get('content-type') || ''
+      const blob = await response.blob()
+      if (contentType.includes('application/json')) {
+        const failure = JSON.parse(await blob.text()) as { error?: string }
+        throw new Error(failure.error || 'Signing failed.')
+      }
+      if (blob.size < 1024) throw new Error('The signing service returned an invalid IPA file.')
+
+      const disposition = response.headers.get('content-disposition') || ''
+      const utf8Name = disposition.match(/filename\\*=UTF-8''([^;]+)/i)?.[1]
+      const plainName = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+      let downloadName = utf8Name || plainName || (ipaFile.name.replace(/\\.ipa$/i, '') + '-signed.ipa')
+      try { downloadName = decodeURIComponent(downloadName) } catch {}
+
+      const objectUrl = URL.createObjectURL(blob)
+      signedUrlRef.current = objectUrl
+      setSignedUrl(objectUrl)
+      setSignedFileName(downloadName)
+      setCompletedSteps(5)
+      setMessage('Your IPA was signed successfully. Download it below.')
+      setMessageType('success')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Signing failed.')
+      setMessageType('error')
+    } finally {
+      setIsSigning(false)
+    }
   }
 
   return <section className="relative min-h-screen overflow-hidden bg-[#070A16] bg-[radial-gradient(ellipse_at_10%_0%,rgba(124,58,237,.18),transparent_34%),radial-gradient(ellipse_at_95%_35%,rgba(6,182,212,.10),transparent_30%),linear-gradient(180deg,#080b18,#090d1b_55%,#070a14)] px-4 pb-10 pt-5 text-white sm:px-6">
@@ -202,16 +283,23 @@ function MemberSigningPanel({ username, onHome, onLogout }: { username: string; 
       </section>
 
       <section className="mt-4 rounded-3xl border border-white/10 bg-[#11182c]/75 p-5 sm:p-6">
-        <div className="flex items-center justify-between gap-2"><h2 className="font-bold">Signing progress</h2><span className="rounded-full bg-white/[0.06] px-3 py-1 text-[11px] text-slate-400">Waiting</span></div>
+        <div className="flex items-center justify-between gap-2"><h2 className="font-bold">Signing progress</h2><span className="rounded-full bg-white/[0.06] px-3 py-1 text-[11px] text-slate-400">{completedSteps === 5 ? 'Signing completed' : isSigning ? 'Signing started' : 'Waiting'}</span></div>
         <ol className="mt-5 space-y-4">
-          {['IPA file validation','Secure certificate check','Signing started','Signing completed','Signed IPA ready to download'].map((step, index) => <li key={step} className="flex items-center gap-3"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-white/10 bg-black/20 text-xs text-slate-500">{index + 1}</span><span className="text-sm text-slate-400">{step}</span><span className="ml-auto text-[10px] text-slate-600">WAITING</span></li>)}
+          {['IPA file validation','Secure certificate check','Signing started','Signing completed','Signed IPA ready to download'].map((step, index) => {
+            const done = completedSteps === 5
+            const active = isSigning && index === 2
+            const failed = messageType === 'error' && !!message && index === 2
+            const stateLabel = done ? 'Complete' : active ? 'In progress' : failed ? 'Failed' : 'Waiting'
+            return <li key={step} className="flex items-center gap-3"><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full border text-xs ${done ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : active ? 'border-violet-300/40 bg-violet-400/10 text-violet-200' : 'border-white/10 bg-black/20 text-slate-500'}`}>{done ? '✓' : index + 1}</span><span className="text-sm text-slate-300">{step}</span><span className={`ml-auto text-[10px] ${done ? 'text-emerald-300' : active ? 'text-violet-200' : failed ? 'text-red-300' : 'text-slate-600'}`}>{stateLabel}</span></li>
+          })}
         </ol>
-        <p className="mt-5 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100/80">The signing service has not been connected yet. No signing process will be started and no successful output will be shown until the real service is integrated.</p>
+        <p className="mt-5 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.06] p-3 text-xs leading-5 text-cyan-100/80">The IPA is sent to the private signing engine. Your certificate stays protected.</p>
       </section>
 
-      {message && <div role="status" className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.07] p-3 text-sm text-amber-100">{message}</div>}
-      <button type="button" disabled={!ipaFile} onClick={startSigning} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-500 px-5 py-4 font-bold text-white shadow-[0_14px_35px_rgba(109,40,217,.25)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">Start signing <span>→</span></button>
-      <p className="mt-3 text-center text-xs text-slate-500">The download button will appear here after a real signing operation succeeds.</p>
+      {message && <div role="status" className={`mt-4 rounded-xl border p-3 text-sm ${messageType === 'success' ? 'border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-100' : messageType === 'error' ? 'border-red-300/20 bg-red-300/[0.07] text-red-100' : 'border-cyan-300/20 bg-cyan-300/[0.07] text-cyan-100'}`}>{message}</div>}
+      <button type="button" disabled={!ipaFile || isSigning} onClick={startSigning} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-500 px-5 py-4 font-bold text-white shadow-[0_14px_35px_rgba(109,40,217,.25)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{isSigning ? 'Signing…' : 'Start signing'} <span>{isSigning ? '⏳' : '→'}</span></button>
+      {signedUrl && <a href={signedUrl} download={signedFileName} className="mt-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-5 py-4 font-bold text-emerald-200 transition hover:bg-emerald-400/15">↓ Download signed IPA</a>}
+      {!signedUrl && <p className="mt-3 text-center text-xs text-slate-500">The signed IPA download will appear here after the signing service returns a valid file.</p>}
     </div>
   </section>
 }
@@ -546,7 +634,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
       </div>
       <p className="mt-3 text-xs text-slate-500">Güç göstergesi Apple çip nesillerine göre hazırlanmış yaklaşık donanım sıralamasıdır; yeşil alan önerilen seviyeyi, ⚡ sayısı nesiller arası göreceli güç artışını gösterir. Bunlar kesin FPS veya doğrulanmış MeloNX uyumluluk garantisi değildir. Gerçek sonuç emülatör sürümüne, oyun sürümüne, RAM'e ve ısınmaya göre değişir. Kapak görselleri tanıtım amaçlıdır.</p>
     </div>}
-    {memberTab === 'ipa' && <MemberSigningPanel username={user.username} onHome={() => setMemberTab('games')} onLogout={logout} />}
+    {memberTab === 'ipa' && <MemberSigningPanel username={user.username} token={token} onHome={() => setMemberTab('games')} onLogout={logout} />}
     {memberTab === 'account' && <section className="mt-8 grid gap-4 lg:grid-cols-2"><div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5"><h1 className="text-2xl font-black">Hesabım</h1><p className="mt-3 text-sm text-slate-300">{user.name}</p><p className="text-sm text-slate-400">@{user.username}</p><div className="mt-4 inline-flex rounded-full bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-300">Hesap durumu: Aktif</div></div><div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5"><h2 className="font-bold">Cihaz kaydı</h2><form onSubmit={registerDevice} className="mt-4 grid gap-3"><Field label="Cihaz UDID" value={udid} onChange={e => setUdid(e.target.value)} placeholder="UDID değerini gir" required /><button type="submit" disabled={busy} aria-live="polite" className="rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60">{busy ? "⏳ Gönderiliyor..." : "Cihazı onaya gönder →"}</button></form><ErrorText error={error} /><NoticeText notice={notice} /><div className="mt-4 grid gap-2">{myDevices.map(d => <div key={d.id} className="flex items-center justify-between gap-2 rounded-xl bg-black/20 p-3 text-xs"><span className="break-all text-slate-300">{d.udid}</span><span className="shrink-0 text-slate-400">{d.status === 'approved' ? 'Onaylandı' : d.status === 'blocked' ? 'Engellendi' : 'Bekliyor'}</span></div>)}</div></div></section>}
     {memberTab === 'settings' && <section className="mt-8 rounded-3xl border border-white/10 bg-white/[0.045] p-6"><h1 className="text-2xl font-black">Ayarlar</h1><p className="mt-2 text-sm text-slate-400">Hesap ve destek işlemleri</p><a href="https://t.me/ajandare" target="_blank" rel="noopener noreferrer" className="mt-6 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-4 text-sm font-semibold">Telegram destek <span>↗</span></a><a href="https://www.tiktok.com/@m3hm3t_m" target="_blank" rel="noopener noreferrer" className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-4 text-sm font-semibold">TikTok · @m3hm3t_m <span>↗</span></a><button onClick={logout} className="mt-6 w-full rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm font-bold text-red-200">Çıkış yap</button></section>}
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-violet-300/15 bg-[#090D1B]/95 px-2 pb-[max(env(safe-area-inset-bottom),10px)] pt-2 shadow-[0_-12px_40px_rgba(0,0,0,.25)] backdrop-blur-2xl"><div className="mx-auto grid max-w-lg grid-cols-4 gap-1">
@@ -554,7 +642,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
     </div></nav>
   </div>
 </main>
-  if (view === 'signer' && user?.role === 'member') return <MemberSigningPanel username={user.username} onHome={() => { setView('method'); setMemberTab('games') }} onLogout={logout} />
+  if (view === 'signer' && user?.role === 'member') return <MemberSigningPanel username={user.username} token={token} onHome={() => { setView('method'); setMemberTab('games') }} onLogout={logout} />
 
   if (view === 'login') return <main className="auth-screen-enter relative flex min-h-screen items-center justify-center overflow-hidden bg-[#080B18] px-4 py-10 text-white"><style>{`@keyframes authScreenEnter{0%{opacity:0;transform:translateY(20px) scale(.985);filter:blur(5px)}100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}.auth-screen-enter{animation:authScreenEnter .48s cubic-bezier(.2,.75,.25,1) both}.auth-panel{box-shadow:0 32px 100px rgba(0,0,0,.5),inset 0 1px rgba(255,255,255,.06)}@media(prefers-reduced-motion:reduce){.auth-screen-enter{animation:none}}
 /* Professional product UI: restrained surfaces, consistent spacing and clear hierarchy. */

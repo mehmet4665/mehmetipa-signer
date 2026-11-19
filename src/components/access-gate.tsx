@@ -173,7 +173,8 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
  const [progress,setProgress]=React.useState<SigningProgress>({stage:0,percent:0,label:'IPA dosyası bekleniyor',logs:[]}),[failedStage,setFailedStage]=React.useState(0)
  const [signedUrl,setSignedUrl]=React.useState<string|null>(null),[installUrl,setInstallUrl]=React.useState<string|null>(null),[signedFileName,setSignedFileName]=React.useState('')
  const [archiveInfo,setArchiveInfo]=React.useState<{entryCount:number;appPath:string}|null>(null),[elapsed,setElapsed]=React.useState(0),[showTerminal,setShowTerminal]=React.useState(true)
- const [english]=React.useState(()=>getAppLocale()==='en-US'),fileInput=React.useRef<HTMLInputElement>(null),startedAt=React.useRef<number|null>(null),localLogs=React.useRef<{at:string;text:string}[]>([])
+ const [english,setEnglish]=React.useState(()=>getAppLocale()==='en-US'),fileInput=React.useRef<HTMLInputElement>(null),startedAt=React.useRef<number|null>(null),localLogs=React.useRef<{at:string;text:string}[]>([])
+ React.useEffect(()=>{const syncLanguage=(event:Event)=>{const detail=(event as CustomEvent<{language?:string}>).detail;setEnglish(detail?.language ? detail.language==='en' : getAppLocale()==='en-US')};window.addEventListener('mehmetipa:language-change',syncLanguage);return()=>window.removeEventListener('mehmetipa:language-change',syncLanguage)},[])
  const t=(tr:string,en:string)=>english?en:tr
  const addLog=(text:string)=>{const at=new Date().toLocaleTimeString(getAppLocale(),{hour12:false});localLogs.current=[...localLogs.current,{at,text}].slice(-60);setProgress(p=>({...p,logs:[...localLogs.current]}))}
  const reset=()=>{setSignedUrl(null);setInstallUrl(null);setSignedFileName('');setProgress({stage:0,percent:0,label:t('IPA dosyası bekleniyor','Waiting for IPA file'),logs:[]});setFailedStage(0);setArchiveInfo(null);setElapsed(0);localLogs.current=[];startedAt.current=null}

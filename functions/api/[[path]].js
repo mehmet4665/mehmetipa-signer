@@ -493,7 +493,7 @@ export async function onRequest({ request, env, params }) {
       const requireAdmin = () => isAdmin ? null : json({ success: false, error: 'Bu işlem yalnızca yöneticiye açık.' }, 403)
 
       // Per-user signing progress feed. Job IDs are unguessable UUIDs and records live in the private R2 bucket.
-      const signingProgressMatch = path.match(/^\\/api\\/signing\\/progress\\/([0-9a-f-]{36})$/i)
+      const signingProgressMatch = path.match(/^\/api\/signing\/progress\/([0-9a-f-]{36})$/i)
       if (signingProgressMatch && method === 'GET') {
         if (!env.CERTS || typeof env.CERTS.get !== 'function') return json({ success: false, error: 'İlerleme kaydı okunamıyor.' }, 503)
         const item = await env.CERTS.get('signing-progress/' + signingProgressMatch[1] + '.json')

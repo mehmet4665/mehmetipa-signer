@@ -8,7 +8,7 @@ RUN make -C /src/zsign/build/linux -j2
 
 FROM node:22-bookworm-slim
 ENV NODE_ENV=production PORT=8080
-RUN apt-get update && apt-get install -y --no-install-recommends libssl3 ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends libssl3 ca-certificates unzip python3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=zsign-build /src/zsign/bin/zsign /usr/local/bin/zsign

@@ -385,7 +385,10 @@ export async function onRequest({ request, env, params }) {
       if (!row || row.status !== 'active' || !(await verifyPassword(password, row.password_hash))) {
         return json({ success: false, error: 'Giriş bilgileri hatalı veya hesap engellenmiş.' }, 401)
       }
-      if (String(row.password_hash || '').startsWith('pbkdf2$10000
+      if (String(row.password_hash || '').startsWith('pbkdf2' + String.fromCharCode(36) + '10000')) {
+        const upgradedHash = await hashPassword(password)
+        await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(upgradedHash, row.id).run()
+      }
       const token = await issueToken({ sub: row.id, role: 'member', name: row.name, username: row.username }, env.ADMIN_PASSWORD)
       return json({ success: true, token, user: { ...cleanUser(row), role: 'member' } })
     }

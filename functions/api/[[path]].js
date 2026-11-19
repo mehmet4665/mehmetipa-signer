@@ -42,8 +42,14 @@ async function hashPassword(password, saltBytes = crypto.getRandomValues(new Uin
   return `pbkdf2$100000$${b64url(saltBytes)}$${b64url(bits)}`
 }
 async function verifyPassword(password, stored) {
-  const [kind, roundsText, salt, expected] = String(stored || '').split('
-
+  const parts = String(stored || '').split(String.fromCharCode(36))
+  const [kind, roundsText, salt, expected] = parts
+  const rounds = Number(roundsText)
+  if (kind !== 'pbkdf2' || ![10000, 100000].includes(rounds) || !salt || !expected) return false
+  const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: fromB64url(salt), iterations: rounds }, key, 256)
+  return b64url(bits) === expected
+}
 async function sha256Hex(value) { const digest = await crypto.subtle.digest('SHA-256', encoder.encode(String(value))); return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2, '0')).join('') }
 function randomToken() { return b64url(crypto.getRandomValues(new Uint8Array(32))) }
 async function sendMail(env, { to, subject, html }) { if (!env.RESEND_API_KEY || !env.MAIL_FROM) return false; const response = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: env.MAIL_FROM, to: [to], subject, html }) }); if (!response.ok) throw new Error('E-posta gönderimi başarısız.'); return true }

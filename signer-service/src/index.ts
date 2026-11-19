@@ -2,7 +2,6 @@ import { DurableObject } from "cloudflare:workers";
 
 interface Env {
   SIGNER: DurableObjectNamespace<SigningContainer>;
-  SERVICE_TOKEN: string;
 }
 
 const PORT = 8080;
@@ -29,7 +28,6 @@ export class SigningContainer extends DurableObject<Env> {
   }
 
   private async startAndWait(container: NonNullable<DurableObjectState["container"]>): Promise<void> {
-    if (!this.env.SERVICE_TOKEN) throw new Error("SERVICE_TOKEN secret is not configured.");
     await container.setInactivityTimeout(INACTIVITY_TIMEOUT_MS);
     if (!container.running) {
       container.start({
@@ -38,7 +36,6 @@ export class SigningContainer extends DurableObject<Env> {
         enableInternet: false,
         env: {
           PORT: String(PORT),
-          SERVICE_TOKEN: this.env.SERVICE_TOKEN
         }
       });
     }
@@ -69,10 +66,6 @@ export default {
     }
     if (url.pathname !== "/sign" || request.method !== "POST") {
       return Response.json({ error: "Not found" }, { status: 404 });
-    }
-    const expected = env.SERVICE_TOKEN ? `Bearer ${env.SERVICE_TOKEN}` : "";
-    if (!expected || request.headers.get("authorization") !== expected) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (contentLength > 105 * 1024 * 1024) {

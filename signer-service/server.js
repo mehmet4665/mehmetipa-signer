@@ -5,21 +5,11 @@ import { mkdtemp, rm, stat, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { timingSafeEqual } from "node:crypto";
 
 const app = express();
 const execFileAsync = promisify(execFile);
 const PORT = Number(process.env.PORT || 8080);
-const TOKEN = process.env.SERVICE_TOKEN || "";
 const MAX_IPA_BYTES = 100 * 1024 * 1024;
-
-function authorized(req) {
-  const supplied = req.get("authorization") || "";
-  const expected = TOKEN ? `Bearer ${TOKEN}` : "";
-  const a = Buffer.from(supplied);
-  const b = Buffer.from(expected);
-  return Boolean(TOKEN && a.length === b.length && timingSafeEqual(a, b));
-}
 
 const upload = multer({
   dest: "/tmp/mehmetipa",
@@ -28,10 +18,7 @@ const upload = multer({
 
 app.get("/health", (_req, res) => res.status(200).json({ ok: true, engine: "zsign" }));
 
-app.post("/sign", (req, res, next) => {
-  if (!authorized(req)) return res.status(401).json({ error: "Unauthorized" });
-  next();
-}, upload.fields([
+app.post("/sign", upload.fields([
   { name: "ipa", maxCount: 1 },
   { name: "p12", maxCount: 1 },
   { name: "mobileprovision", maxCount: 1 },

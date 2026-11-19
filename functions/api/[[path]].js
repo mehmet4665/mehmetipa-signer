@@ -424,11 +424,15 @@ export async function onRequest({ request, env, params }) {
       const email = String(body.email || '').trim().toLowerCase()
       const password = String(body.password || '')
       if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success: false, error: 'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' }, 400)
-      const existing = await env.DB.prepare("SELECT username FROM users WHERE username=? OR email=? UNION SELECT username FROM registration_requests WHERE (username=? OR email=?) AND status IN ('pending','verification_pending') LIMIT 1").bind(username, email, username, email).first()
-      if (existing) return json({ success: false, error: 'Bu kullanıcı adı veya e-posta zaten kayıtlı ya da başvuru bekliyor.' }, 409)
+      const existing = await env.DB.prepare('SELECT id FROM users WHERE username=? OR email=? LIMIT 1').bind(username, email).first()
+      if (existing) return json({ success: false, error: 'Bu kullanıcı adı veya e-posta zaten kayıtlı.' }, 409)
       const id = randomId(), now = new Date().toISOString(), passwordHash = await hashPassword(password)
-      await env.DB.prepare("INSERT INTO registration_requests (id,name,username,email,password_hash,status,verified_at,created_at) VALUES (?,?,?,?,?,'pending',?,?)").bind(id, name, username, email, passwordHash, now, now).run()
-      return json({ success: true, message: 'Başvurun yönetici onayına gönderildi. Onaylandığında hesabın aktif olacak.' }, 201)
+      try {
+        await env.DB.prepare("INSERT INTO users (id,name,username,email,password_hash,group_name,status,created_at,email_verified) VALUES (?,?,?,?,?,'Standart','active',?,1)").bind(id,name,username,email,passwordHash,now).run()
+      } catch {
+        return json({ success: false, error: 'Bu kullanıcı adı veya e-posta zaten kullanılıyor.' }, 409)
+      }
+      return json({ success: true, message: 'Hesabın oluşturuldu. Şimdi giriş yapabilirsin.' }, 201)
     }
     if (path === '/api/auth/verify-email' && method === 'POST') {
       const body=await readBody(request), hash=await sha256Hex(String(body.token||'')); const row=await env.DB.prepare("SELECT id,status,verification_expires_at FROM registration_requests WHERE verification_token_hash=? LIMIT 1").bind(hash).first()

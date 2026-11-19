@@ -60,7 +60,7 @@ app.post("/sign", upload.fields([
     try {
       const original = await execFileAsync("python3", ["-c", "import zipfile,plistlib,sys,json; z=zipfile.ZipFile(sys.argv[1]); n=next((x for x in z.namelist() if x.startswith('Payload/') and x.count('/')==2 and x.endswith('.app/Info.plist')),None); p=plistlib.loads(z.read(n)) if n else {}; print(json.dumps({'id':p.get('CFBundleIdentifier','')}))", inputPath], { encoding: "utf8", maxBuffer: 1024 * 1024 });
       originalBundleId = String(JSON.parse(original.stdout).id || "");
-      if (!/^[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$/.test(originalBundleId)) throw new Error("IPA içinde geçerli bir CFBundleIdentifier bulunamadı.");
+      if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(originalBundleId)) throw new Error("IPA içinde geçerli bir CFBundleIdentifier bulunamadı.");
     } catch (error) {
       return res.status(422).json({ error: "IPA uygulama kimliği okunamadı.", diagnostic: String(error?.message || error) });
     }

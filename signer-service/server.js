@@ -75,11 +75,7 @@ app.post("/sign", upload.fields([
     const cleanupDir = workDir;
     let appVersion = "1.0";
     try {
-      const listing = await execFileAsync("unzip", ["-Z1", outputPath], { maxBuffer: 8 * 1024 * 1024 });
-      const infoPath = listing.stdout.split("\\n").find((name) => /^Payload\\/[^/]+\\.app\\/Info\\.plist$/.test(name));
-      if (!infoPath) throw new Error("IPA does not contain a main app Info.plist.");
-      const info = await execFileAsync("unzip", ["-p", outputPath, infoPath], { encoding: "buffer", maxBuffer: 4 * 1024 * 1024 });
-      const parsed = await execFileAsync("python3", ["-c", "import plistlib,sys,json; p=plistlib.loads(sys.stdin.buffer.read()); print(json.dumps({'id':p.get('CFBundleIdentifier',''),'version':p.get('CFBundleVersion',p.get('CFBundleShortVersionString','1.0'))}))"], { encoding: "utf8", input: info.stdout, maxBuffer: 1024 * 1024 });
+      const parsed = await execFileAsync("python3", ["-c", "import zipfile,plistlib,sys,json; z=zipfile.ZipFile(sys.argv[1]); n=next((x for x in z.namelist() if x.startswith('Payload/') and x.count('/')==2 and x.endswith('.app/Info.plist')),None); p=plistlib.loads(z.read(n)) if n else {}; print(json.dumps({'id':p.get('CFBundleIdentifier',''),'version':p.get('CFBundleVersion',p.get('CFBundleShortVersionString','1.0'))}))", outputPath], { encoding: "utf8", maxBuffer: 1024 * 1024 });
       const metadata = JSON.parse(parsed.stdout);
       if (metadata.id !== "com.mehmetipa.signer") throw new Error("Signed bundle identifier does not match the active provisioning profile.");
       appVersion = String(metadata.version || "1.0");

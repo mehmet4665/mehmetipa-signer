@@ -54,10 +54,13 @@ app.post("/sign", upload.fields([
     const safeBase = path.basename(ipa.originalname, ".ipa").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "app";
     const downloadName = `${safeBase}-signed.ipa`;
 
+    // The active Ad Hoc profile is scoped to com.mehmetipa.signer.
+    // Rewrite the incoming app's bundle ID to the exact App ID allowed by that profile.
     try {
       await execFileAsync("zsign", [
         "-f", "-k", p12Path, "-p", password,
-        "-m", profilePath, "-o", outputPath, inputPath
+        "-m", profilePath, "-b", "com.mehmetipa.signer",
+        "-o", outputPath, inputPath
       ], { timeout: 15 * 60 * 1000, maxBuffer: 8 * 1024 * 1024 });
     } catch (error) {
       const diagnostic = String(error?.stderr || error?.stdout || "").split("\n").filter(Boolean).slice(-8).join("\n");
@@ -70,9 +73,25 @@ app.post("/sign", upload.fields([
     }
 
     const cleanupDir = workDir;
+    let appVersion = "1.0";
+    try {
+      const listing = await execFileAsync("unzip", ["-Z1", outputPath], { maxBuffer: 8 * 1024 * 1024 });
+      const infoPath = listing.stdout.split("\\n").find((name) => /^Payload\\/[^/]+\\.app\\/Info\\.plist$/.test(name));
+      if (!infoPath) throw new Error("IPA does not contain a main app Info.plist.");
+      const info = await execFileAsync("unzip", ["-p", outputPath, infoPath], { encoding: "buffer", maxBuffer: 4 * 1024 * 1024 });
+      const parsed = await execFileAsync("python3", ["-c", "import plistlib,sys,json; p=plistlib.loads(sys.stdin.buffer.read()); print(json.dumps({'id':p.get('CFBundleIdentifier',''),'version':p.get('CFBundleVersion',p.get('CFBundleShortVersionString','1.0'))}))"], { encoding: "utf8", input: info.stdout, maxBuffer: 1024 * 1024 });
+      const metadata = JSON.parse(parsed.stdout);
+      if (metadata.id !== "com.mehmetipa.signer") throw new Error("Signed bundle identifier does not match the active provisioning profile.");
+      appVersion = String(metadata.version || "1.0");
+    } catch (error) {
+      return res.status(422).json({ error: "Signed IPA installation metadata could not be verified.", diagnostic: String(error?.message || error) });
+    }
+
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader("Content-Length", String(outputStat.size));
     res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+    res.setHeader("X-App-Bundle-ID", "com.mehmetipa.signer");
+    res.setHeader("X-App-Version", appVersion);
     res.setHeader("X-Signing-Engine", "zsign");
     res.sendFile(outputPath, (error) => {
       void rm(cleanupDir, { recursive: true, force: true });

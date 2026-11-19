@@ -12,7 +12,8 @@ const PORT = Number(process.env.PORT || 8080);
 const MAX_IPA_BYTES = 100 * 1024 * 1024;
 
 const upload = multer({
-  dest: "/tmp/mehmetipa",
+  // Use the OS-managed writable temp directory; /tmp/mehmetipa is root-owned in the image.
+  dest: tmpdir(),
   limits: { fileSize: MAX_IPA_BYTES, files: 3, fields: 8, parts: 12 },
 });
 

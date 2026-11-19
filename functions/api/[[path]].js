@@ -349,7 +349,7 @@ export async function onRequest({ request, env, params }) {
     }
 
     // Public, unguessable, short-lived OTA install artifacts for iOS itms-services.
-    const installMatch = path.match(/^\\/api\\/install\\/([A-Za-z0-9_-]+)\\/(manifest\\.plist|app\\.ipa)$/)
+    const installMatch = path.match(/^\/api\/install\/([A-Za-z0-9_-]+)\/(manifest\.plist|app\.ipa)$/)
     if (installMatch && method === 'GET') {
       if (!env.CERTS || typeof env.CERTS.get !== 'function') return json({ success: false, error: 'Install storage unavailable.' }, 503)
       const [, token, artifact] = installMatch

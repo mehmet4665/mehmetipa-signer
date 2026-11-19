@@ -492,6 +492,18 @@ export async function onRequest({ request, env, params }) {
       if (!isAdmin) { const activeUser = await env.DB.prepare("SELECT status FROM users WHERE id=? LIMIT 1").bind(session.sub).first(); if (!activeUser || activeUser.status !== 'active') return json({ success:false,error:'Hesabın devre dışı. Yöneticiyle iletişime geç.' },403) }
       const requireAdmin = () => isAdmin ? null : json({ success: false, error: 'Bu işlem yalnızca yöneticiye açık.' }, 403)
 
+      // Per-user signing progress feed. Job IDs are unguessable UUIDs and records live in the private R2 bucket.
+      const signingProgressMatch = path.match(/^\\/api\\/signing\\/progress\\/([0-9a-f-]{36})$/i)
+      if (signingProgressMatch && method === 'GET') {
+        if (!env.CERTS || typeof env.CERTS.get !== 'function') return json({ success: false, error: 'İlerleme kaydı okunamıyor.' }, 503)
+        const item = await env.CERTS.get('signing-progress/' + signingProgressMatch[1] + '.json')
+        if (!item) return json({ success: false, error: 'İşlem kaydı henüz oluşmadı.' }, 404)
+        const state = await item.json()
+        if (state.user_id !== session.sub) return json({ success: false, error: 'Bu imza işlemini görüntüleme yetkin yok.' }, 403)
+        const { user_id, ...publicState } = state
+        return json({ success: true, ...publicState })
+      }
+
       if (path === '/api/admin/registration-requests' && method === 'GET') {
         const denied=requireAdmin(); if(denied) return denied
         const {results=[]}=await env.DB.prepare("SELECT id,name,username,email,status,created_at,verified_at FROM registration_requests WHERE status IN ('pending','verification_pending','rejected') ORDER BY created_at DESC").all()
@@ -844,6 +856,25 @@ export async function onRequest({ request, env, params }) {
         if (ipa.size > 100 * 1024 * 1024) {
           return json({ success: false, error: 'IPA dosyası en fazla 100 MB olabilir.' }, 413)
         }
+        const jobId = String(formData.get('job_id') || '')
+        if (!/^[0-9a-f-]{36}$/i.test(jobId)) return json({ success: false, error: 'İmza işlem kimliği geçersiz.' }, 400)
+        const progressLogs = []
+        const writeProgress = async (stage, percent, label, log) => {
+          progressLogs.push({ at: new Date().toISOString(), text: String(log).slice(0, 240) })
+          const state = { job_id: jobId, user_id: session.sub, stage, percent, label, logs: progressLogs.slice(-80), updated_at: new Date().toISOString() }
+          try {
+            await env.CERTS.put('signing-progress/' + jobId + '.json', JSON.stringify(state), {
+              httpMetadata: { contentType: 'application/json; charset=utf-8' },
+              customMetadata: { expiresAt: String(Date.now() + 6 * 60 * 60 * 1000) }
+            })
+          } catch (error) { console.warn('[Mehmet IPA progress]', error instanceof Error ? error.message : 'write failed') }
+        }
+        const zipHeader = new Uint8Array(await ipa.slice(0, 4).arrayBuffer())
+        if (!(zipHeader[0] === 0x50 && zipHeader[1] === 0x4b && (zipHeader[2] === 0x03 || zipHeader[2] === 0x05 || zipHeader[2] === 0x07))) {
+          return json({ success: false, error: 'IPA dosyası geçerli bir ZIP arşivi değil.' }, 400)
+        }
+        await writeProgress(1, 42, 'IPA dosyası doğrulandı', '01/05 · Dosya uzantısı, boyutu ve ZIP imzası doğrulandı.')
+        await writeProgress(2, 48, 'IPA paketi imzalama motoruna hazırlanıyor', '02/05 · IPA arşivi imzalama motoruna aktarılmak üzere hazırlandı.')
 
         const logId = randomId()
         const createdAt = new Date().toISOString()
@@ -867,6 +898,7 @@ export async function onRequest({ request, env, params }) {
             decryptBytes(encryptedProfile, cert.profile_iv, env.SIGNING_ENCRYPTION_KEY),
             decryptSecret(cert.password_ciphertext, cert.password_iv, env.SIGNING_ENCRYPTION_KEY)
           ])
+          await writeProgress(3, 58, 'Sertifika ve profil hazır', '03/05 · Şifreli P12 ve provisioning profile özel kasadan çözüldü; sertifika durumu ve süre kontrol edildi.')
 
           const signingForm = new FormData()
           signingForm.append('ipa', ipa, ipa.name)
@@ -876,6 +908,7 @@ export async function onRequest({ request, env, params }) {
 
           // Warm the same Durable Object Container immediately before forwarding the IPA.
           // A separate browser health check may have gone idle before the signing request arrives.
+          await writeProgress(4, 64, 'Zsign motoru başlatılıyor', '04/05 · Özel imzalama konteyneri uyandırılıyor.')
           const warmup = await env.SIGNER_SERVICE.fetch(new Request('https://mehmetipa-signing.internal/health', {
             method: 'GET'
           }))
@@ -884,6 +917,7 @@ export async function onRequest({ request, env, params }) {
             throw new Error('İmzalama motoru hazır değil: ' + (warmupDetail.detail || warmupDetail.error || warmup.status))
           }
 
+          await writeProgress(4, 70, 'IPA zsign ile imzalanıyor', '04/05 · Zsign motoruna IPA, sertifika ve provisioning profile gönderildi.')
           const signed = await env.SIGNER_SERVICE.fetch(new Request('https://mehmetipa-signing.internal/sign', {
             method: 'POST',
             body: signingForm
@@ -896,6 +930,7 @@ export async function onRequest({ request, env, params }) {
             return json({ success: false, error: signingError || 'IPA imzalanamadı.' }, signed.status)
           }
 
+          await writeProgress(5, 88, 'İmza doğrulaması yapılıyor', '05/05 · İmzalı IPA çıktısı alındı; Bundle ID ve sürüm bilgileri doğrulanıyor.')
           const bundleId = signed.headers.get('x-app-bundle-id') || ''
           const appVersion = signed.headers.get('x-app-version') || '1.0'
           if (bundleId !== 'com.mehmetipa.signer') throw new Error('İmzalı uygulamanın Bundle ID bilgisi provisioning profile ile eşleşmiyor.')
@@ -910,6 +945,7 @@ export async function onRequest({ request, env, params }) {
             httpMetadata: { contentType: 'application/octet-stream' },
             customMetadata: { bundleId, version: appVersion, title: 'Mehmet IPA', fileName, expiresAt: String(expiresAt), username: member.username }
           })
+          await writeProgress(5, 100, 'İmzalama tamamlandı · IPA hazır', '05/05 · İmza doğrulandı, IPA özel depoya kaydedildi ve kurulum bağlantıları hazırlandı.')
           await env.DB.prepare("UPDATE signing_logs SET status = 'success' WHERE id = ?").bind(logId).run()
           const origin = new URL(request.url).origin
           const manifestUrl = origin + '/api/install/' + installToken + '/manifest.plist'

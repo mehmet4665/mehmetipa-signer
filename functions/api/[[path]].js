@@ -852,6 +852,16 @@ export async function onRequest({ request, env, params }) {
           signingForm.append('mobileprovision', new File([profileBytes], 'profile.mobileprovision', { type: 'application/octet-stream' }))
           signingForm.append('p12_password', password)
 
+          // Warm the same Durable Object Container immediately before forwarding the IPA.
+          // A separate browser health check may have gone idle before the signing request arrives.
+          const warmup = await env.SIGNER_SERVICE.fetch(new Request('https://mehmetipa-signing.internal/health', {
+            method: 'GET'
+          }))
+          if (!warmup.ok) {
+            const warmupDetail = await warmup.json().catch(() => ({}))
+            throw new Error('İmzalama motoru hazır değil: ' + (warmupDetail.detail || warmupDetail.error || warmup.status))
+          }
+
           const signed = await env.SIGNER_SERVICE.fetch(new Request('https://mehmetipa-signing.internal/sign', {
             method: 'POST',
             body: signingForm

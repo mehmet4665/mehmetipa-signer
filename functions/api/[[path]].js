@@ -81,6 +81,21 @@ async function encryptBytes(value, secret) {
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, value)
   return { ciphertext: new Uint8Array(ciphertext), iv: b64url(iv) }
 }
+async function decryptionKey(secret) {
+  if (!secret || String(secret).length < 32) throw new Error('SIGNING_ENCRYPTION_KEY en az 32 karakter olmalı.')
+  const rawKey = await crypto.subtle.digest('SHA-256', encoder.encode(secret))
+  return crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt'])
+}
+async function decryptSecret(value, iv, secret) {
+  const key = await decryptionKey(secret)
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(iv) }, key, fromB64url(value))
+  return new TextDecoder().decode(plaintext)
+}
+async function decryptBytes(value, iv, secret) {
+  const key = await decryptionKey(secret)
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(iv) }, key, value)
+  return new Uint8Array(plaintext)
+}
 
 function bytesToBinary(bytes) {
   let output = ''
@@ -716,6 +731,104 @@ export async function onRequest({ request, env, params }) {
         ).all()
 
         return json({ success: true, logs: results })
+      }
+
+      // SIGNING: VIP üyeler için sunucu tarafında imzalama
+      if (path === '/api/signing/vip' && method === 'POST') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici hesabı VIP üye imzası başlatamaz.' }, 403)
+        const member = await env.DB.prepare(
+          'SELECT username, group_name, status FROM users WHERE id = ? LIMIT 1'
+        ).bind(session.sub).first()
+        if (!member || member.status !== 'active' || !String(member.group_name || '').toLowerCase().includes('vip')) {
+          return json({ success: false, error: 'Bu işlem için aktif VIP üyeliği gerekiyor.' }, 403)
+        }
+        if (!env.CERTS || typeof env.CERTS.get !== 'function') {
+          return json({ success: false, error: 'Sertifika kasası bağlı değil.' }, 503)
+        }
+        if (typeof env.SIGNING_ENCRYPTION_KEY !== 'string' || env.SIGNING_ENCRYPTION_KEY.length < 32) {
+          return json({ success: false, error: 'Sertifika şifreleme anahtarı yapılandırılmamış.' }, 503)
+        }
+        if (!env.SIGNER_SERVICE || typeof env.SIGNER_SERVICE.fetch !== 'function') {
+          return json({ success: false, error: 'VIP imzalama motoru henüz bağlanmadı.' }, 503)
+        }
+
+        const cert = await env.DB.prepare(
+          `SELECT status, certificate_name, profile_name, password_ciphertext, password_iv,
+           p12_key, profile_key, p12_iv, profile_iv, expires_at
+           FROM signing_certificate ORDER BY updated_at DESC LIMIT 1`
+        ).first()
+        if (!cert || cert.status !== 'active' || !cert.p12_key || !cert.profile_key ||
+            !cert.password_ciphertext || !cert.password_iv || !cert.p12_iv || !cert.profile_iv) {
+          return json({ success: false, error: 'VIP sertifikası eksik veya etkin değil.' }, 409)
+        }
+        if (cert.expires_at && new Date(cert.expires_at).getTime() <= Date.now()) {
+          return json({ success: false, error: 'VIP sertifikasının süresi dolmuş.' }, 409)
+        }
+
+        let formData
+        try { formData = await request.formData() } catch {
+          return json({ success: false, error: 'IPA yüklemesi okunamadı.' }, 400)
+        }
+        const ipa = formData.get('ipa')
+        if (!(ipa instanceof File) || !ipa.name.toLowerCase().endsWith('.ipa') || ipa.size < 1) {
+          return json({ success: false, error: 'Geçerli bir IPA dosyası seç.' }, 400)
+        }
+        if (ipa.size > 100 * 1024 * 1024) {
+          return json({ success: false, error: 'IPA dosyası en fazla 100 MB olabilir.' }, 413)
+        }
+
+        const logId = randomId()
+        const createdAt = new Date().toISOString()
+        await env.DB.prepare(
+          `INSERT INTO signing_logs (id, user_id, username, mode, ipa_name, status, created_at)
+           VALUES (?, ?, ?, 'vip', ?, 'started', ?)`
+        ).bind(logId, session.sub, member.username, ipa.name.slice(0, 180), createdAt).run()
+
+        try {
+          const [p12Object, profileObject] = await Promise.all([
+            env.CERTS.get(cert.p12_key),
+            env.CERTS.get(cert.profile_key)
+          ])
+          if (!p12Object || !profileObject) throw new Error('Sertifika dosyaları kasada bulunamadı.')
+          const [encryptedP12, encryptedProfile] = await Promise.all([
+            p12Object.arrayBuffer(),
+            profileObject.arrayBuffer()
+          ])
+          const [p12Bytes, profileBytes, password] = await Promise.all([
+            decryptBytes(encryptedP12, cert.p12_iv, env.SIGNING_ENCRYPTION_KEY),
+            decryptBytes(encryptedProfile, cert.profile_iv, env.SIGNING_ENCRYPTION_KEY),
+            decryptSecret(cert.password_ciphertext, cert.password_iv, env.SIGNING_ENCRYPTION_KEY)
+          ])
+
+          const signingForm = new FormData()
+          signingForm.append('ipa', ipa, ipa.name)
+          signingForm.append('p12', new File([p12Bytes], 'certificate.p12', { type: 'application/x-pkcs12' }))
+          signingForm.append('mobileprovision', new File([profileBytes], 'profile.mobileprovision', { type: 'application/octet-stream' }))
+          signingForm.append('p12_password', password)
+
+          const signed = await env.SIGNER_SERVICE.fetch(new Request('https://mehmetipa-signing.internal/sign', {
+            method: 'POST',
+            body: signingForm
+          }))
+          if (!signed.ok) {
+            const detail = await signed.json().catch(() => ({}))
+            await env.DB.prepare("UPDATE signing_logs SET status = 'failed' WHERE id = ?").bind(logId).run()
+            return json({ success: false, error: detail.error || 'IPA imzalanamadı.', diagnostic: detail.diagnostic || undefined }, signed.status)
+          }
+
+          await env.DB.prepare("UPDATE signing_logs SET status = 'success' WHERE id = ?").bind(logId).run()
+          const headers = new Headers()
+          for (const name of ['content-type', 'content-length', 'content-disposition', 'x-signing-engine']) {
+            const value = signed.headers.get(name)
+            if (value) headers.set(name, value)
+          }
+          headers.set('cache-control', 'private, no-store')
+          headers.set('x-content-type-options', 'nosniff')
+          return new Response(signed.body, { status: 200, headers })
+        } catch (error) {
+          await env.DB.prepare("UPDATE signing_logs SET status = 'failed' WHERE id = ?").bind(logId).run()
+          return json({ success: false, error: error instanceof Error ? error.message : 'İmzalama işlemi başarısız.' }, 502)
+        }
       }
 
       // SIGNING: Üye imza işlemi başlatır

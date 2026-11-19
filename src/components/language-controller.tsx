@@ -2,6 +2,12 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 
 const englishToTurkish: Record<string, string> = {
+  "SIGNING ENGINE · v2": "İMZALAMA MOTORU · v2",
+  "● ENGINE ONLINE": "● MOTOR ÇEVRİMİÇİ",
+  "PRIVATE IPA WORKFLOW / VIP ACCESS": "ÖZEL IPA İŞ AKIŞI / VIP ERİŞİMİ",
+  "PIPELINE STATUS": "İŞLEM DURUMU",
+  "LIVE PROCESS": "CANLI İŞLEM",
+  "LIVE TERMINAL": "CANLI TERMİNAL",
   "Welcome,": "Hoş geldin,",
   "Game collection": "Oyun koleksiyonu",
   "GAME COLLECTION": "OYUN KOLEKSİYONU",
@@ -581,6 +587,20 @@ const englishToTurkish: Record<string, string> = {
 
 }
 const turkishToEnglish: Record<string, string> = {
+  "Güç göstergesi Apple çip nesillerine göre hazırlanmış yaklaşık donanım sıralamasıdır; yeşil alan önerilen seviyeyi, ⚡ sayısı nesiller arası göreceli güç artışını gösterir. Bunlar kesin FPS veya doğrulanmış MeloNX uyumluluk garantisi değildir. Gerçek sonuç emülatör sürümüne, oyun sürümüne, RAM'e ve ısınmaya göre değişir. Kapak görselleri tanıtım amaçlıdır.": "The power indicator is an approximate hardware ranking based on Apple chip generations. The green area marks the recommended level, and the ⚡ count shows relative generational performance. This is not a guaranteed FPS result or verified MeloNX compatibility. Actual results depend on emulator and game versions, RAM, and thermal conditions. Cover images are for presentation only.",
+  "P12 parolası ve özel anahtar eşleşmesi, sertifikanın süresi, Apple WWDR G3 imza zinciri ve provisioning profile CMS imzası kontrol edilir. Dosyalar AES-256-GCM ile şifrelenerek özel R2 kasasında tutulur. Apple OCSP/CRL iptal sorgusu henüz yapılmaz.": "The P12 password and private-key match, certificate validity period, Apple WWDR G3 signing chain, and provisioning profile CMS signature are checked. Files are encrypted with AES-256-GCM and stored in a private R2 vault. Apple OCSP/CRL revocation checks are not performed yet.",
+  "IPA dosyalarını tarayıcı üzerinden imzala. Hesabına giriş yap, VIP üyeliğine dahil Mehmet IPA sertifikasıyla işlemini kolayca başlat.": "Sign IPA files directly in your browser. Sign in and start easily with the Mehmet IPA certificate included in VIP membership.",
+  "Telegram destek · @ajandare": "Telegram support · @ajandare",
+  "Üyelik alanına hoş geldin": "Welcome to the member area",
+  "Mevcut Mehmet IPA hesabınla giriş yaparak oyun ve imzalama araçlarına ulaşabilirsin. Yeni üyelik başvuruları şu anda kapalıdır.": "Sign in with your existing Mehmet IPA account to access games and signing tools. New membership applications are currently closed.",
+  "Üye girişi yap": "Sign in as a member",
+  "● Platform online": "● Platform online",
+  "VIP sertifikası": "VIP certificate",
+  "Sertifikayı sil": "Delete certificate",
+  "Doğrulama:": "Verification:",
+  "Apple sertifikası:": "Apple certificate:",
+  "Gerçek bitiş:": "Actual expiration:",
+  "Sertifika bitiş tarihi P12 dosyasından otomatik okunur.": "The certificate expiration date is read automatically from the P12 file.",
   "Oyuncu merkezi": "Player center",
   "Hesap aktif": "Account active",
   "Oyun dünyası": "Game world",

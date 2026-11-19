@@ -6,18 +6,42 @@ interface Env {
 
 const PORT = 8080;
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
+const SIGNER_NAME = "vip-signing";
 
 export class SigningContainer extends DurableObject<Env> {
   private starting?: Promise<void>;
 
   async fetch(request: Request): Promise<Response> {
     const container = this.ctx.container;
-    if (!container) return Response.json({ error: "Container runtime is unavailable." }, { status: 503 });
+    if (!container) {
+      return Response.json({ error: "Container runtime is unavailable." }, { status: 503 });
+    }
 
-    this.starting ??= this.startAndWait(container).finally(() => {
+    this.starting ??= this.startAndWaitForPort(container).finally(() => {
       this.starting = undefined;
     });
-    await this.starting;
+
+    try {
+      await this.starting;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const cause = error instanceof Error && error.cause instanceof Error
+        ? error.cause.message
+        : undefined;
+      console.error("Mehmet IPA container startup failed", {
+        detail,
+        cause,
+        running: container.running,
+        imageAvailable: Boolean(container.images?.base),
+      });
+      return Response.json({
+        error: "Signing container failed to start.",
+        detail,
+        cause,
+        running: container.running,
+        imageAvailable: Boolean(container.images?.base),
+      }, { status: 503 });
+    }
 
     const url = new URL(request.url);
     url.protocol = "http:";
@@ -27,50 +51,70 @@ export class SigningContainer extends DurableObject<Env> {
     return container.getTcpPort(PORT).fetch(forwarded);
   }
 
-  private async startAndWait(container: NonNullable<DurableObjectState["container"]>): Promise<void> {
-    await container.setInactivityTimeout(INACTIVITY_TIMEOUT_MS);
+  private async startAndWaitForPort(
+    container: NonNullable<DurableObjectState["container"]>
+  ): Promise<void> {
     if (!container.running) {
+      const image = container.images?.base;
+      if (!image) {
+        throw new Error("Container image 'base' is missing from the deployed Worker version.");
+      }
+
+      // start() initiates the VM boot; the readiness loop below waits for the HTTP server.
       container.start({
-        image: container.images.base,
+        image,
         instance: "standard-1",
         enableInternet: false,
-        env: {
-          PORT: String(PORT),
-        }
+        env: { PORT: String(PORT) },
       });
     }
 
+    await container.setInactivityTimeout(INACTIVITY_TIMEOUT_MS);
+
     const port = container.getTcpPort(PORT);
     let lastError: unknown;
+
     for (let attempt = 0; attempt < 100; attempt++) {
       try {
         const response = await port.fetch("http://container/health", {
-          signal: AbortSignal.timeout(1500)
+          signal: AbortSignal.timeout(1500),
         });
         await response.body?.cancel();
         if (response.ok) return;
+        lastError = new Error("Container health endpoint returned HTTP " + response.status);
       } catch (error) {
         lastError = error;
       }
       await scheduler.wait(300);
     }
-    throw new Error("Signing container did not become ready.", { cause: lastError });
+
+    const detail = lastError instanceof Error ? lastError.message : String(lastError || "no health response");
+    throw new Error("Container did not become ready on port " + PORT + ": " + detail, {
+      cause: lastError,
+    });
   }
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    // This probes the real Container via the Durable Object; it is not a Worker-only ping.
     if (url.pathname === "/health" && request.method === "GET") {
-      return Response.json({ ok: true, service: "mehmetipa-signing" });
+      return env.SIGNER.getByName(SIGNER_NAME).fetch(
+        new Request("https://container.internal/health", { method: "GET" })
+      );
     }
+
     if (url.pathname !== "/sign" || request.method !== "POST") {
       return Response.json({ error: "Not found" }, { status: 404 });
     }
+
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (contentLength > 105 * 1024 * 1024) {
       return Response.json({ error: "IPA upload exceeds 100 MB." }, { status: 413 });
     }
-    return env.SIGNER.getByName("vip-signing").fetch(request);
-  }
+
+    return env.SIGNER.getByName(SIGNER_NAME).fetch(request);
+  },
 } satisfies ExportedHandler<Env>;

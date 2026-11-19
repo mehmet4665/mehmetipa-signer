@@ -345,7 +345,28 @@ export async function onRequest({ request, env, params }) {
     const method = request.method.toUpperCase()
 
     if (path === '/api/health' && method === 'GET') {
-      return json({ success: true, status: 'online', service: 'Mehmet IPA API', version: '1.1.0' })
+      if (!env.SIGNER_SERVICE || typeof env.SIGNER_SERVICE.fetch !== 'function') {
+        return json({ success: false, status: 'api-online', signer: 'not-bound', error: 'İmzalama motoru bağlı değil.' }, 503)
+      }
+      try {
+        const signerResponse = await env.SIGNER_SERVICE.fetch(new Request('https://mehmetipa-signing.internal/health', { method: 'GET' }))
+        const signerData = await signerResponse.json().catch(() => ({}))
+        return json({
+          success: signerResponse.ok,
+          status: 'api-online',
+          service: 'Mehmet IPA API',
+          signer: signerResponse.ok ? 'ready' : 'unavailable',
+          signer_detail: signerData
+        }, signerResponse.ok ? 200 : 503)
+      } catch (error) {
+        return json({
+          success: false,
+          status: 'api-online',
+          service: 'Mehmet IPA API',
+          signer: 'unavailable',
+          error: error instanceof Error ? error.message : 'İmzalama motoru sağlık kontrolü başarısız.'
+        }, 503)
+      }
     }
 
     // Public, unguessable, short-lived OTA install artifacts for iOS itms-services.

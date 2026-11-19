@@ -869,7 +869,9 @@ export async function onRequest({ request, env, params }) {
           if (!signed.ok) {
             const detail = await signed.json().catch(() => ({}))
             await env.DB.prepare("UPDATE signing_logs SET status = 'failed' WHERE id = ?").bind(logId).run()
-            return json({ success: false, error: detail.error || 'IPA imzalanamadı.', diagnostic: detail.diagnostic || undefined }, signed.status)
+            const signingError = [detail.error, detail.detail, detail.diagnostic].filter(Boolean).join(' — ')
+            await env.DB.prepare("UPDATE signing_logs SET status = 'failed' WHERE id = ?").bind(logId).run()
+            return json({ success: false, error: signingError || 'IPA imzalanamadı.' }, signed.status)
           }
 
           const bundleId = signed.headers.get('x-app-bundle-id') || ''

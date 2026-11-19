@@ -159,18 +159,13 @@ function MemberSigningPanel({ username, token, onHome, onLogout }: { username: s
   const [isSigning, setIsSigning] = React.useState(false)
   const [completedSteps, setCompletedSteps] = React.useState(0)
   const [signedUrl, setSignedUrl] = React.useState<string | null>(null)
+  const [installUrl, setInstallUrl] = React.useState<string | null>(null)
   const [signedFileName, setSignedFileName] = React.useState('')
-  const signedUrlRef = React.useRef<string | null>(null)
   const fileInput = React.useRef<HTMLInputElement>(null)
 
-  React.useEffect(() => () => {
-    if (signedUrlRef.current) URL.revokeObjectURL(signedUrlRef.current)
-  }, [])
-
   const clearSignedOutput = () => {
-    if (signedUrlRef.current) URL.revokeObjectURL(signedUrlRef.current)
-    signedUrlRef.current = null
     setSignedUrl(null)
+    setInstallUrl(null)
     setSignedFileName('')
     setCompletedSteps(0)
   }
@@ -225,26 +220,16 @@ function MemberSigningPanel({ username, token, onHome, onLogout }: { username: s
         throw new Error(detail)
       }
 
-      const contentType = response.headers.get('content-type') || ''
-      const blob = await response.blob()
-      if (contentType.includes('application/json')) {
-        const failure = JSON.parse(await blob.text()) as { error?: string }
-        throw new Error(failure.error || 'Signing failed.')
+      const result = await response.json() as { success?: boolean; install_url?: string; download_url?: string; file_name?: string; error?: string }
+      if (!result.success || !result.install_url || !result.download_url) {
+        throw new Error(result.error || 'The signing service did not return an iOS installation link.')
       }
-      if (blob.size < 1024) throw new Error('The signing service returned an invalid IPA file.')
 
-      const disposition = response.headers.get('content-disposition') || ''
-      const utf8Name = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
-      const plainName = disposition.match(/filename="?([^";]+)"?/i)?.[1]
-      let downloadName = utf8Name || plainName || (ipaFile.name.replace(/\.ipa$/i, '') + '-signed.ipa')
-      try { downloadName = decodeURIComponent(downloadName) } catch {}
-
-      const objectUrl = URL.createObjectURL(blob)
-      signedUrlRef.current = objectUrl
-      setSignedUrl(objectUrl)
-      setSignedFileName(downloadName)
+      setSignedUrl(result.download_url)
+      setInstallUrl(result.install_url)
+      setSignedFileName(result.file_name || (ipaFile.name.replace(/\\.ipa$/i, '') + '-signed.ipa'))
       setCompletedSteps(5)
-      setMessage('Your IPA was signed successfully. Download it below.')
+      setMessage('Your IPA was signed successfully. Tap Install on this iPhone to install it.')
       setMessageType('success')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Signing failed.')
@@ -298,8 +283,9 @@ function MemberSigningPanel({ username, token, onHome, onLogout }: { username: s
 
       {message && <div role="status" className={`mt-4 rounded-xl border p-3 text-sm ${messageType === 'success' ? 'border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-100' : messageType === 'error' ? 'border-red-300/20 bg-red-300/[0.07] text-red-100' : 'border-cyan-300/20 bg-cyan-300/[0.07] text-cyan-100'}`}>{message}</div>}
       <button type="button" disabled={!ipaFile || isSigning} onClick={startSigning} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-500 px-5 py-4 font-bold text-white shadow-[0_14px_35px_rgba(109,40,217,.25)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{isSigning ? 'Signing…' : 'Start signing'} <span>{isSigning ? '⏳' : '→'}</span></button>
-      {signedUrl && <a href={signedUrl} download={signedFileName} className="mt-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-5 py-4 font-bold text-emerald-200 transition hover:bg-emerald-400/15">↓ Download signed IPA</a>}
-      {!signedUrl && <p className="mt-3 text-center text-xs text-slate-500">The signed IPA download will appear here after the signing service returns a valid file.</p>}
+      {installUrl && <a href={installUrl} className="mt-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-emerald-300/40 bg-emerald-400/15 px-5 py-4 font-bold text-emerald-100 transition hover:bg-emerald-400/25">Install on this iPhone</a>}
+      {signedUrl && <a href={signedUrl} download={signedFileName} className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.04] px-5 py-3 font-semibold text-slate-200 transition hover:bg-white/[0.08]">↓ Download signed IPA</a>}
+      {!signedUrl && <p className="mt-3 text-center text-xs text-slate-500">The install and download links will appear after signing succeeds.</p>}
     </div>
   </section>
 }

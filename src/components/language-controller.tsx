@@ -1297,7 +1297,7 @@ export function LanguageController() {
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ['placeholder','title','aria-label','alt'],
+      attributeFilter: ['placeholder','title','aria-label','alt','hidden'],
     })
     return () => observer.disconnect()
   }, [language])

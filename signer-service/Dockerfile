@@ -7,6 +7,7 @@ RUN git clone --depth 1 --branch v1.1.2 https://github.com/zhlynn/zsign.git
 RUN make -C /src/zsign/build/linux -j2
 
 FROM node:22-bookworm-slim
+# Python plistlib and unzip support the iOS OTA install manifest metadata check.
 ENV NODE_ENV=production PORT=8080
 RUN apt-get update && apt-get install -y --no-install-recommends libssl3 ca-certificates unzip python3 \
     && rm -rf /var/lib/apt/lists/*

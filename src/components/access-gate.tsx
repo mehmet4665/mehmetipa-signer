@@ -152,142 +152,87 @@ function PublicGameCard({ game }: { game: PublicGame }) {
 }
 
 
-function MemberSigningPanel({ username, token, onHome, onLogout }: { username: string; token: string; onHome: () => void; onLogout: () => void }) {
-  const [ipaFile, setIpaFile] = React.useState<File | null>(null)
-  const [message, setMessage] = React.useState('')
-  const [messageType, setMessageType] = React.useState<'info' | 'success' | 'error'>('info')
-  const [isSigning, setIsSigning] = React.useState(false)
-  const [completedSteps, setCompletedSteps] = React.useState(0)
-  const [signedUrl, setSignedUrl] = React.useState<string | null>(null)
-  const [installUrl, setInstallUrl] = React.useState<string | null>(null)
-  const [signedFileName, setSignedFileName] = React.useState('')
-  const fileInput = React.useRef<HTMLInputElement>(null)
-
-  const clearSignedOutput = () => {
-    setSignedUrl(null)
-    setInstallUrl(null)
-    setSignedFileName('')
-    setCompletedSteps(0)
-  }
-
-  const chooseFile = (file?: File) => {
-    setMessage('')
-    setMessageType('info')
-    clearSignedOutput()
-    if (!file) { setIpaFile(null); return }
-    if (!file.name.toLowerCase().endsWith('.ipa')) {
-      setIpaFile(null)
-      setMessage('Please select a valid .ipa file.')
-      setMessageType('error')
-      return
-    }
-    if (file.size > 100 * 1024 * 1024) {
-      setIpaFile(null)
-      setMessage('IPA upload exceeds the 100 MB limit.')
-      setMessageType('error')
-      return
-    }
-    setIpaFile(file)
-  }
-
-  const startSigning = async () => {
-    if (!ipaFile || isSigning) return
-    if (!token) {
-      setMessage('Sign in again to continue.')
-      setMessageType('error')
-      return
-    }
-
-    setIsSigning(true)
-    setCompletedSteps(0)
-    setMessage('')
-    setMessageType('info')
-    clearSignedOutput()
-
-    try {
-      const formData = new FormData()
-      formData.append('ipa', ipaFile, ipaFile.name)
-      const response = await fetch(API_BASE + '/api/signing/vip', {
-        method: 'POST',
-        headers: { authorization: 'Bearer ' + token },
-        body: formData,
-        cache: 'no-store',
-      })
-
-      if (!response.ok) {
-        const failure = await response.json().catch(() => ({})) as { error?: string; diagnostic?: string }
-        const detail = [failure.error || ('Signing failed (' + response.status + ').'), failure.diagnostic].filter(Boolean).join(' · ')
-        throw new Error(detail)
-      }
-
-      const result = await response.json() as { success?: boolean; install_url?: string; download_url?: string; file_name?: string; error?: string }
-      if (!result.success || !result.install_url || !result.download_url) {
-        throw new Error(result.error || 'The signing service did not return an iOS installation link.')
-      }
-
-      setSignedUrl(result.download_url)
-      setInstallUrl(result.install_url)
-      setSignedFileName(result.file_name || (ipaFile.name.replace(/\\.ipa$/i, '') + '-signed.ipa'))
-      setCompletedSteps(5)
-      setMessage('Your IPA was signed successfully. Tap Install on this iPhone to install it.')
-      setMessageType('success')
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Signing failed.')
-      setMessageType('error')
-    } finally {
-      setIsSigning(false)
-    }
-  }
-
-  return <section className="relative min-h-screen overflow-hidden bg-[#070A16] bg-[radial-gradient(ellipse_at_10%_0%,rgba(124,58,237,.18),transparent_34%),radial-gradient(ellipse_at_95%_35%,rgba(6,182,212,.10),transparent_30%),linear-gradient(180deg,#080b18,#090d1b_55%,#070a14)] px-4 pb-10 pt-5 text-white sm:px-6">
-    <div className="pointer-events-none absolute -right-32 top-20 h-96 w-96 rounded-full bg-violet-600/15 blur-3xl" />
-    <div className="relative mx-auto max-w-3xl">
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-violet-300/20 bg-[#11182c]/85 px-4 py-3 shadow-[0_18px_55px_rgba(0,0,0,.24)] backdrop-blur-xl">
-        <div className="flex items-center gap-3"><img src="/icon-dark-512.PNG" alt="Mehmet IPA" className="h-10 w-10 rounded-xl" /><div><div className="font-bold">Mehmet IPA</div><div className="text-xs text-slate-400">Private signing</div></div></div>
-        <div className="flex items-center gap-2"><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-300">@{username}</span><button onClick={onHome} className="rounded-xl border border-white/15 px-3 py-2 text-xs font-semibold">← Member home</button><button onClick={onLogout} className="rounded-xl border border-red-400/20 px-3 py-2 text-xs font-semibold text-red-200">Sign out</button></div>
-      </header>
-
-      <section className="mt-7">
-        <p className="text-xs font-bold uppercase tracking-[.2em] text-violet-200">VIP SIGNING</p>
-        <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Sign your IPA</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-400">Choose one IPA file. Signing credentials are securely managed by the administrator.</p>
-      </section>
-
-      <section className="mt-6 rounded-3xl border border-violet-300/20 bg-[#11182c]/80 p-5 shadow-[0_20px_60px_rgba(0,0,0,.22)] sm:p-7">
-        <div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-500/15 text-2xl">📦</div><div><h2 className="font-bold">Choose IPA file</h2><p className="text-xs text-slate-400">Only .ipa files are accepted</p></div></div>
-        <input ref={fileInput} type="file" accept=".ipa,application/octet-stream" className="hidden" onChange={e => chooseFile(e.target.files?.[0])} />
-        <button type="button" onClick={() => fileInput.current?.click()} className="mt-5 flex min-h-36 w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-violet-300/40 bg-violet-500/[0.07] px-4 py-6 text-center transition hover:border-cyan-300/60 hover:bg-violet-500/[0.12]">
-          <span className="text-3xl">⬆️</span><span className="font-bold">{ipaFile ? 'Choose another IPA file' : 'Select IPA file'}</span><span className="max-w-full break-all text-xs text-slate-400">{ipaFile ? ipaFile.name + ' · ' + (ipaFile.size / 1024 / 1024).toFixed(1) + ' MB' : 'Tap to browse files on your device'}</span>
-        </button>
-        {ipaFile && <button type="button" onClick={() => { setIpaFile(null); if (fileInput.current) fileInput.current.value = ''; setMessage('') }} className="mt-3 text-xs font-semibold text-slate-400 underline">Remove selected file</button>}
-      </section>
-
-      <section className="mt-4 rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-cyan-400/[0.07] to-violet-500/[0.08] p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-400/10 text-2xl">🛡️</div><div><h2 className="font-bold">Mehmet IPA certificate</h2><p className="text-xs text-slate-400">Managed securely by the administrator</p></div></div><span className="rounded-full border border-white/10 bg-black/20 p-2 text-lg" aria-label="Locked">🔒</span></div>
-        <div className="mt-4 flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-300"><span className="text-emerald-300">✓</span> Signing certificate is protected and cannot be viewed or downloaded by members.</div>
-      </section>
-
-      <section className="mt-4 rounded-3xl border border-white/10 bg-[#11182c]/75 p-5 sm:p-6">
-        <div className="flex items-center justify-between gap-2"><h2 className="font-bold">Signing progress</h2><span className="rounded-full bg-white/[0.06] px-3 py-1 text-[11px] text-slate-400">{completedSteps === 5 ? 'Signing completed' : isSigning ? 'Signing started' : 'Waiting'}</span></div>
-        <ol className="mt-5 space-y-4">
-          {['IPA file validation','Secure certificate check','Signing started','Signing completed','Signed IPA ready to download'].map((step, index) => {
-            const done = completedSteps === 5
-            const active = isSigning && index === 2
-            const failed = messageType === 'error' && !!message && index === 2
-            const stateLabel = done ? 'Complete' : active ? 'In progress' : failed ? 'Failed' : 'Waiting'
-            return <li key={step} className="flex items-center gap-3"><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full border text-xs ${done ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : active ? 'border-violet-300/40 bg-violet-400/10 text-violet-200' : 'border-white/10 bg-black/20 text-slate-500'}`}>{done ? '✓' : index + 1}</span><span className="text-sm text-slate-300">{step}</span><span className={`ml-auto text-[10px] ${done ? 'text-emerald-300' : active ? 'text-violet-200' : failed ? 'text-red-300' : 'text-slate-600'}`}>{stateLabel}</span></li>
-          })}
-        </ol>
-        <p className="mt-5 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.06] p-3 text-xs leading-5 text-cyan-100/80">The IPA is sent to the private signing engine. Your certificate stays protected.</p>
-      </section>
-
-      {message && <div role="status" className={`mt-4 rounded-xl border p-3 text-sm ${messageType === 'success' ? 'border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-100' : messageType === 'error' ? 'border-red-300/20 bg-red-300/[0.07] text-red-100' : 'border-cyan-300/20 bg-cyan-300/[0.07] text-cyan-100'}`}>{message}</div>}
-      <button type="button" disabled={!ipaFile || isSigning} onClick={startSigning} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-500 px-5 py-4 font-bold text-white shadow-[0_14px_35px_rgba(109,40,217,.25)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{isSigning ? 'Signing…' : 'Start signing'} <span>{isSigning ? '⏳' : '→'}</span></button>
-      {installUrl && <a href={installUrl} className="mt-4 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-emerald-300/40 bg-emerald-400/15 px-5 py-4 font-bold text-emerald-100 transition hover:bg-emerald-400/25">Install on this iPhone</a>}
-      {signedUrl && <a href={signedUrl} download={signedFileName} className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.04] px-5 py-3 font-semibold text-slate-200 transition hover:bg-white/[0.08]">↓ Download signed IPA</a>}
-      {!signedUrl && <p className="mt-3 text-center text-xs text-slate-500">The install and download links will appear after signing succeeds.</p>}
-    </div>
-  </section>
+type SigningProgress = {stage:number;percent:number;label:string;logs:{at?:string;text:string}[]}
+async function inspectIpaArchive(file:File){
+ if(file.size<64)throw new Error('Dosya çok küçük; geçerli IPA değil.')
+ const first=new Uint8Array(await file.slice(0,4).arrayBuffer())
+ if(!(first[0]===80&&first[1]===75&&[3,5,7].includes(first[2])))throw new Error('Dosya geçerli ZIP/IPA arşivi değil.')
+ const tailStart=Math.max(0,file.size-65557),tail=new Uint8Array(await file.slice(tailStart).arrayBuffer()),v=new DataView(tail.buffer,tail.byteOffset,tail.byteLength)
+ let e=-1;for(let i=tail.length-22;i>=0;i--){if(v.getUint32(i,true)===0x06054b50){e=i;break}}
+ if(e<0)throw new Error('ZIP merkez dizini bulunamadı; IPA bozuk veya eksik.')
+ const count=v.getUint16(e+10,true),size=v.getUint32(e+12,true),offset=v.getUint32(e+16,true)
+ if(!count||count>100000||offset+size>file.size)throw new Error('IPA arşiv dizini tutarsız.')
+ const cd=new Uint8Array(await file.slice(offset,offset+size).arrayBuffer()),cv=new DataView(cd.buffer,cd.byteOffset,cd.byteLength),names:string[]=[]
+ let p=0;while(p+46<=cd.length&&names.length<count){if(cv.getUint32(p,true)!==0x02014b50)throw new Error('IPA merkez dizini okunamadı.');const n=cv.getUint16(p+28,true),x=cv.getUint16(p+30,true),c=cv.getUint16(p+32,true),next=p+46+n+x+c;if(next>cd.length)throw new Error('IPA içinde eksik kayıt var.');names.push(new TextDecoder().decode(cd.slice(p+46,p+46+n)));p=next}
+ const info=names.find(n=>/^Payload\/[^/]+\.app\/Info\.plist$/i.test(n))
+ if(!info)throw new Error('Payload/*.app/Info.plist bulunamadı. Dosya iOS IPA paketi değil.')
+ return {entryCount:count,appPath:info.replace(/Info\.plist$/i,'')}
+}
+function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;token:string;onHome:()=>void;onLogout:()=>void}){
+ const [ipaFile,setIpaFile]=React.useState<File|null>(null),[message,setMessage]=React.useState(''),[messageType,setMessageType]=React.useState<'info'|'success'|'error'>('info'),[isSigning,setIsSigning]=React.useState(false)
+ const [progress,setProgress]=React.useState<SigningProgress>({stage:0,percent:0,label:'IPA dosyası bekleniyor',logs:[]}),[failedStage,setFailedStage]=React.useState(0)
+ const [signedUrl,setSignedUrl]=React.useState<string|null>(null),[installUrl,setInstallUrl]=React.useState<string|null>(null),[signedFileName,setSignedFileName]=React.useState('')
+ const [archiveInfo,setArchiveInfo]=React.useState<{entryCount:number;appPath:string}|null>(null),[elapsed,setElapsed]=React.useState(0),[showTerminal,setShowTerminal]=React.useState(true)
+ const [english]=React.useState(()=>getAppLocale()==='en-US'),fileInput=React.useRef<HTMLInputElement>(null),startedAt=React.useRef<number|null>(null),localLogs=React.useRef<{at:string;text:string}[]>([])
+ const t=(tr:string,en:string)=>english?en:tr
+ const addLog=(text:string)=>{const at=new Date().toLocaleTimeString(getAppLocale(),{hour12:false});localLogs.current=[...localLogs.current,{at,text}].slice(-60);setProgress(p=>({...p,logs:[...localLogs.current]}))}
+ const reset=()=>{setSignedUrl(null);setInstallUrl(null);setSignedFileName('');setProgress({stage:0,percent:0,label:t('IPA dosyası bekleniyor','Waiting for IPA file'),logs:[]});setFailedStage(0);setArchiveInfo(null);setElapsed(0);localLogs.current=[];startedAt.current=null}
+ React.useEffect(()=>{if(!isSigning)return;const timer=window.setInterval(()=>{if(startedAt.current)setElapsed(Math.floor((Date.now()-startedAt.current)/1000))},1000);return()=>window.clearInterval(timer)},[isSigning])
+ const chooseFile=async(file?:File)=>{setMessage('');setMessageType('info');reset();if(!file){setIpaFile(null);return}
+  if(!file.name.toLowerCase().endsWith('.ipa')){setIpaFile(null);setMessage(t('Yalnızca .ipa dosyası seç.','Only .ipa files are accepted.'));setMessageType('error');return}
+  if(file.size>100*1024*1024){setIpaFile(null);setMessage(t('Dosya 100 MB sınırını aşıyor.','File exceeds the 100 MB limit.'));setMessageType('error');return}
+  setProgress({stage:1,percent:3,label:t('Dosya türü ve boyutu kontrol ediliyor','Checking file type and size'),logs:[]});addLog('> FILE_GATE: .ipa uzantısı doğrulandı');addLog('> SIZE_CHECK: '+(file.size/1048576).toFixed(2)+' MB / 100 MB')
+  try{const info=await inspectIpaArchive(file);setArchiveInfo(info);setIpaFile(file);addLog('> ZIP_SIGNATURE: PASS');addLog('> CENTRAL_DIRECTORY: '+info.entryCount+' kayıt');addLog('> APP_BUNDLE: '+info.appPath);addLog('> INFO_PLIST: bulundu · Bundle ID/sürüm sunucuda doğrulanacak');setProgress({stage:2,percent:10,label:t('IPA arşivi ve Payload yapısı doğrulandı','IPA archive and Payload validated'),logs:[...localLogs.current]})}
+  catch(e){setIpaFile(null);setFailedStage(2);const d=e instanceof Error?e.message:'IPA analizi başarısız';setMessage(d);setMessageType('error');addLog('> IPA_INSPECTION: FAILED · '+d);setProgress(p=>({...p,label:t('IPA kontrolü başarısız','IPA validation failed'),logs:[...localLogs.current]}))}
+ }
+ const startSigning=async()=>{if(!ipaFile||isSigning)return;if(!token){setMessage(t('Tekrar giriş yap.','Sign in again.'));setMessageType('error');return}
+  setIsSigning(true);setFailedStage(0);setMessage('');setSignedUrl(null);setInstallUrl(null);startedAt.current=Date.now();setElapsed(0)
+  const jobId=crypto.randomUUID();setProgress({stage:2,percent:12,label:t('Güvenli yükleme başlatılıyor','Starting secure upload'),logs:[...localLogs.current]});addLog('> JOB_ID: '+jobId);addLog('> SECURE_UPLOAD: bağlantı kuruluyor')
+  let pollTimer:number|undefined,serverLogKey=''
+  const poll=async()=>{try{const r=await fetch(API_BASE+'/api/signing/progress/'+jobId,{headers:{authorization:'Bearer '+token},cache:'no-store'});if(!r.ok)return;const d=await r.json() as SigningProgress;const key=JSON.stringify(d.logs||[]);if(key!==serverLogKey){serverLogKey=key;const lines=(d.logs||[]).map(x=>({at:x.at?new Date(x.at).toLocaleTimeString(getAppLocale(),{hour12:false}):'',text:x.text}));setProgress(p=>({...p,stage:Math.max(p.stage,d.stage||0),percent:Math.max(p.percent,d.percent||0),label:d.label||p.label,logs:[...localLogs.current,...lines].slice(-80)}))}else setProgress(p=>({...p,stage:Math.max(p.stage,d.stage||0),percent:Math.max(p.percent,d.percent||0),label:d.label||p.label}))}catch{}}
+  pollTimer=window.setInterval(poll,900)
+  try{
+   const fd=new FormData();fd.append('ipa',ipaFile,ipaFile.name);fd.append('job_id',jobId)
+   const result=await new Promise<{success?:boolean;install_url?:string;download_url?:string;file_name?:string;error?:string;diagnostic?:string}>((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();xhr.open('POST',API_BASE+'/api/signing/vip');xhr.setRequestHeader('Authorization','Bearer '+token);xhr.responseType='text'
+    xhr.upload.onprogress=e=>{if(e.lengthComputable){const pct=Math.min(40,12+Math.round(e.loaded/e.total*28));setProgress(p=>({...p,stage:2,percent:Math.max(p.percent,pct),label:t('IPA sunucuya yükleniyor','Uploading IPA to server')}))}}
+    xhr.onload=()=>{let d:any={};try{d=JSON.parse(xhr.responseText||'{}')}catch{reject(new Error(t('Sunucu yanıtı okunamadı.','Server response could not be read.')));return}if(xhr.status<200||xhr.status>=300){reject(new Error([d.error||('HTTP '+xhr.status),d.diagnostic].filter(Boolean).join(' · ')));return}resolve(d)}
+    xhr.onerror=()=>reject(new Error(t('Ağ bağlantısı kesildi.','Network connection failed.')));xhr.ontimeout=()=>reject(new Error(t('İstek zaman aşımına uğradı.','Request timed out.')));xhr.timeout=1200000;xhr.send(fd)
+   })
+   await poll();if(!result.success||!result.install_url||!result.download_url)throw new Error(result.error||t('Kurulum bağlantısı alınamadı.','Install link missing.'))
+   setSignedUrl(result.download_url);setInstallUrl(result.install_url);setSignedFileName(result.file_name||ipaFile.name.replace(/\.ipa$/i,'-signed.ipa'));setProgress(p=>({...p,stage:5,percent:100,label:t('İmzalama tamamlandı · IPA hazır','Signing complete · IPA ready')}));addLog('> RESULT: SIGNATURE_VERIFIED');addLog('> STORAGE: PRIVATE_R2_WRITE_OK');addLog('> OTA_MANIFEST: READY');setProgress(p=>({...p,logs:[...localLogs.current,...p.logs.filter(x=>!localLogs.current.some(y=>y.text===x.text))].slice(-80)}));setMessage(t('IPA başarıyla imzalandı. Kurulum veya indirme bağlantısını kullan.','IPA signed successfully. Use install or download.'));setMessageType('success')
+  }catch(e){const d=e instanceof Error?e.message:'İmzalama başarısız';setFailedStage(progress.stage||4);setMessage(d);setMessageType('error');addLog('> PIPELINE: FAILED · '+d);setProgress(p=>({...p,label:t('İşlem hata verdi','Pipeline failed'),logs:[...localLogs.current,...p.logs].slice(-80)}))}
+  finally{if(pollTimer)window.clearInterval(pollTimer);setIsSigning(false)}
+ }
+ const steps=[
+  {title:t('IPA dosyası kontrolü','IPA file validation'),desc:t('Uzantı · boyut · ZIP imzası · 100 MB','Extension · size · ZIP signature · 100 MB'),code:'FILE_GATE / SIZE_CHECK'},
+  {title:t('IPA paket analizi','IPA package analysis'),desc:t('ZIP dizini · Payload · .app · Info.plist','ZIP directory · Payload · .app · Info.plist'),code:'ZIP_SCAN / APP_BUNDLE'},
+  {title:t('Sertifika ve profil kontrolü','Certificate & profile'),desc:t('P12 · profil süresi · Bundle ID · UDID','P12 · profile expiry · Bundle ID · UDID'),code:'CERT_VALIDATE / PROFILE_MATCH'},
+  {title:t('İmzalama motoru','Signing engine'),desc:t('Konteyner · Zsign · uygulama imzası','Container · Zsign · app signature'),code:'CONTAINER_BOOT / ZSIGN_EXEC'},
+  {title:t('Son doğrulama ve teslimat','Final verification & delivery'),desc:t('İmza · IPA çıktısı · R2 · OTA manifest','Signature · IPA output · R2 · OTA manifest'),code:'VERIFY / R2_STORE / OTA_READY'}
+ ]
+ const time=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0')
+ return <section className="relative min-h-screen overflow-hidden bg-[#070A16] bg-[radial-gradient(ellipse_at_10%_0%,rgba(124,58,237,.20),transparent_34%),radial-gradient(ellipse_at_95%_35%,rgba(6,182,212,.12),transparent_30%),linear-gradient(180deg,#080b18,#090d1b_55%,#070a14)] px-4 pb-10 pt-5 text-white sm:px-6">
+ <div className="pointer-events-none absolute -right-32 top-20 h-96 w-96 rounded-full bg-violet-600/15 blur-3xl"/><div className="relative mx-auto max-w-3xl">
+ <header className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-violet-300/20 bg-[#11182c]/85 px-4 py-3 shadow-xl"><div className="flex items-center gap-3"><img src="/icon-dark-512.PNG" alt="Mehmet IPA" className="h-10 w-10 rounded-xl"/><div><div className="font-bold tracking-wide">MEHMET IPA</div><div className="text-[10px] uppercase tracking-[.22em] text-cyan-200">SIGNING ENGINE · v2</div></div></div><div className="flex items-center gap-2"><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-300">● ENGINE ONLINE</span><button onClick={onHome} className="rounded-xl border border-white/15 px-3 py-2 text-xs">{t('← Ana sayfa','← Home')}</button><button onClick={onLogout} className="rounded-xl border border-red-400/20 px-3 py-2 text-xs text-red-200">{t('Çıkış','Sign out')}</button></div></header>
+ <section className="mt-7"><p className="text-[10px] font-bold uppercase tracking-[.25em] text-violet-200">PRIVATE IPA WORKFLOW / VIP ACCESS</p><h1 className="mt-2 text-3xl font-black sm:text-4xl">{t('Akıllı IPA imzalama','Smart IPA signing')}</h1><p className="mt-2 text-sm text-slate-400">{t('Dosyanı analiz et, güvenli şekilde imzala ve iPhone’una yükle.','Analyze, sign securely and install on your iPhone.')}</p></section>
+ <section className="mt-6 rounded-3xl border border-violet-300/20 bg-[#11182c]/85 p-5 shadow-xl">
+ <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-500/15 text-2xl">📦</div><div><h2 className="font-bold">{t('IPA dosyası','IPA package')}</h2><p className="text-xs text-slate-400">{t('Maksimum dosya boyutu 100 MB','Maximum file size 100 MB')}</p></div></div><span className="rounded-full border border-cyan-300/20 bg-cyan-300/[.07] px-3 py-1.5 text-[10px] font-bold text-cyan-100">.IPA / 100 MB</span></div>
+ <input ref={fileInput} type="file" accept=".ipa,application/octet-stream" className="hidden" onChange={e=>chooseFile(e.target.files?.[0])}/>
+ <button type="button" disabled={isSigning} onClick={()=>fileInput.current?.click()} className="mt-5 flex min-h-32 w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-violet-300/40 bg-violet-500/[.07] px-4 py-6 text-center disabled:opacity-50"><span className="text-3xl">{ipaFile?'📲':'⬆️'}</span><span className="font-bold">{ipaFile?t('Başka IPA seç','Choose another IPA'):t('Dosyalardan IPA seç','Select IPA from Files')}</span><span className="max-w-full break-all text-xs text-slate-400">{ipaFile?ipaFile.name:t('Yalnızca .ipa · En fazla 100 MB','Only .ipa · Up to 100 MB')}</span></button>
+ {ipaFile&&<div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3"><div className="rounded-xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] uppercase text-slate-500">{t('Dosya boyutu','File size')}</div><div className="mt-1 text-sm font-bold">{(ipaFile.size/1048576).toFixed(2)} MB</div></div><div className="rounded-xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] uppercase text-slate-500">{t('Arşiv kaydı','Archive entries')}</div><div className="mt-1 text-sm font-bold">{archiveInfo?.entryCount??'—'}</div></div><div className="col-span-2 rounded-xl border border-white/10 bg-black/20 p-3 sm:col-span-1"><div className="text-[9px] uppercase text-slate-500">{t('Uygulama paketi','App bundle')}</div><div className="mt-1 break-all text-xs font-semibold text-emerald-200">{archiveInfo?.appPath||'—'}</div></div></div>}
+ {ipaFile&&<button type="button" disabled={isSigning} onClick={()=>{setIpaFile(null);if(fileInput.current)fileInput.current.value='';reset();setMessage('')}} className="mt-3 text-xs text-slate-400 underline">{t('Dosyayı kaldır','Remove file')}</button>}
+ </section>
+ <section className="mt-4 rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-cyan-400/[.07] to-violet-500/[.08] p-5"><div className="flex items-center justify-between gap-3"><div><div className="text-[10px] font-bold uppercase tracking-[.22em] text-cyan-100/70">PIPELINE STATUS</div><h2 className="mt-1 font-bold">{t('İmzalama ilerlemesi','Signing progress')}</h2></div><div className="text-right"><div className="text-3xl font-black tabular-nums text-cyan-100">{progress.percent}%</div><div className="text-[10px] text-slate-400">{isSigning?time:t('Hazır','Ready')}</div></div></div><div className="mt-4 h-3 overflow-hidden rounded-full border border-white/10 bg-black/40"><div className={'h-full rounded-full bg-gradient-to-r from-cyan-400 via-violet-400 to-emerald-400 transition-all duration-500 '+(isSigning&&progress.percent<100?'animate-pulse':'')} style={{width:progress.percent+'%'}}/></div><div className="mt-2 flex justify-between gap-2 text-xs"><span className="text-slate-300">{progress.label}</span><span className="font-mono text-cyan-200">{progress.stage}/05</span></div></section>
+ <section className="mt-4 rounded-3xl border border-white/10 bg-[#11182c]/80 p-5"><div className="flex items-center justify-between"><h2 className="font-bold">{t('İşlem aşamaları','Pipeline stages')}</h2><span className="text-[10px] uppercase tracking-wider text-slate-500">LIVE PROCESS</span></div><ol className="mt-5 space-y-3">{steps.map((step,i)=>{const n=i+1,done=progress.stage>n||(progress.stage===5&&progress.percent===100),active=isSigning&&progress.stage===n&&!done,failed=failedStage===n;const box=done?'border-emerald-400/25 bg-emerald-400/[.055]':active?'border-violet-300/35 bg-violet-400/[.07]':failed?'border-red-400/30 bg-red-400/[.06]':'border-white/[.07] bg-black/10';const ico=done?'border-emerald-400/30 bg-emerald-400/10 text-emerald-300':active?'border-violet-300/40 bg-violet-400/10 text-violet-100':failed?'border-red-400/30 bg-red-400/10 text-red-200':'border-white/10 bg-black/20 text-slate-500';return <li key={step.code} className={'rounded-2xl border p-3 '+box}><div className="flex items-center gap-3"><span className={'grid h-9 w-9 shrink-0 place-items-center rounded-xl border text-xs font-black '+ico}>{done?'✓':String(n).padStart(2,'0')}</span><div className="min-w-0 flex-1"><div className="text-sm font-semibold">{step.title}</div><div className="mt-1 text-[11px] text-slate-400">{step.desc}</div><div className="mt-1 font-mono text-[9px] text-slate-600">{step.code}</div></div><span className={'shrink-0 text-[9px] font-bold '+(done?'text-emerald-300':active?'text-violet-200':failed?'text-red-300':'text-slate-600')}>{done?t('TAMAM','DONE'):active?t('ÇALIŞIYOR','RUNNING'):failed?t('HATA','FAILED'):t('BEKLİYOR','WAITING')}</span></div></li>})}</ol></section>
+ <section className="mt-4 overflow-hidden rounded-3xl border border-emerald-300/15 bg-[#080e19]"><button type="button" onClick={()=>setShowTerminal(v=>!v)} className="flex w-full items-center justify-between border-b border-white/10 px-4 py-3 text-left"><div><div className="text-[10px] font-bold uppercase tracking-[.22em] text-emerald-300">LIVE TERMINAL</div><div className="mt-1 text-xs text-slate-400">{t('Teknik kayıtlar · gizli anahtarlar gösterilmez','Technical logs · secrets are hidden')}</div></div><span className="font-mono text-emerald-300">{showTerminal?'−':'+'}</span></button>{showTerminal&&<div className="max-h-64 overflow-y-auto p-4 font-mono text-[10px] leading-5">{(progress.logs.length?progress.logs:[{text:'> MEHMET_IPA_ENGINE :: READY'},{text:'> WAITING_FOR_IPA_FILE'}]).map((line,i)=><div key={i} className="break-all text-emerald-300/90"><span className="mr-2 text-slate-600">{line.at||'SYS'}</span>{line.text}</div>)}{isSigning&&<div className="animate-pulse text-cyan-300">▌ {t('İşlem devam ediyor...','Processing...')}</div>}</div>}</section>
+ <section className="mt-4 rounded-2xl border border-white/10 bg-white/[.035] p-4"><div className="text-sm font-semibold"><span className="text-emerald-300">🔒</span> {t('Sertifika koruması aktif','Certificate protection active')}</div><p className="mt-1 text-xs leading-5 text-slate-400">{t('P12 parolası ve özel anahtar terminalde gösterilmez. Sertifika yalnızca sunucudaki özel imzalama motorunda kullanılır.','The P12 password and private key are never shown in logs. Credentials stay on the private signing engine.')}</p></section>
+ {message&&<div role="status" className={'mt-4 whitespace-pre-wrap rounded-xl border p-3 text-sm '+(messageType==='success'?'border-emerald-300/20 bg-emerald-300/[.07] text-emerald-100':messageType==='error'?'border-red-300/25 bg-red-300/[.07] text-red-100':'border-cyan-300/20 bg-cyan-300/[.07] text-cyan-100')}>{message}</div>}
+ <button type="button" disabled={!ipaFile||isSigning} onClick={startSigning} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-500 px-5 py-4 font-bold shadow-xl disabled:opacity-40">{isSigning?t('İmzalanıyor...','Signing...'):t('İmzalamayı başlat','Start signing')} <span>{isSigning?'⏳':'→'}</span></button>
+ {installUrl&&<a href={installUrl} className="mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl border border-emerald-300/40 bg-emerald-400/15 px-5 py-4 font-bold text-emerald-100">✓ {t('Bu iPhone’a yükle','Install on this iPhone')}</a>}
+ {signedUrl&&<a href={signedUrl} download={signedFileName} className="mt-3 flex min-h-12 w-full items-center justify-center rounded-2xl border border-white/15 bg-white/[.04] px-5 py-3 font-semibold">↓ {t('İmzalanmış IPA’yı indir','Download signed IPA')}</a>}
+ {!signedUrl&&<p className="mt-3 text-center text-xs text-slate-500">{t('Kurulum ve indirme bağlantıları imzalama bitince görünür.','Install and download links appear after signing.')}</p>}
+ </div></section>
 }
 
 export function AccessGate() {

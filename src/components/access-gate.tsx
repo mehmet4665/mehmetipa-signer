@@ -221,7 +221,7 @@ function MemberSigningPanel({ username, token, onHome, onLogout }: { username: s
 
       if (!response.ok) {
         const failure = await response.json().catch(() => ({})) as { error?: string; diagnostic?: string }
-        const detail = [failure.error || ('Signing failed (' + response.status + ').'), failure.diagnostic].filter(Boolean).join('\\n')
+        const detail = [failure.error || ('Signing failed (' + response.status + ').'), failure.diagnostic].filter(Boolean).join(' · ')
         throw new Error(detail)
       }
 
@@ -234,9 +234,9 @@ function MemberSigningPanel({ username, token, onHome, onLogout }: { username: s
       if (blob.size < 1024) throw new Error('The signing service returned an invalid IPA file.')
 
       const disposition = response.headers.get('content-disposition') || ''
-      const utf8Name = disposition.match(/filename\\*=UTF-8''([^;]+)/i)?.[1]
+      const utf8Name = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
       const plainName = disposition.match(/filename="?([^";]+)"?/i)?.[1]
-      let downloadName = utf8Name || plainName || (ipaFile.name.replace(/\\.ipa$/i, '') + '-signed.ipa')
+      let downloadName = utf8Name || plainName || (ipaFile.name.replace(/\.ipa$/i, '') + '-signed.ipa')
       try { downloadName = decodeURIComponent(downloadName) } catch {}
 
       const objectUrl = URL.createObjectURL(blob)

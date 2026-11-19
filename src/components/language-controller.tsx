@@ -1201,8 +1201,8 @@ function translateText(value: string, language: Language) {
   const keys = Object.keys(dictionary).filter(key => key.length >= 3).sort((a, b) => b.length - a.length)
   if (!keys.length) return value
   const translatedByKey = new Map(keys.map(key => [key.toLocaleLowerCase(), dictionary[key]]))
-  const alternatives = keys.map(key => key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')).join('|')
-  const pattern = new RegExp('(^|[^\\\\p{L}\\\\p{N}])(' + alternatives + ')(?=$|[^\\\\p{L}\\\\p{N}])', 'giu')
+  const alternatives = keys.map(key => key.split('').map(char => '.^$*+?()[]{}|\\'.includes(char) ? '\\' + char : char).join('')).join('|')
+  const pattern = new RegExp('(^|[^\\p{L}\\p{N}])(' + alternatives + ')(?=$|[^\\p{L}\\p{N}])', 'giu')
   return value.replace(pattern, (_match, prefix: string, phrase: string) =>
     prefix + (translatedByKey.get(phrase.toLocaleLowerCase()) || phrase)
   )

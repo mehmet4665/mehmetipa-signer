@@ -583,8 +583,14 @@ export async function onRequest({ request, env, params }) {
         const denied = requireAdmin()
         if (denied) return denied
 
-        if (!env.CERTS || !env.SIGNING_ENCRYPTION_KEY) {
-          return json({ success: false, error: 'Sertifika kasası veya şifreleme anahtarı bağlı değil.' }, 503)
+        if (!env.CERTS || typeof env.CERTS.put !== 'function') {
+          return json({ success: false, error: 'Cloudflare R2 CERTS bağlantısı çalışma ortamına gelmiyor. Pages > Settings > Bindings bölümündeki production R2 binding adını CERTS olarak kontrol edin.' }, 503)
+        }
+        if (typeof env.SIGNING_ENCRYPTION_KEY !== 'string' || !env.SIGNING_ENCRYPTION_KEY) {
+          return json({ success: false, error: 'SIGNING_ENCRYPTION_KEY gizli değişkeni production çalışma ortamında boş veya bağlı değil. Pages > Settings > Variables and Secrets bölümünden 32+ karakterli Secret olarak kaydedin ve yeniden dağıtım yapın.' }, 503)
+        }
+        if (env.SIGNING_ENCRYPTION_KEY.length < 32) {
+          return json({ success: false, error: 'SIGNING_ENCRYPTION_KEY en az 32 karakter olmalı. Production Secret değerini 64 karakterlik rastgele anahtarla güncelleyin.' }, 503)
         }
 
         const body = await readBody(request)

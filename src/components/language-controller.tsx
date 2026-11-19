@@ -518,7 +518,6 @@ const englishToTurkish: Record<string, string> = {
   "Install on this iPhone": "Bu iPhone'a yükle",
   "Download signed IPA": "İmzalanmış IPA'yı indir",
   "The signed IPA download will appear here after the signing service returns a valid file.": "İmzalama servisi geçerli bir dosya döndürdüğünde indirme bağlantısı burada görünecek.",
-  "Download signed IPA": "İmzalanmış IPA'yı indir",
   "Signing…": "İmzalanıyor…",
   "Complete": "Tamamlandı",
   "In progress": "İşleniyor",

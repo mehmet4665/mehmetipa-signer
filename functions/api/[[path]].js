@@ -348,6 +348,31 @@ export async function onRequest({ request, env, params }) {
       return json({ success: true, status: 'online', service: 'Mehmet IPA API', version: '1.1.0' })
     }
 
+    // Public, unguessable, short-lived OTA install artifacts for iOS itms-services.
+    const installMatch = path.match(/^\\/api\\/install\\/([A-Za-z0-9_-]+)\\/(manifest\\.plist|app\\.ipa)$/)
+    if (installMatch && method === 'GET') {
+      if (!env.CERTS || typeof env.CERTS.get !== 'function') return json({ success: false, error: 'Install storage unavailable.' }, 503)
+      const [, token, artifact] = installMatch
+      const key = 'signed-installs/' + token + '.ipa'
+      const object = await env.CERTS.get(key)
+      if (!object) return json({ success: false, error: 'Install link expired or not found.' }, 404)
+      const metadata = object.customMetadata || {}
+      if (!metadata.expiresAt || Date.now() > Number(metadata.expiresAt)) {
+        await env.CERTS.delete(key).catch(() => {})
+        return json({ success: false, error: 'Install link expired. Sign the IPA again.' }, 410)
+      }
+      if (artifact === 'manifest.plist') {
+        const origin = new URL(request.url).origin
+        const appUrl = origin + '/api/install/' + token + '/app.ipa'
+        const esc = (value) => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>items</key><array><dict><key>assets</key><array><dict><key>kind</key><string>software-package</string><key>url</key><string>${esc(appUrl)}</string></dict></array><key>metadata</key><dict><key>bundle-identifier</key><string>${esc(metadata.bundleId)}</string><key>bundle-version</key><string>${esc(metadata.version || '1.0')}</string><key>kind</key><string>software</string><key>title</key><string>${esc(metadata.title || 'Mehmet IPA')}</string></dict></dict></array></dict></plist>`
+        return new Response(xml, { headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'no-store' } })
+      }
+      return new Response(object.body, { headers: { 'content-type': 'application/octet-stream', 'content-length': String(object.size), 'content-disposition': 'attachment; filename="' + String(metadata.fileName || 'signed.ipa').replace(/["\\r\\n]/g, '') + '"', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' } })
+    }
+
     if (path === '/api/auth/register' && method === 'POST') {
       if (!(await rateLimit(env, request, 'register', 5, 30))) return json({ success: false, error: 'Çok fazla kayıt denemesi. Bir süre sonra tekrar dene.' }, 429)
       const body = await readBody(request)
@@ -816,15 +841,33 @@ export async function onRequest({ request, env, params }) {
             return json({ success: false, error: detail.error || 'IPA imzalanamadı.', diagnostic: detail.diagnostic || undefined }, signed.status)
           }
 
+          const bundleId = signed.headers.get('x-app-bundle-id') || ''
+          const appVersion = signed.headers.get('x-app-version') || '1.0'
+          if (bundleId !== 'com.mehmetipa.signer') throw new Error('İmzalı uygulamanın Bundle ID bilgisi provisioning profile ile eşleşmiyor.')
+          const signedBytes = await signed.arrayBuffer()
+          if (signedBytes.byteLength < 1024) throw new Error('İmzalı IPA çıktısı geçersiz.')
+          const installToken = randomToken()
+          const installKey = 'signed-installs/' + installToken + '.ipa'
+          const expiresAt = Date.now() + 24 * 60 * 60 * 1000
+          const fileName = ipa.name.replace(/\\.ipa$/i, '') + '-signed.ipa'
+          await env.CERTS.put(installKey, signedBytes, {
+            httpMetadata: { contentType: 'application/octet-stream' },
+            customMetadata: { bundleId, version: appVersion, title: 'Mehmet IPA', fileName, expiresAt: String(expiresAt), username: member.username }
+          })
           await env.DB.prepare("UPDATE signing_logs SET status = 'success' WHERE id = ?").bind(logId).run()
-          const headers = new Headers()
-          for (const name of ['content-type', 'content-length', 'content-disposition', 'x-signing-engine']) {
-            const value = signed.headers.get(name)
-            if (value) headers.set(name, value)
-          }
-          headers.set('cache-control', 'private, no-store')
-          headers.set('x-content-type-options', 'nosniff')
-          return new Response(signed.body, { status: 200, headers })
+          const origin = new URL(request.url).origin
+          const manifestUrl = origin + '/api/install/' + installToken + '/manifest.plist'
+          const downloadUrl = origin + '/api/install/' + installToken + '/app.ipa'
+          return json({
+            success: true,
+            bundle_id: bundleId,
+            version: appVersion,
+            file_name: fileName,
+            expires_at: new Date(expiresAt).toISOString(),
+            download_url: downloadUrl,
+            manifest_url: manifestUrl,
+            install_url: 'itms-services://?action=download-manifest&url=' + encodeURIComponent(manifestUrl)
+          })
         } catch (error) {
           await env.DB.prepare("UPDATE signing_logs SET status = 'failed' WHERE id = ?").bind(logId).run()
           return json({ success: false, error: error instanceof Error ? error.message : 'İmzalama işlemi başarısız.' }, 502)

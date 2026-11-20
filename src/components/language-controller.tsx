@@ -2,6 +2,25 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 
 const englishToTurkish: Record<string, string> = {
+  "Sign IPA files": "IPA dosyalarını imzala",
+  "Sign in your browser with the Mehmet IPA certificate included with VIP membership.": "VIP üyeliği kapsamında sunulan Mehmet IPA sertifikasıyla tarayıcı üzerinden imzala.",
+  "Browse guides": "Rehberleri incele",
+  "Learn setup and usage steps.": "Kurulum ve kullanım adımlarını öğren.",
+  "IPA signing made simple": "Kolay IPA imzalama",
+  "Sign in to my account": "Hesabıma giriş yap",
+  "Log out": "Çıkış yap",
+  "Log out yap": "Çıkış yap",
+  "Browse games, details, and guides.": "Oyunları, bilgileri ve rehberleri incele.",
+  "Explore games": "Oyunları keşfet",
+  "Sign in to open the signing screen.": "İmzalama ekranını açmak için giriş yap.",
+  "Sign in to get started": "Başlamak için giriş yap",
+  "Your username": "Kullanıcı adın",
+  "Your password": "Şifren",
+  "Remember me": "Beni hatırla",
+  "Remember my account on this device": "Bu cihazda hesabımı hatırla",
+  "Account remembered on this device": "Bu cihazda hatırlanan hesap",
+  "Choose account →": "Hesabı seç →",
+  "New membership registrations are temporarily closed": "Yeni üyelik kayıtları geçici olarak kapalı",
   "Sign in to my account": "Hesabıma giriş yap",
   "Sign in to my account →": "Hesabıma giriş yap →",
   "MEMBER SIGN-IN": "ÜYE GİRİŞİ",
@@ -1358,7 +1377,8 @@ function translateText(value: string, language: Language) {
   const dictionaryResult = value.replace(pattern, (_match, prefix: string, phrase: string) =>
     prefix + (translatedByKey.get(phrase.toLocaleLowerCase()) || phrase)
   )
-  if (dictionaryResult !== value) return dictionaryResult
+  // A cached full-sentence translation takes priority over a partial word-map
+  // replacement, preventing hybrid strings such as "Log out yap".
   const direction = remoteTranslationKey(source, language)
   const remote = direction ? remoteTranslations.get(direction.key) : undefined
   if (remote) {
@@ -1366,6 +1386,7 @@ function translateText(value: string, language: Language) {
     const trailing = value.match(/\\s*$/)?.[0] || ''
     return leading + remote + trailing
   }
+  if (dictionaryResult !== value) return dictionaryResult
   return value
 }
 

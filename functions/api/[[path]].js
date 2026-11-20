@@ -771,6 +771,8 @@ export async function onRequest({ request, env, params }) {
         const body = await readBody(request)
         const udid = String(body.udid || '').trim().toUpperCase()
         if (!/^[A-F0-9-]{20,40}$/.test(udid)) return json({ success: false, error: 'UDID biçimi geçerli görünmüyor.' }, 400)
+        const accountDevice = await env.DB.prepare('SELECT id FROM devices WHERE user_id = ? LIMIT 1').bind(session.sub).first()
+        if (accountDevice) return json({ success: false, error: 'Her hesap için yalnızca bir UDID kaydı yapılabilir. Kayıt silinemez veya değiştirilemez.' }, 409)
         const existing = await env.DB.prepare('SELECT id FROM devices WHERE user_id = ? AND udid = ?').bind(session.sub, udid).first()
         if (existing) return json({ success: false, error: 'Bu cihaz zaten kayıtlı.' }, 409)
         await env.DB.prepare('INSERT INTO devices (id, user_id, udid, status, created_at) VALUES (?, ?, ?, ?, ?)')

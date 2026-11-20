@@ -1372,12 +1372,15 @@ function translateText(value: string, language: Language) {
 const originalText = new WeakMap<Text, { source: string; rendered: string }>()
 const originalAttributes = new WeakMap<Element, Map<string, { source: string; rendered: string }>>()
 
-function applyLanguage(root: ParentNode, language: Language) {
+function applyLanguage(root: ParentNode, requestedLanguage: Language) {
+  // Read the persisted selection on every pass. MutationObserver callbacks from
+  // a previous render can otherwise apply a stale language to newly-rendered UI.
+  const language = getLanguage()
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   const nodes: Text[] = []
   while (walker.nextNode()) nodes.push(walker.currentNode as Text)
   for (const node of nodes) {
-    if (node.parentElement?.closest('script,style,textarea,[contenteditable="true"]')) continue
+    if (node.parentElement?.closest('script,style,textarea,[contenteditable="true"],[data-locale],[data-translation-skip]')) continue
     const current = node.textContent || ''
     let record = originalText.get(node)
     if (!record) {
@@ -1388,8 +1391,6 @@ function applyLanguage(root: ParentNode, language: Language) {
       current !== translateText(record.source, 'tr') &&
       current !== translateText(record.source, 'en')
     ) {
-      // React supplied genuinely new source text for this node. Keep the
-      // canonical source when the visible value is one of its translations.
       record = { source: current, rendered: current }
       originalText.set(node, record)
     }
@@ -1454,7 +1455,7 @@ export function LanguageController() {
     document.documentElement.dataset.appLanguage = language
     window.dispatchEvent(new CustomEvent('mehmetipa:language-change', { detail: { language } }))
     applyLanguage(document.body, language)
-    const observer = new MutationObserver(() => applyLanguage(document.body, language))
+    const observer = new MutationObserver(() => applyLanguage(document.body, getLanguage()))
     observer.observe(document.body, {
       childList: true,
       subtree: true,

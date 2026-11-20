@@ -2,6 +2,8 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 
 const englishToTurkish: Record<string, string> = {
+  "Sign in to my account": "Hesabıma giriş yap",
+  "Sign in to my account →": "Hesabıma giriş yap →",
   "SIGNING ENGINE · v2": "İMZALAMA MOTORU · v2",
   "● ENGINE ONLINE": "● MOTOR ÇEVRİMİÇİ",
   "PRIVATE IPA WORKFLOW / VIP ACCESS": "ÖZEL IPA İŞ AKIŞI / VIP ERİŞİMİ",
@@ -1191,6 +1193,103 @@ const turkishToEnglish: Record<string, string> = {
 
 }
 const STORAGE_KEY = 'mehmetipa.language'
+const REMOTE_CACHE_KEY = 'mehmetipa.translation-cache.v1'
+const REMOTE_USAGE_KEY = 'mehmetipa.translation-usage.v1'
+const FREE_TRANSLATION_DAILY_BUDGET = 4600
+const remoteTranslations = new Map<string, string>()
+const pendingRemoteTranslations = new Set<string>()
+const failedRemoteTranslations = new Set<string>()
+
+try {
+  const saved = JSON.parse(window.localStorage.getItem(REMOTE_CACHE_KEY) || '{}') as Record<string, string>
+  for (const [key, value] of Object.entries(saved)) {
+    if (typeof value === 'string' && value.length > 0) remoteTranslations.set(key, value)
+  }
+} catch {
+  // A damaged or unavailable cache must never prevent the app from loading.
+}
+
+function detectSourceLanguage(value: string): 'tr' | 'en' | null {
+  const text = normalize(value)
+  if (/[çğıöşüÇĞİÖŞÜ]/.test(text)) return 'tr'
+  const words = text.toLocaleLowerCase('tr-TR').match(/[\\p{L}]+/gu) || []
+  const turkishWords = new Set('ve bir bu şu için ile ama veya daha çok az yeni eski giriş çıkış üye üyelik hesap şifre dosya dosyaları ayarlar ayarı sayfa ana burada buradan şimdi sonra devam et sil yükle indir seç kaydet gönder bekle bekliyor tamam başarılı başarısız hata lütfen oluştur düzenle güncelle güvenli sertifika profil cihaz yönetici kullanıcı adı ad soyad tarih saat işlem işlemi yapılacak başladı bitti'.split(' '))
+  const englishWords = new Set('the a an and or for to from with without your you my our their this that these those is are was were be been being of in on at by as into sign signing signed account username password settings setting page home here now next continue delete upload download select save submit pending complete success failed error please create edit update secure certificate profile device admin user name date time process start started done status'.split(' '))
+  const trScore = words.filter(word => turkishWords.has(word)).length
+  const enScore = words.filter(word => englishWords.has(word)).length
+  if (trScore > enScore) return 'tr'
+  if (enScore > 0) return 'en'
+  return null
+}
+
+function remoteTranslationKey(source: string, target: Language): { key: string; from: Language } | null {
+  const text = normalize(source)
+  if (text.length < 5 || text.length > 260 || text.split(/\\s+/).length < 2) return null
+  // Only static interface copy is eligible. Never send credentials, user data,
+  // file names, logs, identifiers, URLs, email addresses, or numeric records.
+  if (/[0-9@]|https?:\\/\\/|www\\.|\\b[A-F0-9]{12,}\\b|[<>]/i.test(text) || text.includes(',')) return null
+  if (!/[a-zA-ZçğıöşüÇĞİÖŞÜ]/.test(text)) return null
+  const from = detectSourceLanguage(text)
+  if (!from || from === target) return null
+  return { key: from + '>' + target + ':' + text, from }
+}
+
+function persistRemoteCache() {
+  try {
+    const entries = Array.from(remoteTranslations.entries()).slice(-300)
+    window.localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)))
+  } catch {
+    // Storage can be full or disabled; in-memory translation still works.
+  }
+}
+
+function reserveFreeTranslationBudget(characters: number): boolean {
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    const saved = JSON.parse(window.localStorage.getItem(REMOTE_USAGE_KEY) || '{}') as { day?: string; used?: number }
+    const used = saved.day === today && Number.isFinite(saved.used) ? Number(saved.used) : 0
+    if (used + characters > FREE_TRANSLATION_DAILY_BUDGET) return false
+    window.localStorage.setItem(REMOTE_USAGE_KEY, JSON.stringify({ day: today, used: used + characters }))
+    return true
+  } catch {
+    return false
+  }
+}
+
+function scheduleRemoteTranslation(source: string, target: Language, host?: Element | null) {
+  const direction = remoteTranslationKey(source, target)
+  if (!direction || remoteTranslations.has(direction.key) || pendingRemoteTranslations.has(direction.key) || failedRemoteTranslations.has(direction.key)) return
+  if (host?.closest('script,style,textarea,input,select,option,pre,code,svg,[contenteditable="true"],[data-locale],[data-no-translate],[data-translation-skip],.font-mono')) return
+  const text = normalize(source)
+  if (!reserveFreeTranslationBudget(text.length)) {
+    failedRemoteTranslations.add(direction.key)
+    return
+  }
+  pendingRemoteTranslations.add(direction.key)
+  const params = new URLSearchParams({ q: text, langpair: direction.from + '|' + target })
+  fetch('https://api.mymemory.translated.net/get?' + params.toString(), { method: 'GET', mode: 'cors', credentials: 'omit' })
+    .then(response => {
+      if (!response.ok) throw new Error('Translation service unavailable')
+      return response.json() as Promise<{ responseStatus?: number; responseData?: { translatedText?: string } }>
+    })
+    .then(data => {
+      const translated = (data.responseData?.translatedText || '')
+        .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .trim()
+      if (data.responseStatus !== 200 || !translated || translated.toLocaleLowerCase() === text.toLocaleLowerCase()) {
+        throw new Error('No translation returned')
+      }
+      remoteTranslations.set(direction.key, translated)
+      persistRemoteCache()
+      if (document.documentElement.dataset.appLanguage === target) applyLanguage(document.body, target)
+    })
+    .catch(() => {
+      // The UI remains usable with its original text if the free provider is limited.
+      failedRemoteTranslations.add(direction.key)
+    })
+    .finally(() => pendingRemoteTranslations.delete(direction.key))
+}
 type Language = 'tr' | 'en'
 
 function getLanguage(): Language {
@@ -1244,9 +1343,18 @@ function translateText(value: string, language: Language) {
   const translatedByKey = new Map(keys.map(key => [key.toLocaleLowerCase(), dictionary[key]]))
   const alternatives = keys.map(key => key.split('').map(char => '.^$*+?()[]{}|\\'.includes(char) ? '\\' + char : char).join('')).join('|')
   const pattern = new RegExp('(^|[^\\p{L}\\p{N}])(' + alternatives + ')(?=$|[^\\p{L}\\p{N}])', 'giu')
-  return value.replace(pattern, (_match, prefix: string, phrase: string) =>
+  const dictionaryResult = value.replace(pattern, (_match, prefix: string, phrase: string) =>
     prefix + (translatedByKey.get(phrase.toLocaleLowerCase()) || phrase)
   )
+  if (dictionaryResult !== value) return dictionaryResult
+  const direction = remoteTranslationKey(source, language)
+  const remote = direction ? remoteTranslations.get(direction.key) : undefined
+  if (remote) {
+    const leading = value.match(/^\\s*/)?.[0] || ''
+    const trailing = value.match(/\\s*$/)?.[0] || ''
+    return leading + remote + trailing
+  }
+  return value
 }
 
 const originalText = new WeakMap<Text, { source: string; rendered: string }>()
@@ -1274,6 +1382,7 @@ function applyLanguage(root: ParentNode, language: Language) {
       originalText.set(node, record)
     }
     const translated = translateText(record.source, language)
+    if (translated === record.source) scheduleRemoteTranslation(record.source, language, node.parentElement)
     if (current !== translated) node.textContent = translated
     record.rendered = translated
   }
@@ -1305,6 +1414,7 @@ function applyLanguage(root: ParentNode, language: Language) {
         attrs.set(attr, record)
       }
       const translated = translateText(record.source, language)
+      if (translated === record.source) scheduleRemoteTranslation(record.source, language, element)
       if (translated !== current) element.setAttribute(attr, translated)
       record.rendered = translated
     }

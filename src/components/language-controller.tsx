@@ -1375,7 +1375,7 @@ const originalAttributes = new WeakMap<Element, Map<string, { source: string; re
 function applyLanguage(root: ParentNode, requestedLanguage: Language) {
   // Read the persisted selection on every pass. MutationObserver callbacks from
   // a previous render can otherwise apply a stale language to newly-rendered UI.
-  const language = getLanguage()
+  const language: Language = getLanguage() || requestedLanguage
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   const nodes: Text[] = []
   while (walker.nextNode()) nodes.push(walker.currentNode as Text)

@@ -737,17 +737,17 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
         <div className="mi-console relative mx-auto w-full max-w-md rounded-[30px] p-2">
           <div className="absolute -inset-5 rounded-[2rem] bg-gradient-to-br from-violet-500/20 via-indigo-500/10 to-cyan-400/20 blur-2xl" />
           <div className="relative rounded-[26px] border border-white/10 bg-gradient-to-br from-white/[0.09] to-white/[0.025] p-5 backdrop-blur-xl sm:p-7">
-            <div className="flex items-center justify-between"><div className="text-sm font-semibold text-slate-200">İmza merkezi</div><span className="rounded-full bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold text-cyan-200">MEHMET IPA</span></div>
+            <div className="flex items-center justify-between"><div className="text-sm font-semibold text-slate-200"><span data-locale="tr">İmza merkezi</span><span data-locale="en" hidden>Signing center</span></div><span className="rounded-full bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold text-cyan-200">MEHMET IPA</span></div>
             <div className="mt-7 rounded-2xl border border-dashed border-violet-300/30 bg-violet-400/[0.07] px-5 py-9 text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 text-2xl shadow-lg shadow-violet-950/50">↑</div>
-              <div className="mt-5 text-lg font-bold">IPA dosyan hazır mı?</div>
-              <p className="mt-2 text-sm leading-6 text-slate-400">Hesabına giriş yaparak imzalama ekranına geçebilirsin.</p>
-              <button onClick={() => { setView('login'); setError('') }} className="mt-5 w-full rounded-xl bg-white px-4 py-3 text-sm font-bold text-slate-900 transition hover:bg-violet-100">Başlamak için giriş yap</button>
+              <div className="mt-5 text-lg font-bold"><span data-locale="tr">IPA dosyan hazır mı?</span><span data-locale="en" hidden>Is your IPA file ready?</span></div>
+              <p className="mt-2 text-sm leading-6 text-slate-400"><span data-locale="tr">Hesabına giriş yaparak imzalama ekranına geçebilirsin.</span><span data-locale="en" hidden>Sign in to open the signing screen.</span></p>
+              <button onClick={() => { setView('login'); setError('') }} className="mt-5 w-full rounded-xl bg-white px-4 py-3 text-sm font-bold text-slate-900 transition hover:bg-violet-100"><span data-locale="tr">Başlamak için giriş yap</span><span data-locale="en" hidden>Sign in to get started</span></button>
             </div>
             <div className="mt-5 grid grid-cols-3 gap-2 text-center">
               <div className="rounded-xl bg-black/20 p-3"><div className="text-lg">📱</div><div className="mt-1 text-[11px] text-slate-400">iOS</div></div>
               <div className="rounded-xl bg-black/20 p-3"><div className="text-lg">🔐</div><div className="mt-1 text-[11px] text-slate-400">Sertifika</div></div>
-              <div className="rounded-xl bg-black/20 p-3"><div className="text-lg">⚡</div><div className="mt-1 text-[11px] text-slate-400">Kolay işlem</div></div>
+              <div className="rounded-xl bg-black/20 p-3"><div className="text-lg">⚡</div><div className="mt-1 text-[11px] text-slate-400"><span data-locale="tr">Kolay işlem</span><span data-locale="en" hidden>Easy process</span></div></div>
             </div>
           </div>
         </div>

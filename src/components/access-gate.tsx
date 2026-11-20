@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { SylvaSigner } from '@/components/sylva-signer'
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { useAppLanguage } from '@/lib/app-language'
 
 type User = {
   id: string
@@ -237,16 +238,8 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
 }
 
 export function AccessGate() {
-  const [uiLanguage, setUiLanguage] = React.useState<'tr' | 'en'>(() => getAppLocale() === 'en-US' ? 'en' : 'tr')
+  const uiLanguage = useAppLanguage()
   const t = (tr: string, en: string) => uiLanguage === 'en' ? en : tr
-  React.useEffect(() => {
-    const syncLanguage = (event: Event) => {
-      const detail = (event as CustomEvent<{ language?: string }>).detail
-      setUiLanguage(detail?.language === 'en' ? 'en' : detail?.language === 'tr' ? 'tr' : getAppLocale() === 'en-US' ? 'en' : 'tr')
-    }
-    window.addEventListener('mehmetipa:language-change', syncLanguage)
-    return () => window.removeEventListener('mehmetipa:language-change', syncLanguage)
-  }, [])
   const [token, setToken] = React.useState('')
   const [user, setUser] = React.useState<User | null>(null)
   const [view, setView] = React.useState<'home' | 'login' | 'register' | 'forgot' | 'reset' | 'verify' | 'admin' | 'method' | 'signer'>(() => typeof window !== 'undefined' ? (window.location.pathname === '/verify-email' ? 'verify' : window.location.pathname === '/reset-password' ? 'reset' : 'home') : 'home')

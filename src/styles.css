@@ -323,5 +323,11 @@
   .signer-step strong { font-size: .68rem; }
 }
 
-/* Language-specific copy is rendered as a whole phrase when word order differs. */
-[data-locale="en"][hidden], [data-locale="tr"][hidden] { display: none !important; }
+/* Language-specific copy is rendered as a whole phrase when word order differs.
+   The root language is authoritative, even if a stale hidden attribute remains. */
+html[data-app-language="tr"] [data-locale="en"],
+html[data-app-language="en"] [data-locale="tr"],
+[data-locale="en"][hidden],
+[data-locale="tr"][hidden] {
+  display: none !important;
+}

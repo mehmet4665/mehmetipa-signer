@@ -766,6 +766,15 @@ export async function onRequest({ request, env, params }) {
         const { results = [] } = await env.DB.prepare('SELECT id, udid, status, created_at FROM devices WHERE user_id = ? ORDER BY created_at DESC').bind(session.sub).all()
         return json({ success: true, devices: results })
       }
+      const memberDeviceMatch = path.match(/^\\/api\\/devices\\/([^/]+)$/)
+      if (memberDeviceMatch && method === 'DELETE') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici hesabında bu işlem kullanılamaz.' }, 403)
+        const device = await env.DB.prepare('SELECT id, udid FROM devices WHERE id = ? AND user_id = ? LIMIT 1').bind(memberDeviceMatch[1], session.sub).first()
+        if (!device) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
+        await env.DB.prepare('DELETE FROM devices WHERE id = ? AND user_id = ?').bind(memberDeviceMatch[1], session.sub).run()
+        return json({ success: true, message: 'UDID kaydı Mehmet IPA hesabından silindi. Apple Developer kaydı varsa ayrıca yönetilmelidir; deneme hakkın sıfırlanmadı.' })
+      }
+
       if (path === '/api/devices' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici cihaz kaydı yapamaz.' }, 400)
         const body = await readBody(request)
@@ -1004,6 +1013,10 @@ export async function onRequest({ request, env, params }) {
         const trialIsActive = !!activeTrial && new Date(activeTrial.expires_at).getTime() > Date.now()
         if (!isActiveVip(member) && !trialIsActive) {
           return json({ success: false, error: 'Aktif VIP üyeliği veya süresi dolmamış 1 saatlik deneme hakkı gerekiyor.' }, 403)
+        }
+        if (trialIsActive) {
+          const trialDevice = await env.DB.prepare("SELECT id FROM devices WHERE user_id = ? AND udid = ? AND status = 'approved' LIMIT 1").bind(session.sub, activeTrial.device_udid).first()
+          if (!trialDevice) return json({ success: false, error: 'Denemeyi başlattığın onaylı UDID hesabında bulunamadı. Aynı cihazı yeniden kaydedip onaylatman gerekiyor.' }, 403)
         }
         const blockedDevice = await env.DB.prepare(
           "SELECT udid FROM devices WHERE user_id = ? AND status = 'blocked' ORDER BY created_at DESC LIMIT 1"

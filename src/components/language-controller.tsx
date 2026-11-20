@@ -546,6 +546,8 @@ const englishToTurkish: Record<string, string> = {
   "Ad soyad": "Full name",
   "Kullanıcı adı": "Username",
   "Şifre": "Password",
+  "Kullanıcı adın": "Your username",
+  "Şifren": "Your password",
   "Grup (isteğe bağlı)": "Group (optional)",
   "Üye Oluştur": "Create Member",
   "Üye Listesi": "Member List",
@@ -1212,7 +1214,7 @@ try {
 function detectSourceLanguage(value: string): 'tr' | 'en' | null {
   const text = normalize(value)
   if (/[çğıöşüÇĞİÖŞÜ]/.test(text)) return 'tr'
-  const words = text.toLocaleLowerCase('tr-TR').match(/[\\p{L}]+/gu) || []
+  const words = text.toLocaleLowerCase('tr-TR').match(/[\p{L}]+/gu) || []
   const turkishWords = new Set('ve bir bu şu için ile ama veya daha çok az yeni eski giriş çıkış üye üyelik hesap şifre dosya dosyaları ayarlar ayarı sayfa ana burada buradan şimdi sonra devam et sil yükle indir seç kaydet gönder bekle bekliyor tamam başarılı başarısız hata lütfen oluştur düzenle güncelle güvenli sertifika profil cihaz yönetici kullanıcı adı ad soyad tarih saat işlem işlemi yapılacak başladı bitti'.split(' '))
   const englishWords = new Set('the a an and or for to from with without your you my our their this that these those is are was were be been being of in on at by as into sign signing signed account username password settings setting page home here now next continue delete upload download select save submit pending complete success failed error please create edit update secure certificate profile device admin user name date time process start started done status'.split(' '))
   const trScore = words.filter(word => turkishWords.has(word)).length
@@ -1224,10 +1226,10 @@ function detectSourceLanguage(value: string): 'tr' | 'en' | null {
 
 function remoteTranslationKey(source: string, target: Language): { key: string; from: Language } | null {
   const text = normalize(source)
-  if (text.length < 5 || text.length > 260 || text.split(/\\s+/).length < 2) return null
+  if (text.length < 5 || text.length > 260 || text.split(/\s+/).length < 2) return null
   // Only static interface copy is eligible. Never send credentials, user data,
   // file names, logs, identifiers, URLs, email addresses, or numeric records.
-  if (/[0-9@]|https?:\\/\\/|www\\.|\\b[A-F0-9]{12,}\\b|[<>]/i.test(text) || text.includes(',')) return null
+  if (/[0-9@]|https?:\/\/|www\.|\b[A-F0-9]{12,}\b|[<>]/i.test(text) || text.includes(',')) return null
   if (!/[a-zA-ZçğıöşüÇĞİÖŞÜ]/.test(text)) return null
   const from = detectSourceLanguage(text)
   if (!from || from === target) return null
@@ -1309,8 +1311,8 @@ function translateText(value: string, language: Language) {
   const dictionary = language === 'tr' ? englishToTurkish : turkishToEnglish
   const exact = dictionary[source]
   if (exact) {
-    const leading = value.match(/^\\s*/)?.[0] || ''
-    const trailing = value.match(/\\s*$/)?.[0] || ''
+    const leading = value.match(/^\s*/)?.[0] || ''
+    const trailing = value.match(/\s*$/)?.[0] || ''
     return leading + exact + trailing
   }
 

@@ -536,7 +536,7 @@ export function AccessGate() {
     if (!window.confirm(labels[action])) return
     setError(''); setNotice('')
     try {
-      const body: Record<string, unknown> = { action }
+      const body: Record<string, unknown> = action === 'unlimited' ? { plan_code: 'unlimited' } : { action }
       if (days) body.days = days
       await api(`/api/admin/users/${encodeURIComponent(target.id)}/vip`, token, { method: 'POST', body: JSON.stringify(body) })
       await loadAdmin(token)

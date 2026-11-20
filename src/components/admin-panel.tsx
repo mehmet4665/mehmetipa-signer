@@ -33,6 +33,7 @@ export function AdminPanel({ token, onLogout }: Props) {
   const [tab, setTab] = useState<'users' | 'devices'>('users')
   const [message, setMessage] = useState('Yükleniyor...')
   const [busy, setBusy] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -40,6 +41,8 @@ export function AdminPanel({ token, onLogout }: Props) {
   }
 
   async function loadData() {
+    setRefreshing(true)
+    setMessage('Yenileniyor…')
     try {
       const [u, d] = await Promise.all([
         fetch(`${API_URL}/api/admin/users`, { headers }),
@@ -52,12 +55,17 @@ export function AdminPanel({ token, onLogout }: Props) {
       if (!u.ok || !userData.success) {
         throw new Error(userData.error || 'Üyeler alınamadı.')
       }
+      if (!d.ok || !deviceData.success) {
+        throw new Error(deviceData.error || 'Cihazlar alınamadı.')
+      }
 
       setUsers(userData.users || [])
       setDevices(deviceData.devices || [])
-      setMessage('')
+      setMessage('Güncellendi ✓')
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Sunucu bağlantı hatası.')
+      setMessage(error instanceof Error ? `Yenileme başarısız: ${error.message}` : 'Sunucu bağlantı hatası.')
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -207,7 +215,7 @@ export function AdminPanel({ token, onLogout }: Props) {
         </>
       )}
 
-      <button style={button} onClick={loadData}>Yenile</button>
+      <button style={{ ...button, opacity: refreshing ? 0.65 : 1, cursor: refreshing ? 'wait' : 'pointer' }} disabled={refreshing} onClick={loadData}>{refreshing ? 'Yenileniyor…' : 'Yenile'}</button>
     </main>
   )
 }

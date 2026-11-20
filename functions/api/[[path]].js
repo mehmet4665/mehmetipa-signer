@@ -950,6 +950,18 @@ export async function onRequest({ request, env, params }) {
         if (!isActiveVip(member)) {
           return json({ success: false, error: 'Bu işlem için aktif VIP üyeliği gerekiyor.' }, 403)
         }
+        const blockedDevice = await env.DB.prepare(
+          "SELECT udid FROM devices WHERE user_id = ? AND status = 'blocked' ORDER BY created_at DESC LIMIT 1"
+        ).bind(session.sub).first()
+        if (blockedDevice) {
+          const udid = String(blockedDevice.udid || '')
+          const maskedUdid = udid.length > 8 ? `${udid.slice(0, 4)}••••${udid.slice(-4)}` : 'Kayıtlı UDID'
+          return json({
+            success: false,
+            code: 'DEVICE_BLOCKED',
+            error: `Cihaz UDID erişimi engellendi (${maskedUdid}). IPA imzalama ve indirme işlemi durduruldu. Yöneticiyle iletişime geç.`
+          }, 403)
+        }
         if (!env.CERTS || typeof env.CERTS.get !== 'function') {
           return json({ success: false, error: 'Sertifika kasası bağlı değil.' }, 503)
         }

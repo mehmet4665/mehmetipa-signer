@@ -328,7 +328,8 @@ function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
 }
 function isActiveVip(row, now = Date.now()) {
-  if (!row || row.status !== 'active') return false
+  if (!row || row.status !== 'active' || row.vip_access_status === 'blocked') return false
+  if (row.vip_plan === 'unlimited') return true
   if (row.vip_expires_at) return new Date(row.vip_expires_at).getTime() > now
   // Preserve the one existing legacy VIP account until an explicit expiry is assigned.
   return String(row.group_name || '').toLowerCase() === 'vip'
@@ -338,7 +339,8 @@ function cleanUser(row) {
     id: row.id, name: row.name, username: row.username, email: row.email || null,
     group_name: row.group_name, status: row.status, created_at: row.created_at,
     vip_plan: row.vip_plan || null, vip_expires_at: row.vip_expires_at || null,
-    is_vip: isActiveVip(row)
+    vip_access_status: row.vip_access_status || 'active', is_vip: isActiveVip(row),
+    vip_days_remaining: row.vip_plan === 'unlimited' ? null : (row.vip_expires_at && new Date(row.vip_expires_at).getTime() > Date.now() ? Math.ceil((new Date(row.vip_expires_at).getTime() - Date.now()) / 86400000) : 0)
   }
 }
 const VIP_PLANS = {
@@ -485,7 +487,7 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, token, user: { id: 'admin', name: 'Yönetici', username, role: 'admin' } })
       }
 
-      const row = await env.DB.prepare('SELECT id, name, username, password_hash, group_name, status, vip_plan, vip_expires_at, email, created_at FROM users WHERE username = ? LIMIT 1').bind(username.toLowerCase()).first()
+      const row = await env.DB.prepare('SELECT id, name, username, password_hash, group_name, status, vip_plan, vip_expires_at, vip_access_status, email, created_at FROM users WHERE username = ? LIMIT 1').bind(username.toLowerCase()).first()
       if (!row || row.status !== 'active' || !(await verifyPassword(password, row.password_hash))) {
         return json({ success: false, error: 'Giriş bilgileri hatalı veya hesap engellenmiş.' }, 401)
       }
@@ -501,7 +503,7 @@ export async function onRequest({ request, env, params }) {
       const session = await readToken(bearer(request), env.ADMIN_PASSWORD)
       if (!session) return json({ success: false, error: 'Oturum geçersiz veya süresi dolmuş.' }, 401)
       if (session.role === 'admin') return json({ success: true, user: { id: 'admin', name: 'Yönetici', username: session.username, role: 'admin' } })
-      const row = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at, vip_plan, vip_expires_at FROM users WHERE id = ?').bind(session.sub).first()
+      const row = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id = ?').bind(session.sub).first()
       if (!row || row.status !== 'active') return json({ success: false, error: 'Hesap etkin değil.' }, 401)
       return json({ success: true, user: { ...cleanUser(row), role: 'member' } })
     }
@@ -516,7 +518,7 @@ export async function onRequest({ request, env, params }) {
       // VIP status is calculated on the server; client-side flags never grant access.
       if (path === '/api/vip/status' && method === 'GET') {
         if (isAdmin) return json({ success: true, is_vip: false, plan: null, expires_at: null, legacy: false })
-        const member = await env.DB.prepare('SELECT status, group_name, vip_plan, vip_expires_at FROM users WHERE id=? LIMIT 1').bind(session.sub).first()
+        const member = await env.DB.prepare('SELECT status, group_name, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id=? LIMIT 1').bind(session.sub).first()
         const isVip = isActiveVip(member)
         return json({ success: true, is_vip: isVip, plan: isVip ? member.vip_plan || 'legacy' : null, expires_at: member?.vip_expires_at || null, legacy: !!(isVip && !member?.vip_expires_at) })
       }
@@ -585,15 +587,36 @@ export async function onRequest({ request, env, params }) {
       if (manualVipMatch && method === 'POST') {
         const denied = requireAdmin(); if (denied) return denied
         const body = await readBody(request)
+        const target = await env.DB.prepare('SELECT id, status, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id=? LIMIT 1').bind(manualVipMatch[1]).first()
+        if (!target) return json({ success: false, error: 'Üye bulunamadı.' }, 404)
+        const now = new Date().toISOString()
         if (body.action === 'revoke') {
-          await env.DB.prepare("UPDATE users SET group_name='Standart', vip_plan=NULL, vip_expires_at=NULL, vip_updated_at=? WHERE id=?").bind(new Date().toISOString(), manualVipMatch[1]).run()
-          return json({ success: true })
+          await env.DB.prepare("UPDATE users SET group_name='Standart', vip_plan=NULL, vip_expires_at=NULL, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(now, target.id).run()
+          return json({ success: true, message: 'VIP üyeliği kaldırıldı.' })
+        }
+        if (body.action === 'block' || body.action === 'unblock') {
+          await env.DB.prepare("UPDATE users SET vip_access_status=?, vip_updated_at=? WHERE id=?").bind(body.action === 'block' ? 'blocked' : 'active', now, target.id).run()
+          return json({ success: true, is_vip: body.action === 'unblock' && isActiveVip({ ...target, status: target.status, vip_access_status: 'active' }) })
+        }
+        if (body.action === 'extend') {
+          const days = Number(body.days)
+          if (!Number.isInteger(days) || days < 1 || days > 3650) return json({ success: false, error: 'Uzatma süresi 1-3650 gün arasında olmalı.' }, 400)
+          const currentExpiry = target.vip_expires_at ? new Date(target.vip_expires_at).getTime() : 0
+          const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
+          const expiresAt = new Date(base + days * 86400000).toISOString()
+          await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=CASE WHEN vip_plan='unlimited' THEN 'unlimited' ELSE COALESCE(vip_plan,'manual') END, vip_expires_at=CASE WHEN vip_plan='unlimited' THEN NULL ELSE ? END, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(expiresAt, now, target.id).run()
+          return json({ success: true, expires_at: target.vip_plan === 'unlimited' ? null : expiresAt })
+        }
+        if (body.plan_code === 'unlimited') {
+          await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan='unlimited', vip_expires_at=NULL, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(now, target.id).run()
+          return json({ success: true, expires_at: null, unlimited: true })
         }
         const plan = VIP_PLANS[String(body.plan_code || '')]
         if (!plan) return json({ success: false, error: 'Geçersiz VIP paketi.' }, 400)
-        const now = new Date().toISOString()
-        const expiresAt = new Date(Date.now() + plan.duration_days * 86400000).toISOString()
-        await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_updated_at=? WHERE id=?").bind(plan.code, expiresAt, now, manualVipMatch[1]).run()
+        const currentExpiry = target.vip_expires_at ? new Date(target.vip_expires_at).getTime() : 0
+        const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
+        const expiresAt = new Date(base + plan.duration_days * 86400000).toISOString()
+        await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(plan.code, expiresAt, now, target.id).run()
         return json({ success: true, expires_at: expiresAt })
       }
 
@@ -630,7 +653,7 @@ export async function onRequest({ request, env, params }) {
       }
       if (path === '/api/admin/users' && method === 'GET') {
         const denied = requireAdmin(); if (denied) return denied
-        const { results = [] } = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at, vip_plan, vip_expires_at FROM users ORDER BY created_at DESC').all()
+        const { results = [] } = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at, vip_plan, vip_expires_at, vip_access_status FROM users ORDER BY created_at DESC').all()
         return json({ success: true, users: results.map(cleanUser) })
       }
       if (path === '/api/admin/users' && method === 'POST') {

@@ -766,7 +766,7 @@ export async function onRequest({ request, env, params }) {
         const { results = [] } = await env.DB.prepare('SELECT id, udid, status, created_at FROM devices WHERE user_id = ? ORDER BY created_at DESC').bind(session.sub).all()
         return json({ success: true, devices: results })
       }
-      const memberDeviceMatch = path.match(/^\\/api\\/devices\\/([^/]+)$/)
+      const memberDeviceMatch = path.match(/^\/api\/devices\/([^/]+)$/)
       if (memberDeviceMatch && method === 'DELETE') {
         if (isAdmin) return json({ success: false, error: 'Yönetici hesabında bu işlem kullanılamaz.' }, 403)
         const device = await env.DB.prepare('SELECT id, udid FROM devices WHERE id = ? AND user_id = ? LIMIT 1').bind(memberDeviceMatch[1], session.sub).first()

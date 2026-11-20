@@ -11,7 +11,12 @@ type User = {
   group_name?: string
   status?: string
   email?: string
+  is_vip?: boolean
+  vip_plan?: string | null
+  vip_expires_at?: string | null
 }
+type VipOrder = { id:string; user_id:string; plan_code:string; plan_name:string; amount_try:number; duration_days:number; status:string; created_at:string; paid_at?:string|null; activated_at?:string|null; name?:string; username?:string; email?:string|null }
+type VipStatus = { is_vip:boolean; plan:string|null; expires_at:string|null; legacy:boolean }
 type RegistrationRequest = { id:string; name:string; username:string; email:string; status:string; created_at:string; verified_at?:string|null }
 type PresenceUser = { id:string; name:string; username:string; last_seen_at?:string|null; device_label?:string|null; browser_label?:string|null; online:boolean }
 type Device = {
@@ -248,6 +253,10 @@ export function AccessGate() {
   const [rememberMe, setRememberMe] = React.useState(() => typeof window !== 'undefined' && window.localStorage.getItem('mehmetipa.rememberMe') === 'true')
   const [rememberedAccount, setRememberedAccount] = React.useState(() => typeof window !== 'undefined' ? window.localStorage.getItem('mehmetipa.rememberedUsername') || '' : '')
   const [registrationRequests, setRegistrationRequests] = React.useState<RegistrationRequest[]>([])
+  const [adminVipOrders, setAdminVipOrders] = React.useState<VipOrder[]>([])
+  const [vipStatus, setVipStatus] = React.useState<VipStatus | null>(null)
+  const [myVipOrders, setMyVipOrders] = React.useState<VipOrder[]>([])
+  const [vipBusy, setVipBusy] = React.useState(false)
   const [registerName, setRegisterName] = React.useState('')
   const [registerUsername, setRegisterUsername] = React.useState('')
   const [registerEmail, setRegisterEmail] = React.useState('')
@@ -290,23 +299,34 @@ export function AccessGate() {
   }, [])
 
   const loadAdmin = React.useCallback(async (activeToken: string) => {
-    const [u, d, c, p, r] = await Promise.all([
+    const [u, d, c, p, r, v] = await Promise.all([
       api<{ users: User[] }>('/api/admin/users', activeToken),
       api<{ devices: Device[] }>('/api/admin/devices', activeToken),
       api<{ certificate: {status:string;certificate_name?:string;profile_name?:string;expires_at?:string}|null }>('/api/admin/certificate', activeToken),
       api<{ users: PresenceUser[] }>('/api/admin/presence', activeToken),
       api<{ requests: RegistrationRequest[] }>('/api/admin/registration-requests', activeToken),
+      api<{ orders: VipOrder[] }>('/api/admin/vip-orders', activeToken),
     ])
     setUsers(u.users || [])
     setDevices(d.devices || [])
     setCertificate(c.certificate)
     setPresenceUsers(p.users || [])
     setRegistrationRequests(r.requests || [])
+    setAdminVipOrders(v.orders || [])
   }, [])
 
   const loadMemberDevices = React.useCallback(async (activeToken: string) => {
     const result = await api<{ devices: Device[] }>('/api/devices', activeToken)
     setMyDevices(result.devices || [])
+  }, [])
+
+  const loadVip = React.useCallback(async (activeToken: string) => {
+    const [status, orders] = await Promise.all([
+      api<VipStatus & { success:boolean }>('/api/vip/status', activeToken),
+      api<{ orders: VipOrder[] }>('/api/vip/orders', activeToken),
+    ])
+    setVipStatus(status)
+    setMyVipOrders(orders.orders || [])
   }, [])
 
   React.useEffect(() => {
@@ -341,11 +361,12 @@ export function AccessGate() {
   React.useEffect(() => {
     if (!token || !user) return
     if (user.role === 'admin' && view === 'admin') loadAdmin(token).catch((e) => setError(e.message))
+    if (user.role === 'member' && view === 'method') loadVip(token).catch((e) => setError(e.message))
     // Üye hesap sekmesine her girdiğinde cihaz durumunu sunucudan yenile.
     if (user.role === 'member' && (view === 'signer' || memberTab === 'account')) {
       loadMemberDevices(token).catch((e) => setError(e instanceof Error ? e.message : 'Cihaz bilgisi alınamadı.'))
     }
-  }, [token, user, view, memberTab, loadAdmin, loadMemberDevices])
+  }, [token, user, view, memberTab, loadAdmin, loadMemberDevices, loadVip])
 
 
   React.useEffect(() => {
@@ -407,6 +428,26 @@ export function AccessGate() {
   }, [view, verifyRegistrationEmail])
 
   const reviewRegistration = async (request: RegistrationRequest, action: 'approve'|'reject'|'reopen') => { if(!token)return; setError('');setNotice('');try{await api('/api/admin/registration-requests/'+encodeURIComponent(request.id),token,{method:'POST',body:JSON.stringify({action})});await loadAdmin(token);setNotice(action==='approve'?'Başvuru kabul edildi, hesap açıldı.':action==='reject'?'Başvuru reddedildi.':'Başvuru yeniden incelemeye alındı.')}catch(e){setError(e instanceof Error?e.message:'Başvuru işlenemedi.')} }
+
+  const reviewVipOrder = async (order: VipOrder, action: 'approve'|'reject') => {
+    if (!token) return
+    setError(''); setNotice('')
+    try {
+      await api('/api/admin/vip-orders/' + encodeURIComponent(order.id), token, { method:'POST', body:JSON.stringify({ action }) })
+      await loadAdmin(token)
+      setNotice(action === 'approve' ? 'VIP üyeliği etkinleştirildi.' : 'VIP talebi reddedildi.')
+    } catch (e) { setError(e instanceof Error ? e.message : 'VIP talebi işlenemedi.') }
+  }
+  const createVipOrder = async (planCode: string) => {
+    if (!token) return
+    setVipBusy(true); setError(''); setNotice('')
+    try {
+      await api('/api/vip/orders', token, { method:'POST', body:JSON.stringify({ plan_code:planCode }) })
+      await loadVip(token)
+      setNotice('VIP talebin oluşturuldu. Ödeme altyapısı bağlanana kadar talebin yönetici panelinde bekleyecek.')
+    } catch (e) { setError(e instanceof Error ? e.message : 'VIP talebi oluşturulamadı.') }
+    finally { setVipBusy(false) }
+  }
   const logout = () => {
     window.sessionStorage.removeItem(TOKEN_KEY)
     window.localStorage.removeItem(TOKEN_KEY)

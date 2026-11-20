@@ -553,7 +553,7 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, orders: results })
       }
 
-      const vipOrderMatch = path.match(/^\\/api\\/admin\\/vip-orders\\/([^/]+)$/)
+      const vipOrderMatch = path.match(/^\/api\/admin\/vip-orders\/([^/]+)$/)
       if (vipOrderMatch && method === 'POST') {
         const denied = requireAdmin(); if (denied) return denied
         const body = await readBody(request)
@@ -580,7 +580,7 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, expires_at: expiresAt })
       }
 
-      const manualVipMatch = path.match(/^\\/api\\/admin\\/users\\/([^/]+)\\/vip$/)
+      const manualVipMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/vip$/)
       if (manualVipMatch && method === 'POST') {
         const denied = requireAdmin(); if (denied) return denied
         const body = await readBody(request)

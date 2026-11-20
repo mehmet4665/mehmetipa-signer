@@ -766,15 +766,6 @@ export async function onRequest({ request, env, params }) {
         const { results = [] } = await env.DB.prepare('SELECT id, udid, status, created_at FROM devices WHERE user_id = ? ORDER BY created_at DESC').bind(session.sub).all()
         return json({ success: true, devices: results })
       }
-      const memberDeviceMatch = path.match(/^\/api\/devices\/([^/]+)$/)
-      if (memberDeviceMatch && method === 'DELETE') {
-        if (isAdmin) return json({ success: false, error: 'Yönetici hesabında bu işlem kullanılamaz.' }, 403)
-        const device = await env.DB.prepare('SELECT id, udid FROM devices WHERE id = ? AND user_id = ? LIMIT 1').bind(memberDeviceMatch[1], session.sub).first()
-        if (!device) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
-        await env.DB.prepare('DELETE FROM devices WHERE id = ? AND user_id = ?').bind(memberDeviceMatch[1], session.sub).run()
-        return json({ success: true, message: 'UDID kaydı Mehmet IPA hesabından silindi. Apple Developer kaydı varsa ayrıca yönetilmelidir; deneme hakkın sıfırlanmadı.' })
-      }
-
       if (path === '/api/devices' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici cihaz kaydı yapamaz.' }, 400)
         const body = await readBody(request)

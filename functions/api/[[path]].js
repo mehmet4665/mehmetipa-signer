@@ -327,8 +327,24 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
 function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
 }
+function isActiveVip(row, now = Date.now()) {
+  if (!row || row.status !== 'active') return false
+  if (row.vip_expires_at) return new Date(row.vip_expires_at).getTime() > now
+  // Preserve the one existing legacy VIP account until an explicit expiry is assigned.
+  return String(row.group_name || '').toLowerCase() === 'vip'
+}
 function cleanUser(row) {
-  return { id: row.id, name: row.name, username: row.username, email: row.email || null, group_name: row.group_name, status: row.status, created_at: row.created_at }
+  return {
+    id: row.id, name: row.name, username: row.username, email: row.email || null,
+    group_name: row.group_name, status: row.status, created_at: row.created_at,
+    vip_plan: row.vip_plan || null, vip_expires_at: row.vip_expires_at || null,
+    is_vip: isActiveVip(row)
+  }
+}
+const VIP_PLANS = {
+  month: { code: 'month', name: '1 Ay VIP', amount_try: 450, duration_days: 30 },
+  quarter: { code: 'quarter', name: '3 Ay VIP', amount_try: 800, duration_days: 90 },
+  half_year: { code: 'half_year', name: '6 Ay VIP', amount_try: 1500, duration_days: 180 },
 }
 
 export async function onRequest({ request, env, params }) {
@@ -417,7 +433,6 @@ export async function onRequest({ request, env, params }) {
     }
 
     if (path === '/api/auth/register' && method === 'POST') {
-      return json({ success: false, error: 'Yeni üyelik kayıtları şu anda kapalı. Mevcut hesabınla giriş yapabilirsin.' }, 403)
       if (!(await rateLimit(env, request, 'register', 5, 30))) return json({ success: false, error: 'Çok fazla kayıt denemesi. Bir süre sonra tekrar dene.' }, 429)
       const body = await readBody(request)
       const name = String(body.name || '').trim().slice(0, 80)
@@ -469,7 +484,7 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, token, user: { id: 'admin', name: 'Yönetici', username, role: 'admin' } })
       }
 
-      const row = await env.DB.prepare('SELECT id, name, username, password_hash, group_name, status FROM users WHERE username = ? LIMIT 1').bind(username.toLowerCase()).first()
+      const row = await env.DB.prepare('SELECT id, name, username, password_hash, group_name, status, vip_plan, vip_expires_at, email, created_at FROM users WHERE username = ? LIMIT 1').bind(username.toLowerCase()).first()
       if (!row || row.status !== 'active' || !(await verifyPassword(password, row.password_hash))) {
         return json({ success: false, error: 'Giriş bilgileri hatalı veya hesap engellenmiş.' }, 401)
       }
@@ -485,7 +500,7 @@ export async function onRequest({ request, env, params }) {
       const session = await readToken(bearer(request), env.ADMIN_PASSWORD)
       if (!session) return json({ success: false, error: 'Oturum geçersiz veya süresi dolmuş.' }, 401)
       if (session.role === 'admin') return json({ success: true, user: { id: 'admin', name: 'Yönetici', username: session.username, role: 'admin' } })
-      const row = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at FROM users WHERE id = ?').bind(session.sub).first()
+      const row = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at, vip_plan, vip_expires_at FROM users WHERE id = ?').bind(session.sub).first()
       if (!row || row.status !== 'active') return json({ success: false, error: 'Hesap etkin değil.' }, 401)
       return json({ success: true, user: { ...cleanUser(row), role: 'member' } })
     }
@@ -496,6 +511,90 @@ export async function onRequest({ request, env, params }) {
       const isAdmin = session.role === 'admin'
       if (!isAdmin) { const activeUser = await env.DB.prepare("SELECT status FROM users WHERE id=? LIMIT 1").bind(session.sub).first(); if (!activeUser || activeUser.status !== 'active') return json({ success:false,error:'Hesabın devre dışı. Yöneticiyle iletişime geç.' },403) }
       const requireAdmin = () => isAdmin ? null : json({ success: false, error: 'Bu işlem yalnızca yöneticiye açık.' }, 403)
+
+      // VIP status is calculated on the server; client-side flags never grant access.
+      if (path === '/api/vip/status' && method === 'GET') {
+        if (isAdmin) return json({ success: true, is_vip: false, plan: null, expires_at: null, legacy: false })
+        const member = await env.DB.prepare('SELECT status, group_name, vip_plan, vip_expires_at FROM users WHERE id=? LIMIT 1').bind(session.sub).first()
+        const isVip = isActiveVip(member)
+        return json({ success: true, is_vip: isVip, plan: isVip ? member.vip_plan || 'legacy' : null, expires_at: member?.vip_expires_at || null, legacy: !!(isVip && !member?.vip_expires_at) })
+      }
+
+      if (path === '/api/vip/plans' && method === 'GET') {
+        return json({ success: true, plans: Object.values(VIP_PLANS) })
+      }
+
+      if (path === '/api/vip/orders' && method === 'GET') {
+        if (isAdmin) return json({ success: false, error: 'Bu ekran üye hesapları içindir.' }, 403)
+        const { results = [] } = await env.DB.prepare(
+          'SELECT id, plan_code, plan_name, amount_try, duration_days, status, created_at, paid_at, activated_at FROM vip_orders WHERE user_id=? ORDER BY created_at DESC LIMIT 30'
+        ).bind(session.sub).all()
+        return json({ success: true, orders: results })
+      }
+
+      if (path === '/api/vip/orders' && method === 'POST') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici hesabı VIP paketi satın alamaz.' }, 403)
+        if (!(await rateLimit(env, request, 'vip-order', 8, 30))) return json({ success: false, error: 'Çok fazla paket talebi. Bir süre sonra tekrar dene.' }, 429)
+        const body = await readBody(request)
+        const plan = VIP_PLANS[String(body.plan_code || '')]
+        if (!plan) return json({ success: false, error: 'Geçersiz VIP paketi.' }, 400)
+        const id = randomId(), createdAt = new Date().toISOString()
+        await env.DB.prepare(
+          "INSERT INTO vip_orders (id,user_id,plan_code,plan_name,amount_try,duration_days,status,created_at) VALUES (?,?,?,?,?,?,'pending',?)"
+        ).bind(id, session.sub, plan.code, plan.name, plan.amount_try, plan.duration_days, createdAt).run()
+        return json({ success: true, order: { id, ...plan, status: 'pending', created_at: createdAt }, message: 'VIP talebin oluşturuldu. Ödeme bağlantısı henüz etkinleştirilmedi; yönetici onayı bekleniyor.' }, 201)
+      }
+
+      if (path === '/api/admin/vip-orders' && method === 'GET') {
+        const denied = requireAdmin(); if (denied) return denied
+        const { results = [] } = await env.DB.prepare(
+          'SELECT vip_orders.id, vip_orders.user_id, vip_orders.plan_code, vip_orders.plan_name, vip_orders.amount_try, vip_orders.duration_days, vip_orders.status, vip_orders.provider, vip_orders.provider_reference, vip_orders.created_at, vip_orders.paid_at, vip_orders.activated_at, users.name, users.username, users.email FROM vip_orders JOIN users ON users.id=vip_orders.user_id ORDER BY CASE vip_orders.status WHEN \'pending\' THEN 0 ELSE 1 END, vip_orders.created_at DESC LIMIT 200'
+        ).all()
+        return json({ success: true, orders: results })
+      }
+
+      const vipOrderMatch = path.match(/^\\/api\\/admin\\/vip-orders\\/([^/]+)$/)
+      if (vipOrderMatch && method === 'POST') {
+        const denied = requireAdmin(); if (denied) return denied
+        const body = await readBody(request)
+        const action = String(body.action || '')
+        const order = await env.DB.prepare('SELECT * FROM vip_orders WHERE id=? LIMIT 1').bind(vipOrderMatch[1]).first()
+        if (!order) return json({ success: false, error: 'VIP talebi bulunamadı.' }, 404)
+        if (order.status !== 'pending') return json({ success: false, error: 'Bu talep daha önce işlenmiş.' }, 409)
+        const now = new Date().toISOString()
+        if (action === 'reject') {
+          await env.DB.prepare("UPDATE vip_orders SET status='rejected' WHERE id=? AND status='pending'").bind(order.id).run()
+          return json({ success: true })
+        }
+        if (action !== 'approve') return json({ success: false, error: 'Geçersiz işlem.' }, 400)
+        const member = await env.DB.prepare('SELECT id, group_name, vip_expires_at, status FROM users WHERE id=? LIMIT 1').bind(order.user_id).first()
+        if (!member || member.status !== 'active') return json({ success: false, error: 'Üye hesabı etkin değil.' }, 409)
+        const currentExpiry = member.vip_expires_at ? new Date(member.vip_expires_at).getTime() : 0
+        const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
+        const expiresAt = new Date(base + Number(order.duration_days) * 86400000).toISOString()
+        const result = await env.DB.batch([
+          env.DB.prepare("UPDATE vip_orders SET status='approved', paid_at=?, activated_at=? WHERE id=? AND status='pending'").bind(now, now, order.id),
+          env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_updated_at=? WHERE id=?").bind(order.plan_code, expiresAt, now, order.user_id)
+        ])
+        if (!result?.length || Number(result[0]?.meta?.changes || 0) !== 1) return json({ success: false, error: 'Talep eşzamanlı olarak işlenmiş olabilir; yenileyip kontrol et.' }, 409)
+        return json({ success: true, expires_at: expiresAt })
+      }
+
+      const manualVipMatch = path.match(/^\\/api\\/admin\\/users\\/([^/]+)\\/vip$/)
+      if (manualVipMatch && method === 'POST') {
+        const denied = requireAdmin(); if (denied) return denied
+        const body = await readBody(request)
+        if (body.action === 'revoke') {
+          await env.DB.prepare("UPDATE users SET group_name='Standart', vip_plan=NULL, vip_expires_at=NULL, vip_updated_at=? WHERE id=?").bind(new Date().toISOString(), manualVipMatch[1]).run()
+          return json({ success: true })
+        }
+        const plan = VIP_PLANS[String(body.plan_code || '')]
+        if (!plan) return json({ success: false, error: 'Geçersiz VIP paketi.' }, 400)
+        const now = new Date().toISOString()
+        const expiresAt = new Date(Date.now() + plan.duration_days * 86400000).toISOString()
+        await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_updated_at=? WHERE id=?").bind(plan.code, expiresAt, now, manualVipMatch[1]).run()
+        return json({ success: true, expires_at: expiresAt })
+      }
 
       // Per-user signing progress feed. Job IDs are unguessable UUIDs and records live in the private R2 bucket.
       const signingProgressMatch = path.match(/^\/api\/signing\/progress\/([0-9a-f-]{36})$/i)
@@ -530,7 +629,7 @@ export async function onRequest({ request, env, params }) {
       }
       if (path === '/api/admin/users' && method === 'GET') {
         const denied = requireAdmin(); if (denied) return denied
-        const { results = [] } = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at FROM users ORDER BY created_at DESC').all()
+        const { results = [] } = await env.DB.prepare('SELECT id, name, username, email, group_name, status, created_at, vip_plan, vip_expires_at FROM users ORDER BY created_at DESC').all()
         return json({ success: true, users: results.map(cleanUser) })
       }
       if (path === '/api/admin/users' && method === 'POST') {
@@ -822,9 +921,9 @@ export async function onRequest({ request, env, params }) {
       if (path === '/api/signing/vip' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici hesabı VIP üye imzası başlatamaz.' }, 403)
         const member = await env.DB.prepare(
-          'SELECT username, group_name, status FROM users WHERE id = ? LIMIT 1'
+          'SELECT username, group_name, status, vip_plan, vip_expires_at FROM users WHERE id = ? LIMIT 1'
         ).bind(session.sub).first()
-        if (!member || member.status !== 'active' || !String(member.group_name || '').toLowerCase().includes('vip')) {
+        if (!isActiveVip(member)) {
           return json({ success: false, error: 'Bu işlem için aktif VIP üyeliği gerekiyor.' }, 403)
         }
         if (!env.CERTS || typeof env.CERTS.get !== 'function') {

@@ -945,7 +945,7 @@ export async function onRequest({ request, env, params }) {
       if (path === '/api/signing/vip' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici hesabı VIP üye imzası başlatamaz.' }, 403)
         const member = await env.DB.prepare(
-          'SELECT username, group_name, status, vip_plan, vip_expires_at FROM users WHERE id = ? LIMIT 1'
+          'SELECT username, group_name, status, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id = ? LIMIT 1'
         ).bind(session.sub).first()
         if (!isActiveVip(member)) {
           return json({ success: false, error: 'Bu işlem için aktif VIP üyeliği gerekiyor.' }, 403)

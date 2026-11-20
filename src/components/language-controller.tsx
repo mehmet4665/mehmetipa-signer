@@ -4,6 +4,22 @@ import { createPortal } from 'react-dom'
 const englishToTurkish: Record<string, string> = {
   "Sign in to my account": "Hesabıma giriş yap",
   "Sign in to my account →": "Hesabıma giriş yap →",
+  "MEMBER SIGN-IN": "ÜYE GİRİŞİ",
+  "Member sign-in": "Üye girişi",
+  "Member sign in": "Üye girişi",
+  "Remember me": "Beni hatırla",
+  "Remember my account on this device": "Bu cihazda hesabımı hatırla",
+  "Account remembered on this device": "Bu cihazda hatırlanan hesap",
+  "Choose account →": "Hesabı seç →",
+  "IPA Signing Platform": "IPA İmzalama Platformu",
+  "Signing center": "İmzalama merkezi",
+  "Is your IPA file ready?": "IPA dosyan hazır mı?",
+  "Sign in to open the signing screen.": "İmzalama ekranını açmak için giriş yap.",
+  "Sign in to get started": "Başlamak için giriş yap",
+  "Sign in securely →": "Güvenli giriş yap →",
+  "New membership registrations are temporarily closed": "Yeni üyelik kayıtları geçici olarak kapalı",
+  "Your username": "Kullanıcı adın",
+  "Your password": "Şifren",
   "SIGNING ENGINE · v2": "İMZALAMA MOTORU · v2",
   "● ENGINE ONLINE": "● MOTOR ÇEVRİMİÇİ",
   "PRIVATE IPA WORKFLOW / VIP ACCESS": "ÖZEL IPA İŞ AKIŞI / VIP ERİŞİMİ",
@@ -1367,7 +1383,7 @@ function applyLanguage(root: ParentNode, language: Language) {
   const nodes: Text[] = []
   while (walker.nextNode()) nodes.push(walker.currentNode as Text)
   for (const node of nodes) {
-    if (node.parentElement?.closest('script,style,textarea,[contenteditable="true"],[data-locale]')) continue
+    if (node.parentElement?.closest('script,style,textarea,[contenteditable="true"]')) continue
     const current = node.textContent || ''
     let record = originalText.get(node)
     if (!record) {

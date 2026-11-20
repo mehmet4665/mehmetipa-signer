@@ -1499,8 +1499,8 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
       setPublicCerts(entries)
       setPublicCertMessage(
         entries.length
-          ? `${entries.length} currently signed public enterprise certificate${entries.length === 1 ? '' : 's'} available.`
-          : 'No signed public enterprise certificates are currently listed by NexCerts.',
+          ? `✓ ${entries.length} currently signed public enterprise certificate${entries.length === 1 ? '' : 's'} available.`
+          : '✓ No signed public enterprise certificates are currently listed by NexCerts.',
       )
       addLog(
         entries.length ? 'info' : 'warn',
@@ -2002,7 +2002,7 @@ function SignerApp({ mobileMode = false }: { mobileMode?: boolean }) {
                     className="gap-2 sm:self-start"
                   >
                     {publicCertsLoading ? <LoaderCircle size={16} /> : <Download size={16} />}
-                    {publicCerts.length ? 'Refresh signed list' : 'Load signed list'}
+                    {publicCertsLoading ? 'Refreshing…' : publicCerts.length ? 'Refresh signed list' : 'Load signed list'}
                   </Button>
                 </AnimateIcon>
               </div>

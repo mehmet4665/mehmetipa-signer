@@ -340,7 +340,8 @@ function cleanUser(row) {
     group_name: row.group_name, status: row.status, created_at: row.created_at,
     vip_plan: row.vip_plan || null, vip_expires_at: row.vip_expires_at || null,
     vip_access_status: row.vip_access_status || 'active', is_vip: isActiveVip(row),
-    vip_days_remaining: row.vip_plan === 'unlimited' ? null : (row.vip_expires_at && new Date(row.vip_expires_at).getTime() > Date.now() ? Math.ceil((new Date(row.vip_expires_at).getTime() - Date.now()) / 86400000) : 0)
+    vip_days_remaining: row.vip_plan === 'unlimited' ? null : (row.vip_expires_at && new Date(row.vip_expires_at).getTime() > Date.now() ? Math.ceil((new Date(row.vip_expires_at).getTime() - Date.now()) / 86400000) : 0),
+    vip_minutes_remaining: row.vip_plan === 'unlimited' ? null : (row.vip_expires_at && new Date(row.vip_expires_at).getTime() > Date.now() ? Math.floor((new Date(row.vip_expires_at).getTime() - Date.now()) / 60000) : 0)
   }
 }
 const VIP_PLANS = {
@@ -606,6 +607,16 @@ export async function onRequest({ request, env, params }) {
           const expiresAt = new Date(base + days * 86400000).toISOString()
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=CASE WHEN vip_plan='unlimited' THEN 'unlimited' ELSE COALESCE(vip_plan,'manual') END, vip_expires_at=CASE WHEN vip_plan='unlimited' THEN NULL ELSE ? END, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(expiresAt, now, target.id).run()
           return json({ success: true, expires_at: target.vip_plan === 'unlimited' ? null : expiresAt })
+        }
+        if (body.action === 'extend_time') {
+          const minutes = Number(body.minutes)
+          if (!Number.isInteger(minutes) || minutes < 1 || minutes > 525600) return json({ success: false, error: 'Eklenecek süre 1-525600 dakika arasında olmalı.' }, 400)
+          if (target.vip_plan === 'unlimited') return json({ success: false, error: 'Sınırsız VIP üyeliğine süre eklenemez.' }, 409)
+          const currentExpiry = target.vip_expires_at ? new Date(target.vip_expires_at).getTime() : 0
+          const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
+          const expiresAt = new Date(base + minutes * 60000).toISOString()
+          await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=COALESCE(vip_plan,'manual'), vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(expiresAt, now, target.id).run()
+          return json({ success: true, expires_at: expiresAt, minutes_added: minutes })
         }
         if (body.plan_code === 'unlimited') {
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan='unlimited', vip_expires_at=NULL, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(now, target.id).run()

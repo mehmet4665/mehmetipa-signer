@@ -458,8 +458,8 @@ async function getAppleAdHocProfileResources(env, context) {
   const bundlePath = '/v1/bundleIds?filter%5Bidentifier%5D=' +
     encodeURIComponent(context.profile.bundleIdentifier) +
     '&limit=200&fields%5BbundleIds%5D=identifier%2Cname%2Cplatform'
-  const certificatePath = '/v1/certificates?filter%5BcertificateType%5D=DISTRIBUTION' +
-    '&limit=200&fields%5Bcertificates%5D=name%2CcertificateType%2CdisplayName%2CserialNumber%2Cplatform%2CexpirationDate%2Cactivated'
+  const certificatePath = '/v1/certificates?limit=200' +
+    '&fields%5Bcertificates%5D=name%2CcertificateType%2CdisplayName%2CserialNumber%2Cplatform%2CexpirationDate%2Cactivated'
   const [bundleResponse, certificateResponse] = await Promise.all([
     appleApiFetch(env, bundlePath),
     appleApiFetch(env, certificatePath)
@@ -476,7 +476,9 @@ async function getAppleAdHocProfileResources(env, context) {
     const exactSerial = normalizeAppleSerial(attributes.serialNumber) === context.identity.serialNumber
     const exactName = String(attributes.displayName || '') === context.identity.commonName ||
       String(attributes.name || '') === context.identity.commonName
+    const certificateType = String(attributes.certificateType || '').toUpperCase()
     return (exactSerial || exactName) &&
+      ['DISTRIBUTION', 'IOS_DISTRIBUTION'].includes(certificateType) &&
       attributes.activated !== false &&
       (!attributes.expirationDate || new Date(attributes.expirationDate).getTime() > Date.now())
   })

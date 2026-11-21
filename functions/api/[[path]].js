@@ -703,7 +703,12 @@ export async function onRequest({ request, env, params }) {
       const username = String(body.username || '').trim().toLowerCase()
       const email = String(body.email || '').trim().toLowerCase()
       const password = String(body.password || '')
-      if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success: false, error: 'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' }, 400)
+      const firebaseIdToken = String(body.firebaseIdToken || '')
+      if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || password.length > 128 || !firebaseIdToken) return json({ success: false, error: 'Ad soyad, geçerli e-posta, uygun kullanıcı adı, şifre ve Firebase oturumu gerekli.' }, 400)
+      const firebaseResponse = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyCqZO4g5E4CbHqkc0A1C86DIHQrHMv8n9U', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({idToken:firebaseIdToken}) })
+      const firebaseData = await firebaseResponse.json().catch(() => ({}))
+      const firebaseUser = firebaseData?.users?.[0]
+      if (!firebaseResponse.ok || !firebaseUser?.email || String(firebaseUser.email).toLowerCase() !== email) return json({success:false,error:'Firebase e-posta hesabı doğrulanamadı. Yeniden kayıt olmayı dene.'},401)
       const existing = await env.DB.prepare('SELECT id FROM users WHERE username=? OR lower(email)=? LIMIT 1').bind(username, email).first()
       if (existing) return json({ success: false, error: 'Bu kullanıcı adı veya e-posta zaten kayıtlı.' }, 409)
       const now = new Date().toISOString()

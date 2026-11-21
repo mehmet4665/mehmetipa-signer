@@ -719,13 +719,22 @@ export function AccessGate() {
   const updateDevice = async (device: Device, status: Device['status']) => {
     if (!token) return
     try {
-      const result = await api<{ apple_device_sync?: { ok: boolean; outcomes?: Array<{ error?: string }> } }>(`/api/admin/devices/${encodeURIComponent(device.id)}`, token, { method: 'PATCH', body: JSON.stringify({ status }) })
+      const result = await api<{
+        apple_device_sync?: { ok: boolean; outcomes?: Array<{ error?: string }> }
+        profile?: { ok?: boolean; pending?: boolean; error?: string }
+      }>(`/api/admin/devices/${encodeURIComponent(device.id)}`, token, { method: 'PATCH', body: JSON.stringify({ status }) })
       await loadAdmin(token)
       const appleError = result.apple_device_sync?.outcomes?.find(item => item.error)?.error
       if (result.apple_device_sync && !result.apple_device_sync.ok) {
-        setError(`Cihazın yerel durumu güncellendi; Apple tarafında işlem başarısız: ${appleError || 'Apple API hatası'}`)
+        setError(`Apple cihaz işlemi başarısız: ${appleError || 'Apple API hatası'}`)
+      } else if (result.profile && !result.profile.ok && !result.profile.pending) {
+        setError(`Apple cihazı güncellendi fakat Ad Hoc profil üretilemedi: ${result.profile.error || 'Profil hatası'}`)
+      } else if (status === 'approved' && result.profile?.pending) {
+        setNotice('Apple cihazı onaylandı. Apple işlemi tamamlanınca Ad Hoc profili otomatik hazırlanacak.')
+      } else if (status === 'approved' && result.profile?.ok) {
+        setNotice('Cihaz Apple hesabına kaydedildi ve cihaza özel Ad Hoc profili hazırlandı.')
       } else {
-        setNotice('Cihaz durumu güncellendi.')
+        setNotice('Cihaz durumu ve Apple erişimi güncellendi.')
       }
     } catch (e) { setError(e instanceof Error ? e.message : 'Cihaz güncellenemedi.') }
   }

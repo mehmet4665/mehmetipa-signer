@@ -360,6 +360,322 @@ async function appleApiFetch(env, path, options = {}) {
   return body
 }
 
+
+function normalizeAppleSerial(value) {
+  return String(value || '').replace(/^0x/i, '').replace(/[^a-f0-9]/gi, '').replace(/^0+/, '').toLowerCase()
+}
+
+function readProvisioningProfileMetadata(profileBytes) {
+  let message
+  try {
+    const asn1 = forge.asn1.fromDer(bytesToBinary(profileBytes))
+    message = forge.pkcs7.messageFromAsn1(asn1)
+  } catch {
+    throw new Error('Provisioning profile içeriği Apple CMS biçiminde okunamadı.')
+  }
+  const content = message && message.content
+  const xml = content && typeof content.getBytes === 'function' ? content.getBytes() : ''
+  if (!xml || !xml.includes('<plist')) throw new Error('Provisioning profile XML içeriği bulunamadı.')
+  const stringFor = (key) => {
+    const match = xml.match(new RegExp('<key>' + key + '</key>\\s*<string>([^<]*)</string>'))
+    return match ? match[1].trim() : ''
+  }
+  const arrayFor = (key) => {
+    const match = xml.match(new RegExp('<key>' + key + '</key>\\s*<array>([\\s\\S]*?)</array>'))
+    if (!match) return []
+    return [...match[1].matchAll(/<string>([^<]*)<\\/string>/g)].map(item => item[1].trim()).filter(Boolean)
+  }
+  const dateMatch = xml.match(/<key>ExpirationDate<\\/key>\\s*<date>([^<]+)<\\/date>/)
+  const applicationIdentifier = stringFor('application-identifier')
+  const appMatch = applicationIdentifier.match(/^[A-Z0-9]{10}\\.(.+)$/)
+  const expiration = dateMatch ? new Date(dateMatch[1]) : null
+  if (!applicationIdentifier || !appMatch) throw new Error('Provisioning profile application-identifier alanı okunamadı.')
+  if (!expiration || !Number.isFinite(expiration.getTime())) throw new Error('Provisioning profile bitiş tarihi okunamadı.')
+  return {
+    name: stringFor('Name') || 'Mehmet IPA Ad Hoc',
+    uuid: stringFor('UUID'),
+    applicationIdentifier,
+    bundleIdentifier: appMatch[1],
+    teamIdentifier: arrayFor('TeamIdentifier')[0] || '',
+    deviceUdis: arrayFor('ProvisionedDevices').map(value => value.toUpperCase()),
+    expiresAt: expiration.toISOString(),
+    provisionedAllDevices: /<key>ProvisionsAllDevices<\\/key>\\s*<true\\s*\\/>/.test(xml)
+  }
+}
+
+function readP12SigningIdentity(p12Bytes, password) {
+  let p12
+  try {
+    p12 = forge.pkcs12.pkcs12FromAsn1(forge.asn1.fromDer(bytesToBinary(p12Bytes)), false, password)
+  } catch {
+    throw new Error('P12 dosyası açılamadı. P12 parolasını kontrol et.')
+  }
+  const bags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || []
+  const certificate = bags.find(item => item.cert)?.cert
+  if (!certificate) throw new Error('P12 içinde Apple Distribution sertifikası bulunamadı.')
+  const commonName = certificateField(certificate, 'CN')
+  const serialNumber = normalizeAppleSerial(certificate.serialNumber)
+  if (!/Apple Distribution|iPhone Distribution/i.test(commonName) || !serialNumber) {
+    throw new Error('P12 içindeki sertifika Apple Distribution sertifikası değil.')
+  }
+  return { commonName, serialNumber }
+}
+
+async function loadAppleAdHocProfileContext(env) {
+  if (!env.CERTS || !env.SIGNING_ENCRYPTION_KEY) {
+    throw new Error('Özel sertifika kasası veya şifreleme anahtarı bağlı değil.')
+  }
+  const cert = await env.DB.prepare(
+    'SELECT status, password_ciphertext, password_iv, p12_key, profile_key, p12_iv, profile_iv, expires_at FROM signing_certificate ORDER BY updated_at DESC LIMIT 1'
+  ).first()
+  if (!cert || cert.status !== 'active' || !cert.p12_key || !cert.profile_key ||
+      !cert.password_ciphertext || !cert.password_iv || !cert.p12_iv || !cert.profile_iv) {
+    throw new Error('Otomatik Ad Hoc profili için P12 ve başlangıç provisioning profile dosyalarını yönetim panelinden bir kez yükle.')
+  }
+  const [p12Object, profileObject] = await Promise.all([
+    env.CERTS.get(cert.p12_key),
+    env.CERTS.get(cert.profile_key)
+  ])
+  if (!p12Object || !profileObject) throw new Error('Başlangıç P12 veya provisioning profile dosyası özel kasada bulunamadı.')
+  const [encryptedP12, encryptedProfile] = await Promise.all([
+    p12Object.arrayBuffer(),
+    profileObject.arrayBuffer()
+  ])
+  const [p12Bytes, profileBytes, password] = await Promise.all([
+    decryptBytes(encryptedP12, cert.p12_iv, env.SIGNING_ENCRYPTION_KEY),
+    decryptBytes(encryptedProfile, cert.profile_iv, env.SIGNING_ENCRYPTION_KEY),
+    decryptSecret(cert.password_ciphertext, cert.password_iv, env.SIGNING_ENCRYPTION_KEY)
+  ])
+  const identity = readP12SigningIdentity(p12Bytes, password)
+  const profile = readProvisioningProfileMetadata(profileBytes)
+  if (new Date(profile.expiresAt).getTime() <= Date.now()) {
+    throw new Error('Başlangıç profilinin süresi dolmuş. Yönetim panelinden güncel Ad Hoc profile yükle.')
+  }
+  return { cert, p12Bytes, profileBytes, password, identity, profile }
+}
+
+async function getAppleAdHocProfileResources(env, context) {
+  const bundlePath = '/v1/bundleIds?filter%5Bidentifier%5D=' +
+    encodeURIComponent(context.profile.bundleIdentifier) +
+    '&limit=200&fields%5BbundleIds%5D=identifier%2Cname%2Cplatform'
+  const certificatePath = '/v1/certificates?filter%5BcertificateType%5D=DISTRIBUTION' +
+    '&limit=200&fields%5Bcertificates%5D=name%2CcertificateType%2CdisplayName%2CserialNumber%2Cplatform%2CexpirationDate%2Cactivated'
+  const [bundleResponse, certificateResponse] = await Promise.all([
+    appleApiFetch(env, bundlePath),
+    appleApiFetch(env, certificatePath)
+  ])
+  const bundle = (bundleResponse.data || []).find(item =>
+    String(item.attributes?.identifier || '') === context.profile.bundleIdentifier &&
+    String(item.attributes?.platform || '').toUpperCase() === 'IOS'
+  )
+  if (!bundle) {
+    throw new Error('Apple Developer hesabında ' + context.profile.bundleIdentifier + ' App ID bulunamadı.')
+  }
+  const certificate = (certificateResponse.data || []).find(item => {
+    const attributes = item.attributes || {}
+    const exactSerial = normalizeAppleSerial(attributes.serialNumber) === context.identity.serialNumber
+    const exactName = String(attributes.displayName || attributes.name || '') === context.identity.commonName
+    return (exactSerial || exactName) &&
+      attributes.activated !== false &&
+      (!attributes.expirationDate || new Date(attributes.expirationDate).getTime() > Date.now())
+  })
+  if (!certificate) {
+    throw new Error('P12 içindeki ' + context.identity.commonName + ' sertifikası App Store Connect API üzerinde etkin olarak bulunamadı.')
+  }
+  return { bundle, certificate }
+}
+
+async function retireAppleProvisioningProfile(env, device, reason = 'device_disabled') {
+  if (!device) return { ok: true, skipped: true }
+  let appleDeleteError = null
+  const profileId = String(device.apple_profile_id || '')
+  if (profileId) {
+    try {
+      await appleApiFetch(env, '/v1/profiles/' + encodeURIComponent(profileId), { method: 'DELETE' })
+    } catch (error) {
+      appleDeleteError = error instanceof Error ? error.message : 'Apple provisioning profile silinemedi.'
+    }
+  }
+  const profileKey = String(device.profile_key || '')
+  if (!appleDeleteError && profileKey && env.CERTS && typeof env.CERTS.delete === 'function') {
+    await env.CERTS.delete(profileKey).catch(() => {})
+  }
+  const updatedAt = new Date().toISOString()
+  await env.DB.prepare(
+    'UPDATE devices SET apple_profile_id = CASE WHEN ? = 1 THEN NULL ELSE apple_profile_id END, profile_key = CASE WHEN ? = 1 THEN NULL ELSE profile_key END, profile_iv = CASE WHEN ? = 1 THEN NULL ELSE profile_iv END, profile_status = ?, profile_last_error = ?, profile_updated_at = ? WHERE id = ?'
+  ).bind(
+    appleDeleteError ? 0 : 1, appleDeleteError ? 0 : 1, appleDeleteError ? 0 : 1,
+    appleDeleteError ? 'delete_pending' : 'disabled',
+    appleDeleteError ? (appleDeleteError + ' [' + reason + ']').slice(0, 500) : null,
+    updatedAt, device.id
+  ).run()
+  return { ok: !appleDeleteError, deleted: !appleDeleteError, error: appleDeleteError }
+}
+
+async function ensureAppleAdHocProfile(env, device) {
+  if (!device?.id || !device.apple_device_id) {
+    return { ok: false, pending: true, reason: 'apple_device_not_registered' }
+  }
+  if (device.status !== 'approved') {
+    return { ok: false, pending: true, reason: 'local_device_not_approved' }
+  }
+  try {
+    const liveDevice = await appleApiFetch(
+      env,
+      '/v1/devices/' + encodeURIComponent(device.apple_device_id) +
+        '?fields%5Bdevices%5D=name%2Cplatform%2Cudid%2Cstatus'
+    )
+    const liveStatus = String(liveDevice.data?.attributes?.status || '').toUpperCase()
+    const liveUdid = String(liveDevice.data?.attributes?.udid || '').trim().toUpperCase()
+    if (liveUdid !== String(device.udid || '').trim().toUpperCase()) {
+      throw new Error('Apple kayıtlı cihazının UDID bilgisi yerel kayıtla eşleşmiyor.')
+    }
+    await env.DB.prepare(
+      'UPDATE devices SET apple_status = ?, apple_status_updated_at = ? WHERE id = ?'
+    ).bind(liveStatus || 'UNKNOWN', new Date().toISOString(), device.id).run()
+    if (liveStatus !== 'ENABLED') {
+      await env.DB.prepare(
+        'UPDATE devices SET profile_status = ?, profile_last_error = ?, profile_last_attempt_at = ? WHERE id = ?'
+      ).bind(
+        liveStatus === 'PROCESSING' ? 'waiting_for_apple_processing' : 'waiting_for_device_enable',
+        liveStatus === 'PROCESSING'
+          ? 'Apple cihaz kaydını işliyor. Hazır olduğunda profil otomatik oluşturulacak.'
+          : 'Apple cihazı ENABLED durumunda değil.',
+        new Date().toISOString(), device.id
+      ).run()
+      return { ok: false, pending: true, apple_status: liveStatus }
+    }
+
+    const context = await loadAppleAdHocProfileContext(env)
+    const existingProfileValid =
+      device.profile_status === 'active' &&
+      !!device.apple_profile_id &&
+      !!device.profile_key &&
+      !!device.profile_iv &&
+      !!device.profile_expires_at &&
+      new Date(device.profile_expires_at).getTime() > Date.now() &&
+      normalizeAppleSerial(device.profile_certificate_serial) === context.identity.serialNumber
+    if (existingProfileValid) {
+      return { ok: true, unchanged: true, status: 'active', profile_id: device.apple_profile_id }
+    }
+
+    await env.DB.prepare(
+      "UPDATE devices SET profile_status = 'creating', profile_last_error = NULL, profile_last_attempt_at = ? WHERE id = ?"
+    ).bind(new Date().toISOString(), device.id).run()
+
+    const resources = await getAppleAdHocProfileResources(env, context)
+    const profileName = ('Mehmet IPA ' + String(device.udid || '').replace(/[^A-F0-9]/gi, '').slice(-8) + ' AdHoc').slice(0, 100)
+    const created = await appleApiFetch(env, '/v1/profiles', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'profiles',
+          attributes: { name: profileName, profileType: 'IOS_APP_ADHOC' },
+          relationships: {
+            bundleId: { data: { type: 'bundleIds', id: resources.bundle.id } },
+            certificates: { data: [{ type: 'certificates', id: resources.certificate.id }] },
+            devices: { data: [{ type: 'devices', id: device.apple_device_id }] }
+          }
+        }
+      }
+    })
+    const profileId = String(created.data?.id || '')
+    if (!profileId) throw new Error('Apple Ad Hoc provisioning profile ID döndürmedi.')
+    let profileContent = created.data?.attributes?.profileContent || ''
+    let profileAttributes = created.data?.attributes || {}
+    if (!profileContent) {
+      const read = await appleApiFetch(
+        env,
+        '/v1/profiles/' + encodeURIComponent(profileId) +
+          '?fields%5Bprofiles%5D=name%2CprofileType%2CprofileState%2CprofileContent%2Cuuid%2CexpirationDate'
+      )
+      profileAttributes = read.data?.attributes || profileAttributes
+      profileContent = profileAttributes.profileContent || ''
+    }
+    if (typeof profileContent !== 'string' || !profileContent.trim()) {
+      throw new Error('Apple profile oluşturdu ancak profileContent indirme verisini döndürmedi.')
+    }
+    const normalizedContent = profileContent.replace(/\s/g, '')
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalizedContent) || normalizedContent.length % 4 !== 0) {
+      throw new Error('Apple Ad Hoc profileContent Base64 biçiminde değil.')
+    }
+    const profileBytes = Uint8Array.from(atob(normalizedContent), char => char.charCodeAt(0))
+    const metadata = readProvisioningProfileMetadata(profileBytes)
+    const requestedUdid = String(device.udid || '').trim().toUpperCase()
+    const profileContainsDevice = metadata.deviceUdis.some(value =>
+      value.replace(/-/g, '') === requestedUdid.replace(/-/g, '')
+    )
+    if (!profileContainsDevice) throw new Error('Apple tarafından oluşturulan Ad Hoc profili bu cihazın UDID bilgisini içermiyor.')
+    if (metadata.bundleIdentifier !== context.profile.bundleIdentifier) {
+      throw new Error('Apple Ad Hoc profili beklenmeyen Bundle ID ile oluşturuldu.')
+    }
+    if (new Date(metadata.expiresAt).getTime() <= Date.now()) {
+      throw new Error('Apple Ad Hoc profili oluşturulur oluşturulmaz süresi dolmuş görünüyor.')
+    }
+    validateSigningMaterials(context.p12Bytes, profileBytes, context.password)
+
+    const objectKey = 'device-profiles/' + device.id + '/' + randomId() + '.mobileprovision.enc'
+    const encrypted = await encryptBytes(profileBytes, env.SIGNING_ENCRYPTION_KEY)
+    await env.CERTS.put(objectKey, encrypted.ciphertext, {
+      httpMetadata: { contentType: 'application/octet-stream' },
+      customMetadata: { encryption: 'AES-256-GCM', iv: encrypted.iv }
+    })
+    const previousProfileId = String(device.apple_profile_id || '')
+    const previousProfileKey = String(device.profile_key || '')
+    const updatedAt = new Date().toISOString()
+    try {
+      await env.DB.prepare(
+        "UPDATE devices SET apple_profile_id = ?, profile_key = ?, profile_iv = ?, profile_name = ?, profile_expires_at = ?, profile_certificate_serial = ?, profile_status = 'active', profile_last_error = NULL, profile_updated_at = ?, profile_last_attempt_at = ? WHERE id = ?"
+      ).bind(
+        profileId, objectKey, encrypted.iv, profileAttributes.name || profileName,
+        metadata.expiresAt, context.identity.serialNumber, updatedAt, updatedAt, device.id
+      ).run()
+    } catch (error) {
+      await env.CERTS.delete(objectKey).catch(() => {})
+      try { await appleApiFetch(env, '/v1/profiles/' + encodeURIComponent(profileId), { method: 'DELETE' }) } catch {}
+      throw error
+    }
+    if (previousProfileKey && previousProfileKey !== objectKey) {
+      await env.CERTS.delete(previousProfileKey).catch(() => {})
+    }
+    if (previousProfileId && previousProfileId !== profileId) {
+      try { await appleApiFetch(env, '/v1/profiles/' + encodeURIComponent(previousProfileId), { method: 'DELETE' }) } catch {}
+    }
+    return { ok: true, status: 'active', profile_id: profileId, profile_name: profileAttributes.name || profileName, expires_at: metadata.expiresAt }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Apple Ad Hoc profili oluşturulamadı.'
+    await env.DB.prepare(
+      "UPDATE devices SET profile_status = 'error', profile_last_error = ?, profile_last_attempt_at = ? WHERE id = ?"
+    ).bind(message.slice(0, 500), new Date().toISOString(), device.id).run().catch(() => {})
+    return { ok: false, pending: false, error: message }
+  }
+}
+
+async function refreshAppleDeviceAndProfile(env, device) {
+  if (!device?.apple_device_id) return { ok: false, reason: 'apple_device_id_missing' }
+  const refreshed = await appleApiFetch(
+    env,
+    '/v1/devices/' + encodeURIComponent(device.apple_device_id) +
+      '?fields%5Bdevices%5D=name%2Cplatform%2Cudid%2Cstatus'
+  )
+  const status = String(refreshed.data?.attributes?.status || '').toUpperCase()
+  const now = new Date().toISOString()
+  await env.DB.prepare(
+    'UPDATE devices SET apple_status = ?, apple_status_updated_at = ?, apple_last_attempt_at = ? WHERE id = ?'
+  ).bind(status || 'UNKNOWN', now, now, device.id).run()
+  const current = { ...device, apple_status: status }
+  if (status === 'DISABLED') {
+    await retireAppleProvisioningProfile(env, current, 'apple_device_disabled')
+    return { ok: true, status, profile_status: 'disabled' }
+  }
+  if (status === 'ENABLED' && current.status === 'approved' &&
+      (current.profile_status !== 'active' || !current.profile_key || !current.apple_profile_id)) {
+    const profile = await ensureAppleAdHocProfile(env, current)
+    return { ok: profile.ok, status, profile }
+  }
+  return { ok: true, status, profile_status: current.profile_status || 'pending' }
+}
+
 async function logAppleDeviceEvent(env, device, requestedStatus, appliedStatus, reason, error = null) {
   const createdAt = new Date().toISOString()
   await env.DB.prepare(

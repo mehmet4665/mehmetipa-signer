@@ -324,6 +324,35 @@ function validateSigningMaterials(p12Bytes, profileBytes, password) {
     suggested_expiry: profileExpiry,
   }
 }
+async function appleApiToken(env) {
+  const issuer = String(env.APPLE_ISSUER_ID || '').trim()
+  const keyId = String(env.APPLE_KEY_ID || '').trim()
+  const pem = String(env.APPLE_PRIVATE_KEY || '').trim()
+  if (!issuer || !keyId || !pem) throw new Error('Apple API anahtarları eksik. APPLE_ISSUER_ID, APPLE_KEY_ID ve APPLE_PRIVATE_KEY kontrol edilmeli.')
+  const privateKeyBytes = Uint8Array.from(
+    atob(pem.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\\s/g, '')),
+    (char) => char.charCodeAt(0)
+  )
+  const key = await crypto.subtle.importKey('pkcs8', privateKeyBytes, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
+  const now = Math.floor(Date.now() / 1000)
+  const header = b64url(encoder.encode(JSON.stringify({ alg: 'ES256', kid: keyId, typ: 'JWT' })))
+  const payload = b64url(encoder.encode(JSON.stringify({ iss: issuer, iat: now, exp: now + 15 * 60, aud: 'appstoreconnect-v1' })))
+  const signingInput = header + '.' + payload
+  const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, encoder.encode(signingInput))
+  return signingInput + '.' + b64url(signature)
+}
+async function appleApiFetch(env, path) {
+  const token = await appleApiToken(env)
+  const response = await fetch('https://api.appstoreconnect.apple.com' + path, {
+    headers: { authorization: 'Bearer ' + token, accept: 'application/json' }
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const message = body?.errors?.map((item) => item.detail || item.title).filter(Boolean).join('; ')
+    throw new Error('Apple API ' + response.status + ': ' + (message || 'İstek başarısız.'))
+  }
+  return body
+}
 function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
 }
@@ -744,6 +773,29 @@ export async function onRequest({ request, env, params }) {
         await env.DB.prepare('DELETE FROM devices WHERE user_id = ?').bind(userMatch[1]).run()
         await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userMatch[1]).run()
         return json({ success: true })
+      }
+
+      // APPLE: read-only connection check. Does not register or modify devices.
+      if (path === '/api/admin/apple/devices' && method === 'GET') {
+        const denied = requireAdmin(); if (denied) return denied
+        try {
+          const result = await appleApiFetch(env, '/v1/devices?limit=200&fields%5Bdevices%5D=name%2Cplatform%2Cudid%2Cstatus%2CaddedDate')
+          return json({
+            success: true,
+            connected: true,
+            total: result.data?.length || 0,
+            devices: (result.data || []).map((item) => ({
+              id: item.id,
+              name: item.attributes?.name || '',
+              platform: item.attributes?.platform || '',
+              udid: item.attributes?.udid || '',
+              status: item.attributes?.status || '',
+              added_date: item.attributes?.addedDate || null
+            }))
+          })
+        } catch (error) {
+          return json({ success: false, connected: false, error: error instanceof Error ? error.message : 'Apple bağlantısı kurulamadı.' }, 502)
+        }
       }
 
       if (path === '/api/admin/devices' && method === 'GET') {

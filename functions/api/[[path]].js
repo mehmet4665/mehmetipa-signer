@@ -341,10 +341,16 @@ async function appleApiToken(env) {
   const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, encoder.encode(signingInput))
   return signingInput + '.' + b64url(signature)
 }
-async function appleApiFetch(env, path) {
+async function appleApiFetch(env, path, options = {}) {
   const token = await appleApiToken(env)
   const response = await fetch('https://api.appstoreconnect.apple.com' + path, {
-    headers: { authorization: 'Bearer ' + token, accept: 'application/json' }
+    method: options.method || 'GET',
+    headers: {
+      authorization: 'Bearer ' + token,
+      accept: 'application/json',
+      ...(options.body ? { 'content-type': 'application/json' } : {})
+    },
+    ...(options.body ? { body: JSON.stringify(options.body) } : {})
   })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
@@ -809,8 +815,67 @@ export async function onRequest({ request, env, params }) {
         const body = await readBody(request)
         const status = ['pending', 'approved', 'blocked'].includes(body.status) ? body.status : null
         if (!status) return json({ success: false, error: 'Geçersiz cihaz durumu.' }, 400)
+
+        if (status === 'approved') {
+          const device = await env.DB.prepare(
+            'SELECT devices.id, devices.udid, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id WHERE devices.id = ? LIMIT 1'
+          ).bind(deviceMatch[2]).first()
+          if (!device) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
+
+          const udid = String(device.udid || '').trim().toUpperCase()
+          if (!/^[A-F0-9-]{20,40}$/.test(udid)) {
+            return json({ success: false, error: 'Kayıtlı UDID biçimi geçersiz. Apple kaydı yapılmadı.' }, 400)
+          }
+
+          try {
+            // Apple Developer'a daha önce eklenmiş UDID'yi tekrar oluşturmadan eşleştir.
+            const appleList = await appleApiFetch(env, '/v1/devices?limit=200&fields%5Bdevices%5D=name%2Cplatform%2Cudid%2Cstatus%2CaddedDate')
+            const existingAppleDevice = (appleList.data || []).find(
+              item => String(item.attributes?.udid || '').trim().toUpperCase() === udid
+            )
+
+            let appleDevice = existingAppleDevice
+            if (!appleDevice) {
+              const deviceName = String(device.name || device.username || 'Mehmet IPA üyesi')
+                .replace(/[\r\n]/g, ' ').trim().slice(0, 50) || 'Mehmet IPA üyesi'
+              const created = await appleApiFetch(env, '/v1/devices', {
+                method: 'POST',
+                body: {
+                  data: {
+                    type: 'devices',
+                    attributes: { name: deviceName, platform: 'IOS', udid }
+                  }
+                }
+              })
+              appleDevice = created.data
+            }
+
+            if (!appleDevice?.id) {
+              return json({ success: false, error: 'Apple cihaz kaydı doğrulanamadı. Üyelik onaylanmadı.' }, 502)
+            }
+
+            await env.DB.prepare('UPDATE devices SET status = ? WHERE id = ?').bind('approved', deviceMatch[2]).run()
+            return json({
+              success: true,
+              status: 'approved',
+              apple_registered: true,
+              already_registered: !!existingAppleDevice,
+              apple_device_id: appleDevice.id,
+              message: existingAppleDevice
+                ? 'UDID Apple Developer hesabında zaten kayıtlıydı; üyelik onaylandı.'
+                : 'UDID Apple Developer hesabına kaydedildi; üyelik onaylandı.'
+            })
+          } catch (error) {
+            return json({
+              success: false,
+              apple_registered: false,
+              error: error instanceof Error ? error.message : 'Apple cihaz kaydı başarısız. Üyelik onaylanmadı.'
+            }, 502)
+          }
+        }
+
         await env.DB.prepare('UPDATE devices SET status = ? WHERE id = ?').bind(status, deviceMatch[2]).run()
-        return json({ success: true })
+        return json({ success: true, status })
       }
 
       if (path === '/api/devices' && method === 'GET') {

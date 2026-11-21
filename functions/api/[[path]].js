@@ -385,7 +385,7 @@ function readProvisioningProfileMetadata(profileBytes) {
     if (!match) return []
     return [...match[1].matchAll(/<string>([^<]*)<\/string>/g)].map(item => item[1].trim()).filter(Boolean)
   }
-  const dateMatch = xml.match(/<key>ExpirationDate<\/key>\s*<date>([^<]+)<\\/date>/)
+  const dateMatch = xml.match(/<key>ExpirationDate<\/key>\s*<date>([^<]+)<\/date>/)
   const applicationIdentifier = stringFor('application-identifier')
   const appMatch = applicationIdentifier.match(/^[A-Z0-9]{10}\.(.+)$/)
   const expiration = dateMatch ? new Date(dateMatch[1]) : null
@@ -694,6 +694,10 @@ async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
     return { ok: false, error: 'Geçersiz Apple cihaz durumu.' }
   }
   if (!device?.apple_device_id) {
+    if (status === 'DISABLED') {
+      const profileRetirement = await retireAppleProvisioningProfile(env, device, reason)
+      return { ok: profileRetirement.ok, skipped: true, reason: 'apple_device_id_missing', profile_retirement: profileRetirement }
+    }
     return { ok: true, skipped: true, reason: 'apple_device_id_missing' }
   }
 
@@ -702,6 +706,10 @@ async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
     .bind(now, device.id).run()
 
   if (String(device.apple_status || '').toUpperCase() === status) {
+    if (status === 'DISABLED') {
+      const profileRetirement = await retireAppleProvisioningProfile(env, device, reason)
+      return { ok: profileRetirement.ok, unchanged: true, status, profile_retirement: profileRetirement }
+    }
     return { ok: true, unchanged: true, status }
   }
 
@@ -734,7 +742,10 @@ async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
       'UPDATE devices SET apple_status = ?, apple_last_error = NULL, apple_status_updated_at = ?, apple_last_attempt_at = ? WHERE id = ?'
     ).bind(status, updatedAt, updatedAt, device.id).run()
     await logAppleDeviceEvent(env, device, status, status, reason).catch(() => {})
-    return { ok: true, changed: true, status }
+    const profileRetirement = status === 'DISABLED'
+      ? await retireAppleProvisioningProfile(env, device, reason)
+      : null
+    return { ok: !profileRetirement || profileRetirement.ok, changed: true, status, profile_retirement: profileRetirement }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Apple cihaz durumu güncellenemedi.'
     await env.DB.prepare('UPDATE devices SET apple_last_error = ?, apple_last_attempt_at = ? WHERE id = ?')
@@ -746,7 +757,7 @@ async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
 
 async function syncUserAppleDevices(env, userId, status, reason) {
   const { results = [] } = await env.DB.prepare(
-    'SELECT id, user_id, udid, apple_device_id, apple_status FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
+    'SELECT id, user_id, udid, apple_device_id, apple_status, status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
   ).bind(userId).all()
   const outcomes = []
   for (const device of results) {
@@ -788,12 +799,18 @@ async function syncMemberAppleAccess(env, userId, reason, forceDisable = false) 
   if (!desiredStatus) return { ok: true, skipped: true, reason: 'no_expiring_or_active_entitlement' }
 
   const { results = [] } = await env.DB.prepare(
-    'SELECT id, user_id, udid, apple_device_id, apple_status, status FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
+    'SELECT id, user_id, udid, apple_device_id, apple_status, status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
   ).bind(userId).all()
   const outcomes = []
   for (const device of results) {
     const deviceStatus = device.status === 'approved' ? desiredStatus : 'DISABLED'
-    outcomes.push(await updateAppleDeviceStatus(env, device, deviceStatus, deviceStatus === desiredStatus ? reason : 'device_not_approved'))
+    const sync = await updateAppleDeviceStatus(env, device, deviceStatus, deviceStatus === desiredStatus ? reason : 'device_not_approved')
+    let profile = null
+    if (deviceStatus === 'ENABLED' && sync.ok &&
+        (device.profile_status !== 'active' || !device.profile_key || !device.apple_profile_id)) {
+      profile = await ensureAppleAdHocProfile(env, { ...device, apple_status: 'ENABLED' })
+    }
+    outcomes.push({ ...sync, profile })
   }
   return {
     ok: outcomes.every(item => item.ok),

@@ -474,7 +474,8 @@ async function getAppleAdHocProfileResources(env, context) {
   const certificate = (certificateResponse.data || []).find(item => {
     const attributes = item.attributes || {}
     const exactSerial = normalizeAppleSerial(attributes.serialNumber) === context.identity.serialNumber
-    const exactName = String(attributes.displayName || attributes.name || '') === context.identity.commonName
+    const exactName = String(attributes.displayName || '') === context.identity.commonName ||
+      String(attributes.name || '') === context.identity.commonName
     return (exactSerial || exactName) &&
       attributes.activated !== false &&
       (!attributes.expirationDate || new Date(attributes.expirationDate).getTime() > Date.now())
@@ -566,7 +567,23 @@ async function ensureAppleAdHocProfile(env, device) {
       new Date(device.profile_expires_at).getTime() > Date.now() &&
       normalizeAppleSerial(device.profile_certificate_serial) === context.identity.serialNumber
     if (existingProfileValid) {
-      return { ok: true, unchanged: true, status: 'active', profile_id: device.apple_profile_id }
+      try {
+        const existingProfile = await appleApiFetch(
+          env,
+          '/v1/profiles/' + encodeURIComponent(device.apple_profile_id) +
+            '?fields%5Bprofiles%5D=profileState%2CexpirationDate'
+        )
+        const attributes = existingProfile.data?.attributes || {}
+        const appleProfileActive = String(attributes.profileState || '').toUpperCase() === 'ACTIVE'
+        const appleProfileExpiry = attributes.expirationDate ? new Date(attributes.expirationDate).getTime() : 0
+        if (appleProfileActive && appleProfileExpiry > Date.now()) {
+          return { ok: true, unchanged: true, status: 'active', profile_id: device.apple_profile_id }
+        }
+      } catch {
+        // A missing or unreadable Apple profile is regenerated below after retiring its stale reference.
+      }
+      await retireAppleProvisioningProfile(env, device, 'apple_profile_not_active')
+      device = { ...device, apple_profile_id: null, profile_key: null, profile_iv: null, profile_status: 'disabled' }
     }
 
     const attemptAt = new Date().toISOString()
@@ -606,6 +623,10 @@ async function ensureAppleAdHocProfile(env, device) {
       )
       profileAttributes = read.data?.attributes || profileAttributes
       profileContent = profileAttributes.profileContent || ''
+    }
+    const profileState = String(profileAttributes.profileState || '').toUpperCase()
+    if (profileState && profileState !== 'ACTIVE') {
+      throw new Error('Apple tarafından oluşturulan Ad Hoc profili ACTIVE durumunda değil: ' + profileState)
     }
     if (typeof profileContent !== 'string' || !profileContent.trim()) {
       throw new Error('Apple profile oluşturdu ancak profileContent indirme verisini döndürmedi.')

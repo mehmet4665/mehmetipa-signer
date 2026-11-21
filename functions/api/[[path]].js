@@ -1288,12 +1288,13 @@ export async function onRequest({ request, env, params }) {
         const vip = isActiveVip(member)
         const trial = await env.DB.prepare('SELECT device_udid, started_at, expires_at FROM trial_access WHERE user_id = ? LIMIT 1').bind(session.sub).first()
         const approvedDevice = await env.DB.prepare("SELECT udid FROM devices WHERE user_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 1").bind(session.sub).first()
-        const active = !!trial && new Date(trial.expires_at).getTime() > Date.now()
+        const accountCanAccess = member?.status === 'active' && member?.vip_access_status !== 'blocked'
+        const active = accountCanAccess && !!trial && new Date(trial.expires_at).getTime() > Date.now()
         return json({
           success: true,
           started: !!trial,
           active,
-          can_start: !vip && !trial && !!approvedDevice,
+          can_start: accountCanAccess && !vip && !trial && !!approvedDevice,
           has_approved_device: !!approvedDevice,
           started_at: trial?.started_at || null,
           expires_at: trial?.expires_at || null,
@@ -1304,6 +1305,9 @@ export async function onRequest({ request, env, params }) {
       if (path === '/api/trial/start' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici hesabı deneme başlatamaz.' }, 403)
         const member = await env.DB.prepare('SELECT status, group_name, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id = ? LIMIT 1').bind(session.sub).first()
+        if (!member || member.status !== 'active' || member.vip_access_status === 'blocked') {
+          return json({ success: false, error: 'Hesabın devre dışı. Deneme başlatılamaz.' }, 403)
+        }
         if (isActiveVip(member)) return json({ success: false, error: 'Zaten aktif VIP üyeliğin var.' }, 409)
         const existing = await env.DB.prepare('SELECT expires_at FROM trial_access WHERE user_id = ? LIMIT 1').bind(session.sub).first()
         if (existing) return json({ success: false, error: 'Ücretsiz deneme hakkın daha önce kullanılmış. Deneme yalnızca bir kez başlatılabilir.' }, 409)
@@ -1729,6 +1733,10 @@ export async function onRequest({ request, env, params }) {
       }
       if (path === '/api/devices' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici cihaz kaydı yapamaz.' }, 400)
+        const member = await env.DB.prepare('SELECT status, vip_access_status FROM users WHERE id = ? LIMIT 1').bind(session.sub).first()
+        if (!member || member.status !== 'active' || member.vip_access_status === 'blocked') {
+          return json({ success: false, error: 'Hesabın devre dışı. Yeni cihaz kaydedilemez.' }, 403)
+        }
         const body = await readBody(request)
         const udid = String(body.udid || '').trim().toUpperCase()
         if (!/^[A-F0-9-]{20,40}$/.test(udid)) return json({ success: false, error: 'UDID biçimi geçerli görünmüyor.' }, 400)
@@ -2003,6 +2011,9 @@ export async function onRequest({ request, env, params }) {
         const member = await env.DB.prepare(
           'SELECT username, group_name, status, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id = ? LIMIT 1'
         ).bind(session.sub).first()
+        if (!member || member.status !== 'active' || member.vip_access_status === 'blocked') {
+          return json({ success: false, error: 'Hesabın devre dışı. IPA imzalama erişimi kapalı.' }, 403)
+        }
         const activeTrial = !isActiveVip(member)
           ? await env.DB.prepare('SELECT device_udid, expires_at FROM trial_access WHERE user_id = ? LIMIT 1').bind(session.sub).first()
           : null

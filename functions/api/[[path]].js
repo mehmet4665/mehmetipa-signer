@@ -1740,6 +1740,38 @@ export async function onRequest({ request, env, params }) {
           .bind(randomId(), session.sub, udid, 'pending', new Date().toISOString()).run()
         return json({ success: true, status: 'pending' }, 201)
       }
+
+      const memberDeviceMatch = path.match(/^\\/api\\/devices\\/([^/]+)$/)
+      if (memberDeviceMatch && method === 'DELETE') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici cihaz kaydını bu uçtan silemez.' }, 403)
+        const device = await env.DB.prepare(
+          'SELECT id, user_id, udid, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status FROM devices WHERE id = ? AND user_id = ? LIMIT 1'
+        ).bind(memberDeviceMatch[1], session.sub).first()
+        if (!device) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
+        let appleSync = null
+        if (device.apple_device_id) {
+          appleSync = await updateAppleDeviceStatus(env, device, 'DISABLED', 'member_removed_own_device')
+          if (!appleSync.ok) {
+            return json({
+              success: false,
+              error: 'Apple cihazı devre dışı bırakılamadı. Yerel UDID kaydı korunuyor; tekrar deneyin.',
+              apple_device_sync: appleSync
+            }, 502)
+          }
+        } else {
+          const profile = await retireAppleProvisioningProfile(env, device, 'member_removed_own_device')
+          if (!profile.ok) return json({ success: false, error: profile.error || 'Cihaza ait profil kaldırılamadı.' }, 502)
+        }
+        await env.DB.prepare('DELETE FROM devices WHERE id = ? AND user_id = ?').bind(device.id, session.sub).run()
+        return json({
+          success: true,
+          apple_device_disabled: !!device.apple_device_id,
+          apple_record_deleted: false,
+          trial_reset: false,
+          apple_device_sync: appleSync,
+          message: 'Mehmet IPA cihaz kaydı kaldırıldı. Apple Developer cihazı silinmedi; devre dışı bırakıldı ve yıllık cihaz kotası geri verilmedi.'
+        })
+      }
         
 
       // MEMBER PRESENCE: heartbeat and device/browser details derived from request headers.

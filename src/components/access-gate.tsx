@@ -499,16 +499,21 @@ export function AccessGate() {
   const register = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); setNotice('')
     if (registerPassword !== registerPasswordAgain) { setBusy(false); setError('Şifreler eşleşmiyor.'); return }
+    let firebaseIdToken = ''
     try {
-      await api('/api/auth/register',undefined,{method:'POST',body:JSON.stringify({name:registerName,username:registerUsername,email:registerEmail,password:registerPassword})})
       const account = await firebaseIdentityRequest<{idToken:string}>('accounts:signUp',{email:registerEmail.trim().toLowerCase(),password:registerPassword,returnSecureToken:true})
-      await firebaseIdentityRequest('accounts:sendOobCode',{requestType:'VERIFY_EMAIL',idToken:account.idToken,continueUrl:window.location.origin+'/verify-email'})
+      firebaseIdToken = account.idToken
+      await api('/api/auth/register',undefined,{method:'POST',body:JSON.stringify({name:registerName,username:registerUsername,email:registerEmail,password:registerPassword,firebaseIdToken})})
+      await firebaseIdentityRequest('accounts:sendOobCode',{requestType:'VERIFY_EMAIL',idToken:firebaseIdToken,continueUrl:window.location.origin+'/verify-email'})
       setVerifyEmailInput(registerEmail.trim().toLowerCase())
       setVerifyPasswordInput('')
       setView('verify')
       setNotice('Doğrulama bağlantısı Gmail adresine gönderildi. E-postanı açıp bağlantıya tıkla; sonra bu ekranda şifreni girerek hesabını etkinleştir.')
       setRegisterPassword(''); setRegisterPasswordAgain('')
-    } catch(e) { setError(e instanceof Error ? e.message : 'Kayıt başlatılamadı.') }
+    } catch(e) {
+      if (firebaseIdToken) await firebaseIdentityRequest('accounts:delete',{idToken:firebaseIdToken}).catch(()=>{})
+      setError(e instanceof Error ? e.message : 'Kayıt başlatılamadı.')
+    }
     finally { setBusy(false) }
   }
   const requestPasswordReset = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(''); setNotice(''); try { const result=await api<{message:string}>('/api/auth/forgot-password',undefined,{method:'POST',body:JSON.stringify({email:forgotEmail})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'İstek gönderilemedi.') } finally { setBusy(false) } }

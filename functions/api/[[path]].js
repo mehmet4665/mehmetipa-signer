@@ -712,8 +712,7 @@ async function refreshAppleDeviceAndProfile(env, device) {
     await retireAppleProvisioningProfile(env, current, 'apple_device_disabled')
     return { ok: true, status, profile_status: 'disabled' }
   }
-  if (status === 'ENABLED' && current.status === 'approved' &&
-      (current.profile_status !== 'active' || !current.profile_key || !current.apple_profile_id)) {
+  if (status === 'ENABLED' && current.status === 'approved') {
     const profile = await ensureAppleAdHocProfile(env, current)
     return { ok: profile.ok, status, profile }
   }
@@ -2030,6 +2029,22 @@ export async function onRequest({ request, env, params }) {
             ? 'Denemeyi başlattığın onaylı UDID hesabında bulunamadı.'
             : 'IPA imzalamak için onaylı cihaz kaydı gerekiyor.' }, 403)
         }
+        const liveDeviceState = await refreshAppleDeviceAndProfile(env, signingDevice)
+        if (!liveDeviceState.ok || String(liveDeviceState.status || '').toUpperCase() !== 'ENABLED') {
+          return json({
+            success: false,
+            error: liveDeviceState.status === 'DISABLED'
+              ? 'Apple cihazı devre dışı. Bu iPhone için yeni IPA imzalanamaz.'
+              : liveDeviceState.profile?.pending
+                ? 'Apple cihazı veya Ad Hoc profili henüz hazır değil. Biraz sonra tekrar dene.'
+                : liveDeviceState.profile?.error || 'Apple cihazı ve imza profili doğrulanamadı.'
+          }, 403)
+        }
+        const currentSigningDevice = await env.DB.prepare(
+          "SELECT id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at FROM devices WHERE id = ? AND user_id = ? LIMIT 1"
+        ).bind(signingDevice.id, session.sub).first()
+        if (!currentSigningDevice) return json({ success: false, error: 'Onaylı cihaz kaydı bulunamadı.' }, 403)
+        signingDevice = currentSigningDevice
         if (String(signingDevice.apple_status || '').toUpperCase() !== 'ENABLED') {
           return json({ success: false, error: 'Apple cihazı ENABLED durumda değil. Apple cihaz durumunu kontrol et.' }, 403)
         }

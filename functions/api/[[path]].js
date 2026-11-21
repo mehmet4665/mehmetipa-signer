@@ -359,6 +359,120 @@ async function appleApiFetch(env, path, options = {}) {
   }
   return body
 }
+
+async function logAppleDeviceEvent(env, device, requestedStatus, appliedStatus, reason, error = null) {
+  const createdAt = new Date().toISOString()
+  await env.DB.prepare(
+    'INSERT INTO apple_device_events (id, device_id, user_id, apple_device_id, udid, requested_status, applied_status, reason, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(
+    randomId(), device?.id || null, device?.user_id || null,
+    device?.apple_device_id || null, device?.udid || null,
+    requestedStatus, appliedStatus || null, reason,
+    error ? String(error).slice(0, 500) : null, createdAt
+  ).run()
+}
+
+async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
+  const status = String(requestedStatus || '').toUpperCase()
+  if (!['ENABLED', 'DISABLED'].includes(status)) {
+    return { ok: false, error: 'Geçersiz Apple cihaz durumu.' }
+  }
+  if (!device?.apple_device_id) {
+    return { ok: true, skipped: true, reason: 'apple_device_id_missing' }
+  }
+
+  const now = new Date().toISOString()
+  await env.DB.prepare('UPDATE devices SET apple_last_attempt_at = ?, apple_last_error = NULL WHERE id = ?')
+    .bind(now, device.id).run()
+
+  if (String(device.apple_status || '').toUpperCase() === status) {
+    return { ok: true, unchanged: true, status }
+  }
+
+  try {
+    const appleId = String(device.apple_device_id)
+    const response = await appleApiFetch(env, '/v1/devices/' + encodeURIComponent(appleId), {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'devices',
+          id: appleId,
+          attributes: { status }
+        }
+      }
+    })
+    let appliedStatus = String(response.data?.attributes?.status || '').toUpperCase()
+    if (appliedStatus !== status) {
+      const verified = await appleApiFetch(
+        env,
+        '/v1/devices/' + encodeURIComponent(appleId) + '?fields%5Bdevices%5D=status'
+      )
+      appliedStatus = String(verified.data?.attributes?.status || '').toUpperCase()
+    }
+    if (appliedStatus !== status) {
+      throw new Error('Apple cihaz durumu güncellendi ancak doğrulanamadı.')
+    }
+
+    const updatedAt = new Date().toISOString()
+    await env.DB.prepare(
+      'UPDATE devices SET apple_status = ?, apple_last_error = NULL, apple_status_updated_at = ?, apple_last_attempt_at = ? WHERE id = ?'
+    ).bind(status, updatedAt, updatedAt, device.id).run()
+    await logAppleDeviceEvent(env, device, status, status, reason)
+    return { ok: true, changed: true, status }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Apple cihaz durumu güncellenemedi.'
+    await env.DB.prepare('UPDATE devices SET apple_last_error = ?, apple_last_attempt_at = ? WHERE id = ?')
+      .bind(message.slice(0, 500), new Date().toISOString(), device.id).run().catch(() => {})
+    await logAppleDeviceEvent(env, device, status, null, reason, message).catch(() => {})
+    return { ok: false, error: message }
+  }
+}
+
+async function syncUserAppleDevices(env, userId, status, reason) {
+  const { results = [] } = await env.DB.prepare(
+    'SELECT id, user_id, udid, apple_device_id, apple_status FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
+  ).bind(userId).all()
+  const outcomes = []
+  for (const device of results) {
+    outcomes.push(await updateAppleDeviceStatus(env, device, status, reason))
+  }
+  return {
+    ok: outcomes.every(item => item.ok),
+    requested_status: status,
+    linked_devices: outcomes.length,
+    changed: outcomes.filter(item => item.changed).length,
+    failed: outcomes.filter(item => !item.ok).length,
+    outcomes
+  }
+}
+
+async function syncMemberAppleAccess(env, userId, reason, forceDisable = false) {
+  const member = await env.DB.prepare(
+    'SELECT status, group_name, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id = ? LIMIT 1'
+  ).bind(userId).first()
+  const trial = await env.DB.prepare(
+    'SELECT expires_at FROM trial_access WHERE user_id = ? LIMIT 1'
+  ).bind(userId).first()
+  const activeTrial = !!trial && new Date(trial.expires_at).getTime() > Date.now()
+  let desiredStatus = null
+
+  if (!member || member.status !== 'active' || member.vip_access_status === 'blocked') {
+    desiredStatus = 'DISABLED'
+  } else if (isActiveVip(member) || activeTrial) {
+    desiredStatus = 'ENABLED'
+  } else if (
+    forceDisable ||
+    !!trial ||
+    (!!member.vip_plan && member.vip_plan !== 'unlimited' && !!member.vip_expires_at &&
+      new Date(member.vip_expires_at).getTime() <= Date.now())
+  ) {
+    desiredStatus = 'DISABLED'
+  }
+
+  if (!desiredStatus) return { ok: true, skipped: true, reason: 'no_expiring_or_active_entitlement' }
+  return syncUserAppleDevices(env, userId, desiredStatus, reason)
+}
+
 function bearer(request) {
   return request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
 }
@@ -397,6 +511,102 @@ export async function onRequest({ request, env, params }) {
     
     const path = `/api/${Array.isArray(params.path) ? params.path.join('/') : params.path || ''}`.replace(/\/$/, '')
     const method = request.method.toUpperCase()
+
+
+    if (path === '/api/internal/expire-access' && method === 'POST') {
+      const timestamp = request.headers.get('x-mehmetipa-timestamp') || ''
+      const signature = request.headers.get('x-mehmetipa-signature') || ''
+      if (!/^\d{13}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > 180000 || !signature) {
+        return json({ success: false, error: 'Zamanlayıcı kimlik doğrulaması başarısız.' }, 401)
+      }
+      const secretRow = await env.DB.prepare(
+        "SELECT secret_value FROM system_secrets WHERE secret_key = 'expiry_cron_hmac' LIMIT 1"
+      ).first()
+      if (!secretRow?.secret_value) {
+        return json({ success: false, error: 'Zamanlayıcı güvenlik anahtarı yapılandırılmamış.' }, 503)
+      }
+      let signatureValid = false
+      try {
+        signatureValid = await crypto.subtle.verify(
+          'HMAC',
+          await hmacKey(secretRow.secret_value),
+          fromB64url(signature),
+          encoder.encode(timestamp + '\nPOST\n/api/internal/expire-access')
+        )
+      } catch {
+        signatureValid = false
+      }
+      if (!signatureValid) return json({ success: false, error: 'Zamanlayıcı imzası geçersiz.' }, 401)
+
+      const now = Date.now()
+      const nowIso = new Date(now).toISOString()
+      let changed = 0
+      let failed = 0
+      let skipped = 0
+      let inspected = 0
+      const pageSize = 250
+      let offset = 0
+      while (true) {
+        const { results = [] } = await env.DB.prepare(
+          'SELECT devices.id, devices.user_id, devices.udid, devices.status AS device_status, devices.apple_device_id, devices.apple_status, users.status AS user_status, users.group_name, users.vip_plan, users.vip_expires_at, users.vip_access_status, trial_access.expires_at AS trial_expires_at FROM devices INNER JOIN users ON users.id = devices.user_id LEFT JOIN trial_access ON trial_access.user_id = users.id WHERE devices.apple_device_id IS NOT NULL ORDER BY devices.created_at DESC LIMIT ? OFFSET ?'
+        ).bind(pageSize, offset).all()
+        if (!results.length) break
+        inspected += results.length
+        for (const device of results) {
+        const member = {
+          status: device.user_status,
+          group_name: device.group_name,
+          vip_plan: device.vip_plan,
+          vip_expires_at: device.vip_expires_at,
+          vip_access_status: device.vip_access_status
+        }
+        const trialExpiry = device.trial_expires_at ? new Date(device.trial_expires_at).getTime() : 0
+        const activeTrial = trialExpiry > now
+        const expiredTrial = !!device.trial_expires_at && trialExpiry <= now
+        const vipExpiry = device.vip_expires_at ? new Date(device.vip_expires_at).getTime() : 0
+        const expiredVip = !!device.vip_plan && device.vip_plan !== 'unlimited' &&
+          !!device.vip_expires_at && vipExpiry <= now
+        const explicitlyBlocked = device.user_status !== 'active' ||
+          device.vip_access_status === 'blocked' || device.device_status !== 'approved'
+        let desiredStatus = null
+        let reason = ''
+
+        if (explicitlyBlocked) {
+          desiredStatus = 'DISABLED'
+          reason = 'account_or_device_blocked'
+        } else if (isActiveVip(member, now) || activeTrial) {
+          desiredStatus = 'ENABLED'
+          reason = 'active_membership_or_trial'
+        } else if (expiredTrial || expiredVip) {
+          desiredStatus = 'DISABLED'
+          reason = expiredTrial && expiredVip ? 'trial_and_vip_expired' : expiredTrial ? 'trial_expired' : 'vip_expired'
+        }
+
+        if (!desiredStatus) {
+          skipped++
+          continue
+        }
+        const currentStatus = String(device.apple_status || '').toUpperCase()
+        if (currentStatus === desiredStatus) {
+          skipped++
+          continue
+        }
+        const result = await updateAppleDeviceStatus(env, device, desiredStatus, reason)
+        if (result.ok && result.changed) changed++
+        else if (!result.ok) failed++
+        else skipped++
+        }
+        offset += results.length
+        if (results.length < pageSize) break
+      }
+
+      const runId = randomId()
+      await env.DB.prepare(
+        'INSERT INTO expiry_sweep_runs (id, run_at, inspected, changed, failed, skipped) VALUES (?, ?, ?, ?, ?, ?)'
+      ).bind(runId, nowIso, inspected, changed, failed, skipped).run()
+      await env.DB.prepare("DELETE FROM expiry_sweep_runs WHERE run_at < datetime('now', '-30 days')").run()
+      return json({ success: true, run_id: runId, inspected, changed, failed, skipped, checked_at: nowIso })
+    }
 
     if (path === '/api/health' && method === 'GET') {
       if (!env.SIGNER_SERVICE || typeof env.SIGNER_SERVICE.fetch !== 'function') {
@@ -585,8 +795,13 @@ export async function onRequest({ request, env, params }) {
         if (isActiveVip(member)) return json({ success: false, error: 'Zaten aktif VIP üyeliğin var.' }, 409)
         const existing = await env.DB.prepare('SELECT expires_at FROM trial_access WHERE user_id = ? LIMIT 1').bind(session.sub).first()
         if (existing) return json({ success: false, error: 'Ücretsiz deneme hakkın daha önce kullanılmış. Deneme yalnızca bir kez başlatılabilir.' }, 409)
-        const approvedDevice = await env.DB.prepare("SELECT udid FROM devices WHERE user_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 1").bind(session.sub).first()
+        const approvedDevice = await env.DB.prepare("SELECT id, udid, apple_device_id, apple_status, user_id FROM devices WHERE user_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 1").bind(session.sub).first()
         if (!approvedDevice) return json({ success: false, error: 'Önce Hesabım bölümünden UDID kaydını gönderip yönetici onayı alman gerekiyor. Bu onay şu an Apple Developer kaydı değildir.' }, 409)
+        let appleTrialSync = null
+        if (approvedDevice.apple_device_id) {
+          appleTrialSync = await updateAppleDeviceStatus(env, approvedDevice, 'ENABLED', 'trial_started')
+          if (!appleTrialSync.ok) return json({ success: false, error: 'Deneme başlatılamadı: Apple cihazı yeniden etkinleştirilemedi.', apple_device_sync: appleTrialSync }, 502)
+        }
         const now = new Date()
         const startedAt = now.toISOString()
         const expiresAt = new Date(now.getTime() + 60 * 60 * 1000).toISOString()
@@ -596,7 +811,7 @@ export async function onRequest({ request, env, params }) {
         } catch {
           return json({ success: false, error: 'Bu hesap veya cihaz için deneme hakkı daha önce kullanılmış.' }, 409)
         }
-        return json({ success: true, started: true, active: true, started_at: startedAt, expires_at: expiresAt, message: '1 saatlik ücretsiz denemen başladı.' }, 201)
+        return json({ success: true, started: true, active: true, started_at: startedAt, expires_at: expiresAt, apple_device_sync: appleTrialSync, message: '1 saatlik ücretsiz denemen başladı.' }, 201)
       }
 
       if (path === '/api/vip/plans' && method === 'GET') {
@@ -656,7 +871,8 @@ export async function onRequest({ request, env, params }) {
           env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_updated_at=? WHERE id=?").bind(order.plan_code, expiresAt, now, order.user_id)
         ])
         if (!result?.length || Number(result[0]?.meta?.changes || 0) !== 1) return json({ success: false, error: 'Talep eşzamanlı olarak işlenmiş olabilir; yenileyip kontrol et.' }, 409)
-        return json({ success: true, expires_at: expiresAt })
+        const appleSync = await syncMemberAppleAccess(env, order.user_id, 'vip_order_approved')
+        return json({ success: true, expires_at: expiresAt, apple_device_sync: appleSync })
       }
 
       const manualVipMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/vip$/)
@@ -668,11 +884,15 @@ export async function onRequest({ request, env, params }) {
         const now = new Date().toISOString()
         if (body.action === 'revoke') {
           await env.DB.prepare("UPDATE users SET group_name='Standart', vip_plan=NULL, vip_expires_at=NULL, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(now, target.id).run()
-          return json({ success: true, message: 'VIP üyeliği kaldırıldı.' })
+          const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_revoked', true)
+          return json({ success: true, apple_device_sync: appleSync, message: 'VIP üyeliği kaldırıldı.' })
         }
         if (body.action === 'block' || body.action === 'unblock') {
           await env.DB.prepare("UPDATE users SET vip_access_status=?, vip_updated_at=? WHERE id=?").bind(body.action === 'block' ? 'blocked' : 'active', now, target.id).run()
-          return json({ success: true, is_vip: body.action === 'unblock' && isActiveVip({ ...target, status: target.status, vip_access_status: 'active' }) })
+          const appleSync = body.action === 'block'
+            ? await syncUserAppleDevices(env, target.id, 'DISABLED', 'vip_access_blocked')
+            : await syncMemberAppleAccess(env, target.id, 'vip_access_unblocked')
+          return json({ success: true, apple_device_sync: appleSync, is_vip: body.action === 'unblock' && isActiveVip({ ...target, status: target.status, vip_access_status: 'active' }) })
         }
         if (body.action === 'extend') {
           const days = Number(body.days)
@@ -681,7 +901,8 @@ export async function onRequest({ request, env, params }) {
           const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
           const expiresAt = new Date(base + days * 86400000).toISOString()
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=CASE WHEN vip_plan='unlimited' THEN 'unlimited' ELSE COALESCE(vip_plan,'manual') END, vip_expires_at=CASE WHEN vip_plan='unlimited' THEN NULL ELSE ? END, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(expiresAt, now, target.id).run()
-          return json({ success: true, expires_at: target.vip_plan === 'unlimited' ? null : expiresAt })
+          const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_extended_days')
+          return json({ success: true, expires_at: target.vip_plan === 'unlimited' ? null : expiresAt, apple_device_sync: appleSync })
         }
         if (body.action === 'extend_time') {
           const minutes = Number(body.minutes)
@@ -691,11 +912,13 @@ export async function onRequest({ request, env, params }) {
           const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
           const expiresAt = new Date(base + minutes * 60000).toISOString()
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=COALESCE(vip_plan,'manual'), vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(expiresAt, now, target.id).run()
-          return json({ success: true, expires_at: expiresAt, minutes_added: minutes })
+          const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_extended_minutes')
+          return json({ success: true, expires_at: expiresAt, minutes_added: minutes, apple_device_sync: appleSync })
         }
         if (body.plan_code === 'unlimited') {
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan='unlimited', vip_expires_at=NULL, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(now, target.id).run()
-          return json({ success: true, expires_at: null, unlimited: true })
+          const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_unlimited_granted')
+          return json({ success: true, expires_at: null, unlimited: true, apple_device_sync: appleSync })
         }
         const plan = VIP_PLANS[String(body.plan_code || '')]
         if (!plan) return json({ success: false, error: 'Geçersiz VIP paketi.' }, 400)
@@ -703,7 +926,8 @@ export async function onRequest({ request, env, params }) {
         const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
         const expiresAt = new Date(base + plan.duration_days * 86400000).toISOString()
         await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(plan.code, expiresAt, now, target.id).run()
-        return json({ success: true, expires_at: expiresAt })
+        const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_plan_granted')
+        return json({ success: true, expires_at: expiresAt, apple_device_sync: appleSync })
       }
 
       // Per-user signing progress feed. Job IDs are unguessable UUIDs and records live in the private R2 bucket.
@@ -772,7 +996,10 @@ export async function onRequest({ request, env, params }) {
         const group = body.group_name === undefined ? null : String(body.group_name).trim().slice(0, 40)
         if (status) await env.DB.prepare('UPDATE users SET status = ? WHERE id = ?').bind(status, userMatch[1]).run()
         if (group !== null) await env.DB.prepare('UPDATE users SET group_name = ? WHERE id = ?').bind(group, userMatch[1]).run()
-        return json({ success: true })
+        let appleSync = null
+        if (status === 'blocked') appleSync = await syncUserAppleDevices(env, userMatch[1], 'DISABLED', 'member_blocked')
+        else if (status === 'active' || group !== null) appleSync = await syncMemberAppleAccess(env, userMatch[1], 'member_settings_updated')
+        return json({ success: true, apple_device_sync: appleSync })
       }
       if (userMatch && method === 'DELETE') {
         const denied = requireAdmin(); if (denied) return denied
@@ -806,7 +1033,7 @@ export async function onRequest({ request, env, params }) {
 
       if (path === '/api/admin/devices' && method === 'GET') {
         const denied = requireAdmin(); if (denied) return denied
-        const { results = [] } = await env.DB.prepare('SELECT devices.id, devices.user_id, devices.udid, devices.status, devices.created_at, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id ORDER BY devices.created_at DESC').all()
+        const { results = [] } = await env.DB.prepare('SELECT devices.id, devices.user_id, devices.udid, devices.status, devices.created_at, devices.apple_status, devices.apple_last_error, devices.apple_status_updated_at, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id ORDER BY devices.created_at DESC').all()
         return json({ success: true, devices: results })
       }
       const deviceMatch = path.match(/^\/api\/(admin\/)?devices\/([^/]+)$/)
@@ -818,7 +1045,7 @@ export async function onRequest({ request, env, params }) {
 
         if (status === 'approved') {
           const device = await env.DB.prepare(
-            'SELECT devices.id, devices.udid, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id WHERE devices.id = ? LIMIT 1'
+            'SELECT devices.id, devices.user_id, devices.udid, devices.apple_device_id, devices.apple_status, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id WHERE devices.id = ? LIMIT 1'
           ).bind(deviceMatch[2]).first()
           if (!device) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
 
@@ -837,6 +1064,19 @@ export async function onRequest({ request, env, params }) {
               item => String(item.attributes?.udid || '').trim().toUpperCase() === udid
             )
             if (existingAppleDevice) {
+              if (device.apple_device_id && String(device.apple_device_id) === String(existingAppleDevice.id)) {
+                await env.DB.prepare('UPDATE devices SET status = ? WHERE id = ?').bind('approved', deviceMatch[2]).run()
+                const appleSync = await syncMemberAppleAccess(env, device.user_id, 'device_reapproved')
+                return json({
+                  success: true,
+                  status: 'approved',
+                  apple_registered: true,
+                  already_registered: true,
+                  apple_device_id: existingAppleDevice.id,
+                  apple_device_sync: appleSync,
+                  message: 'Bu cihaz zaten Mehmet IPA hesabına bağlı. Apple kaydı doğrulandı.'
+                })
+              }
               return json({
                 success: false,
                 code: 'UDID_ALREADY_REGISTERED',
@@ -862,13 +1102,18 @@ export async function onRequest({ request, env, params }) {
               return json({ success: false, error: 'Apple cihaz kaydı doğrulanamadı. Üyelik onaylanmadı.' }, 502)
             }
 
-            await env.DB.prepare('UPDATE devices SET status = ? WHERE id = ?').bind('approved', deviceMatch[2]).run()
+            const appleStatus = String(appleDevice.attributes?.status || 'ENABLED').toUpperCase()
+            const savedAt = new Date().toISOString()
+            await env.DB.prepare(
+              'UPDATE devices SET status = ?, apple_device_id = ?, apple_status = ?, apple_last_error = NULL, apple_status_updated_at = ?, apple_last_attempt_at = ? WHERE id = ?'
+            ).bind('approved', appleDevice.id, appleStatus, savedAt, savedAt, deviceMatch[2]).run()
             return json({
               success: true,
               status: 'approved',
               apple_registered: true,
               already_registered: false,
               apple_device_id: appleDevice.id,
+              apple_status: appleStatus,
               message: 'UDID Apple Developer hesabına kaydedildi; üyelik onaylandı.'
             })
           } catch (error) {
@@ -880,8 +1125,18 @@ export async function onRequest({ request, env, params }) {
           }
         }
 
+        const localDevice = await env.DB.prepare(
+          'SELECT id, user_id, udid, apple_device_id, apple_status FROM devices WHERE id = ? LIMIT 1'
+        ).bind(deviceMatch[2]).first()
+        if (!localDevice) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
         await env.DB.prepare('UPDATE devices SET status = ? WHERE id = ?').bind(status, deviceMatch[2]).run()
-        return json({ success: true, status })
+        let appleSync = null
+        if (localDevice.apple_device_id && status !== 'approved') {
+          appleSync = await updateAppleDeviceStatus(env, localDevice, 'DISABLED', 'device_status_' + status)
+        } else if (status === 'approved') {
+          appleSync = await syncMemberAppleAccess(env, localDevice.user_id, 'device_status_approved')
+        }
+        return json({ success: true, status, apple_device_sync: appleSync })
       }
 
       if (path === '/api/devices' && method === 'GET') {

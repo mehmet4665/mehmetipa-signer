@@ -698,44 +698,73 @@ export async function onRequest({ request, env, params }) {
 
     if (path === '/api/auth/register' && method === 'POST') {
       if (!(await rateLimit(env, request, 'register', 5, 30))) return json({ success: false, error: 'Çok fazla kayıt denemesi. Bir süre sonra tekrar dene.' }, 429)
-      if (!env.RESEND_API_KEY || !env.MAIL_FROM) return json({ success: false, error: 'E-posta doğrulama servisi şu anda hazır değil. Lütfen daha sonra tekrar dene.' }, 503)
       const body = await readBody(request)
       const name = String(body.name || '').trim().slice(0, 80)
       const username = String(body.username || '').trim().toLowerCase()
       const email = String(body.email || '').trim().toLowerCase()
       const password = String(body.password || '')
-      if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success: false, error: 'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' }, 400)
+      const firebaseIdToken = String(body.firebaseIdToken || '')
+      if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || password.length > 128 || !firebaseIdToken) return json({ success: false, error: 'Ad soyad, geçerli e-posta, uygun kullanıcı adı, şifre ve Firebase oturumu gerekli.' }, 400)
+      const firebaseResponse = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyCqZO4g5E4CbHqkc0A1C86DIHQrHMv8n9U', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({idToken:firebaseIdToken}) })
+      const firebaseData = await firebaseResponse.json().catch(() => ({}))
+      const firebaseUser = firebaseData?.users?.[0]
+      if (!firebaseResponse.ok || !firebaseUser?.email || String(firebaseUser.email).toLowerCase() !== email) return json({success:false,error:'Firebase e-posta hesabı doğrulanamadı. Yeniden kayıt olmayı dene.'},401)
       const existing = await env.DB.prepare('SELECT id FROM users WHERE username=? OR lower(email)=? LIMIT 1').bind(username, email).first()
       if (existing) return json({ success: false, error: 'Bu kullanıcı adı veya e-posta zaten kayıtlı.' }, 409)
-      const pending = await env.DB.prepare("SELECT id FROM registration_requests WHERE (username=? OR email=?) AND status='verification_pending' AND verification_expires_at>? LIMIT 1").bind(username,email,new Date().toISOString()).first()
-      if (pending) return json({ success: false, error: 'Bu kullanıcı adı veya e-posta için doğrulama bekleyen kayıt var. E-postanı kontrol et.' }, 409)
-      const id = randomId(), now = new Date().toISOString(), passwordHash = await hashPassword(password)
-      const verificationToken = randomToken(), tokenHash = await sha256Hex(verificationToken), expires = new Date(Date.now()+30*60*1000).toISOString()
+      const now = new Date().toISOString()
+      const passwordHash = await hashPassword(password)
+      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      const sameEmail = await env.DB.prepare("SELECT id,username FROM registration_requests WHERE lower(email)=? AND status='verification_pending' LIMIT 1").bind(email).first()
+      const sameUsername = await env.DB.prepare("SELECT id,email FROM registration_requests WHERE lower(username)=? AND status='verification_pending' AND lower(email)<>? LIMIT 1").bind(username,email).first()
+      if (sameUsername) return json({ success: false, error: 'Bu kullanıcı adı başka bir bekleyen kayıt tarafından kullanılıyor.' }, 409)
       try {
-        await env.DB.prepare("INSERT INTO registration_requests (id,name,username,email,password_hash,status,created_at,verification_token_hash,verification_expires_at) VALUES (?,?,?,?,?,'verification_pending',?,?,?)").bind(id,name,username,email,passwordHash,now,tokenHash,expires).run()
-        const verifyUrl = 'https://mehmetipa-signer.pages.dev/verify-email?token=' + encodeURIComponent(verificationToken)
-        await sendMail(env,{to:email,subject:'Mehmet IPA e-posta doğrulama',html:emailHtml('E-posta adresini doğrula','Mehmet IPA hesabını etkinleştirmek için aşağıdaki bağlantıya tıkla. Bağlantı 30 dakika geçerlidir.',verifyUrl,'E-postamı doğrula')})
-      } catch (error) {
-        await env.DB.prepare("DELETE FROM registration_requests WHERE id=? AND status='verification_pending'").bind(id).run().catch(()=>{})
-        return json({ success: false, error: 'Doğrulama e-postası gönderilemedi. E-posta adresini kontrol edip tekrar dene.' }, 502)
+        if (sameEmail) {
+          await env.DB.prepare("UPDATE registration_requests SET name=?,username=?,password_hash=?,created_at=?,verification_expires_at=?,verification_token_hash=NULL WHERE id=?").bind(name,username,passwordHash,now,expires,sameEmail.id).run()
+        } else {
+          await env.DB.prepare("INSERT INTO registration_requests (id,name,username,email,password_hash,status,created_at,verification_token_hash,verification_expires_at) VALUES (?,?,?,?,?,'verification_pending',?,NULL,?)").bind(randomId(),name,username,email,passwordHash,now,expires).run()
+        }
+      } catch {
+        return json({ success: false, error: 'Kayıt isteği kaydedilemedi. Bilgileri kontrol edip tekrar dene.' }, 500)
       }
-      return json({ success: true, message: 'Doğrulama bağlantısı e-posta adresine gönderildi. Bağlantıya tıklayınca hesabın otomatik açılacak.' }, 201)
+      return json({ success: true, message: 'Kayıt isteğin hazır. Firebase şimdi e-posta adresine doğrulama bağlantısı gönderecek.' }, 201)
     }
     if (path === '/api/auth/verify-email' && method === 'POST') {
       if (!(await rateLimit(env, request, 'verify-email', 10, 15))) return json({success:false,error:'Çok fazla doğrulama denemesi. Daha sonra tekrar dene.'},429)
-      const body=await readBody(request), hash=await sha256Hex(String(body.token||''))
-      const row=await env.DB.prepare("SELECT id,name,username,email,password_hash,status,verification_expires_at FROM registration_requests WHERE verification_token_hash=? LIMIT 1").bind(hash).first()
-      if(!row || row.status!=='verification_pending' || !row.verification_expires_at || new Date(row.verification_expires_at).getTime()<Date.now()) return json({success:false,error:'Doğrulama bağlantısı geçersiz veya süresi dolmuş.'},400)
-      const conflict=await env.DB.prepare('SELECT id FROM users WHERE username=? OR lower(email)=? LIMIT 1').bind(row.username,row.email).first()
-      if(conflict) return json({success:false,error:'Bu kullanıcı adı veya e-posta zaten kayıtlı. Destekle iletişime geç.'},409)
-      const userId=randomId(), now=new Date().toISOString()
+      const body = await readBody(request)
+      let verifiedEmail = ''
+      if (body.idToken) {
+        const firebaseResponse = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyCqZO4g5E4CbHqkc0A1C86DIHQrHMv8n9U', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idToken: String(body.idToken) })
+        })
+        const firebaseData = await firebaseResponse.json().catch(() => ({}))
+        const firebaseUser = firebaseData?.users?.[0]
+        if (!firebaseResponse.ok || !firebaseUser?.emailVerified || !firebaseUser?.email) {
+          return json({success:false,error:'Gmail doğrulaması henüz tamamlanmamış. E-postandaki doğrulama bağlantısına tıkla, sonra tekrar dene.'},403)
+        }
+        verifiedEmail = String(firebaseUser.email).trim().toLowerCase()
+      } else if (body.token) {
+        // Backward compatibility for verification links sent by the previous Resend flow.
+        const hash = await sha256Hex(String(body.token))
+        const legacy = await env.DB.prepare("SELECT id,name,username,email,password_hash,status,verification_expires_at FROM registration_requests WHERE verification_token_hash=? LIMIT 1").bind(hash).first()
+        if (!legacy || legacy.status !== 'verification_pending' || !legacy.verification_expires_at || new Date(legacy.verification_expires_at).getTime() < Date.now()) return json({success:false,error:'Doğrulama bağlantısı geçersiz veya süresi dolmuş.'},400)
+        verifiedEmail = String(legacy.email).toLowerCase()
+      } else {
+        return json({success:false,error:'Firebase oturum bilgisi bulunamadı. E-postanı doğruladıktan sonra tekrar giriş yap.'},400)
+      }
+      const row = await env.DB.prepare("SELECT id,name,username,email,password_hash,status,verification_expires_at FROM registration_requests WHERE lower(email)=? AND status='verification_pending' AND verification_expires_at>? LIMIT 1").bind(verifiedEmail,new Date().toISOString()).first()
+      if (!row) return json({success:false,error:'Bu e-posta için bekleyen kayıt bulunamadı veya süresi doldu. Lütfen yeniden kayıt ol.'},404)
+      const conflict = await env.DB.prepare('SELECT id FROM users WHERE username=? OR lower(email)=? LIMIT 1').bind(row.username,row.email).first()
+      if (conflict) return json({success:false,error:'Bu kullanıcı adı veya e-posta zaten kayıtlı. Destekle iletişime geç.'},409)
+      const userId = randomId(), now = new Date().toISOString()
       try {
         await env.DB.batch([
           env.DB.prepare("INSERT INTO users (id,name,username,email,password_hash,group_name,status,created_at,email_verified) VALUES (?,?,?,?,?,'Standart','active',?,1)").bind(userId,row.name,row.username,row.email,row.password_hash,now),
-          env.DB.prepare("UPDATE registration_requests SET status='approved',verified_at=?,reviewed_at=?,reviewed_by='email_verification',verification_token_hash=NULL,verification_expires_at=NULL WHERE id=? AND status='verification_pending'").bind(now,now,row.id)
+          env.DB.prepare("UPDATE registration_requests SET status='approved',verified_at=?,reviewed_at=?,reviewed_by='firebase_email_verification',verification_token_hash=NULL,verification_expires_at=NULL WHERE id=? AND status='verification_pending'").bind(now,now,row.id)
         ])
       } catch { return json({success:false,error:'Hesap oluşturulamadı. Bilgiler zaten kullanılıyor olabilir.'},409) }
-      return json({success:true,message:'E-posta doğrulandı. Hesabın açıldı; artık giriş yapabilirsin.'})
+      return json({success:true,message:'Gmail doğrulandı. Mehmet IPA hesabın açıldı; artık giriş yapabilirsin.'})
     }
     if (path === '/api/auth/forgot-password' && method === 'POST') {
       if (!env.RESEND_API_KEY || !env.MAIL_FROM) return json({ success:false,error:'Şifre sıfırlama e-postası henüz yapılandırılmadı.' },503)

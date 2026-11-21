@@ -366,16 +366,29 @@ function normalizeAppleSerial(value) {
 }
 
 function readProvisioningProfileMetadata(profileBytes) {
-  let message
+  let asn1
   try {
-    const asn1 = forge.asn1.fromDer(bytesToBinary(profileBytes))
-    message = forge.pkcs7.messageFromAsn1(asn1)
+    asn1 = forge.asn1.fromDer(bytesToBinary(profileBytes))
   } catch {
     throw new Error('Provisioning profile içeriği Apple CMS biçiminde okunamadı.')
   }
-  const content = message && message.content
-  const xml = content && typeof content.getBytes === 'function' ? content.getBytes() : ''
-  if (!xml || !xml.includes('<plist')) throw new Error('Provisioning profile XML içeriği bulunamadı.')
+  const contentInfo = asn1.value
+  const signedData = contentInfo?.[1]?.value?.[0]
+  const signedDataFields = signedData?.value || []
+  const encapContentInfo = signedDataFields.find((node) =>
+    node?.tagClass === forge.asn1.Class.UNIVERSAL &&
+    node?.type === forge.asn1.Type.SEQUENCE &&
+    node?.value?.[0]?.type === forge.asn1.Type.OID &&
+    forge.asn1.derToOid(node.value[0].value) === forge.pki.oids.data
+  )
+  const eContentNode = encapContentInfo?.value?.[1]?.value?.[0]
+  if (!eContentNode || eContentNode.type !== forge.asn1.Type.OCTETSTRING ||
+      typeof eContentNode.value !== 'string') {
+    throw new Error('Provisioning profile CMS imzalı XML içeriği bulunamadı.')
+  }
+  const xml = eContentNode.value
+  if (!xml.includes('<plist')) throw new Error('Provisioning profile XML içeriği bulunamadı.')
+
   const stringFor = (key) => {
     const match = xml.match(new RegExp('<key>' + key + '</key>\\s*<string>([^<]*)</string>'))
     return match ? match[1].trim() : ''
@@ -383,11 +396,11 @@ function readProvisioningProfileMetadata(profileBytes) {
   const arrayFor = (key) => {
     const match = xml.match(new RegExp('<key>' + key + '</key>\\s*<array>([\\s\\S]*?)</array>'))
     if (!match) return []
-    return [...match[1].matchAll(/<string>([^<]*)<\/string>/g)].map(item => item[1].trim()).filter(Boolean)
+    return [...match[1].matchAll(/<string>([^<]*)<\\/string>/g)].map(item => item[1].trim()).filter(Boolean)
   }
-  const dateMatch = xml.match(/<key>ExpirationDate<\/key>\s*<date>([^<]+)<\/date>/)
+  const dateMatch = xml.match(/<key>ExpirationDate<\\/key>\\s*<date>([^<]+)<\\/date>/)
   const applicationIdentifier = stringFor('application-identifier')
-  const appMatch = applicationIdentifier.match(/^[A-Z0-9]{10}\.(.+)$/)
+  const appMatch = applicationIdentifier.match(/^[A-Z0-9]{10}\\.(.+)$/)
   const expiration = dateMatch ? new Date(dateMatch[1]) : null
   if (!applicationIdentifier || !appMatch) throw new Error('Provisioning profile application-identifier alanı okunamadı.')
   if (!expiration || !Number.isFinite(expiration.getTime())) throw new Error('Provisioning profile bitiş tarihi okunamadı.')
@@ -399,10 +412,9 @@ function readProvisioningProfileMetadata(profileBytes) {
     teamIdentifier: arrayFor('TeamIdentifier')[0] || '',
     deviceUdis: arrayFor('ProvisionedDevices').map(value => value.toUpperCase()),
     expiresAt: expiration.toISOString(),
-    provisionedAllDevices: /<key>ProvisionsAllDevices<\/key>\s*<true\s*\/>/.test(xml)
+    provisionedAllDevices: /<key>ProvisionsAllDevices<\\/key>\\s*<true\\s*\\/>/.test(xml)
   }
 }
-
 function readP12SigningIdentity(p12Bytes, password) {
   let p12
   try {

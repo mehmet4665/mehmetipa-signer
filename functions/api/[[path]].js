@@ -2074,7 +2074,7 @@ export async function onRequest({ request, env, params }) {
           ])
           const profileMetadata = readProvisioningProfileMetadata(profileBytes)
           if (!profileMetadata.deviceUdis.some(value => value.replace(/-/g, '') === signingDevice.udid.replace(/-/g, ''))) {
-            throw new Error('Cihaza özel Ad Hoc profile içinde bu iPhone'un UDID bilgisi yok.')
+            throw new Error("Cihaza özel Ad Hoc profile içinde bu iPhone'un UDID bilgisi yok.")
           }
           await writeProgress(3, 58, 'Sertifika ve profil hazır', '03/05 · Şifreli P12 ve provisioning profile özel kasadan çözüldü; sertifika durumu ve süre kontrol edildi.')
 

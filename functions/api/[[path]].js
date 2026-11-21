@@ -417,7 +417,7 @@ async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
     await env.DB.prepare(
       'UPDATE devices SET apple_status = ?, apple_last_error = NULL, apple_status_updated_at = ?, apple_last_attempt_at = ? WHERE id = ?'
     ).bind(status, updatedAt, updatedAt, device.id).run()
-    await logAppleDeviceEvent(env, device, status, status, reason)
+    await logAppleDeviceEvent(env, device, status, status, reason).catch(() => {})
     return { ok: true, changed: true, status }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Apple cihaz durumu güncellenemedi.'
@@ -470,7 +470,23 @@ async function syncMemberAppleAccess(env, userId, reason, forceDisable = false) 
   }
 
   if (!desiredStatus) return { ok: true, skipped: true, reason: 'no_expiring_or_active_entitlement' }
-  return syncUserAppleDevices(env, userId, desiredStatus, reason)
+
+  const { results = [] } = await env.DB.prepare(
+    'SELECT id, user_id, udid, apple_device_id, apple_status, status FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
+  ).bind(userId).all()
+  const outcomes = []
+  for (const device of results) {
+    const deviceStatus = device.status === 'approved' ? desiredStatus : 'DISABLED'
+    outcomes.push(await updateAppleDeviceStatus(env, device, deviceStatus, deviceStatus === desiredStatus ? reason : 'device_not_approved'))
+  }
+  return {
+    ok: outcomes.every(item => item.ok),
+    requested_status: desiredStatus,
+    linked_devices: outcomes.length,
+    changed: outcomes.filter(item => item.changed).length,
+    failed: outcomes.filter(item => !item.ok).length,
+    outcomes
+  }
 }
 
 function bearer(request) {

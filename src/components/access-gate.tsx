@@ -60,6 +60,31 @@ const APP_DOWNLOAD = 'https://github.com/mehmet4665/mehmetipa-signer/releases/do
 const UPDATE_MANIFEST = 'https://mehmetipa-signer.pages.dev/app-update.json'
 const API_BASE = 'https://mehmetipa-signer.pages.dev'
 
+const FIREBASE_API_KEY = 'AIzaSyCqZO4g5E4CbHqkc0A1C86DIHQrHMv8n9U'
+
+async function firebaseIdentityRequest<T>(method: string, payload: Record<string, unknown>): Promise<T> {
+  const response = await fetch('https://identitytoolkit.googleapis.com/v1/' + method + '?key=' + FIREBASE_API_KEY, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const code = String((data as any)?.error?.message || '')
+    const messages: Record<string, string> = {
+      EMAIL_EXISTS: 'Bu e-posta Firebase üzerinde zaten kayıtlı. Giriş yapmayı veya şifre sıfırlamayı dene.',
+      INVALID_EMAIL: 'E-posta adresi geçersiz.',
+      WEAK_PASSWORD: 'Şifre en az 8 karakter olmalı.',
+      TOO_MANY_ATTEMPTS_TRY_LATER: 'Çok fazla deneme yapıldı. Bir süre sonra tekrar dene.',
+      EMAIL_NOT_FOUND: 'Firebase hesabı bulunamadı. Kayıt işlemini yeniden başlat.',
+      INVALID_PASSWORD: 'E-posta veya şifre hatalı.',
+      USER_DISABLED: 'Bu e-posta hesabı devre dışı.',
+    }
+    throw new Error(messages[code] || 'Firebase işlemi tamamlanamadı (' + (code || 'UNKNOWN') + ').')
+  }
+  return data as T
+}
+
 async function api<T>(path: string, token?: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('content-type', 'application/json')
@@ -290,6 +315,8 @@ export function AccessGate() {
   const [registerPassword, setRegisterPassword] = React.useState('')
   const [registerPasswordAgain, setRegisterPasswordAgain] = React.useState('')
   const [forgotEmail, setForgotEmail] = React.useState('')
+  const [verifyEmailInput, setVerifyEmailInput] = React.useState('')
+  const [verifyPasswordInput, setVerifyPasswordInput] = React.useState('')
   const [resetPasswordValue, setResetPasswordValue] = React.useState('')
   const [resetPasswordAgain, setResetPasswordAgain] = React.useState('')
   const [resetToken, setResetToken] = React.useState(() => typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : '')
@@ -472,15 +499,46 @@ export function AccessGate() {
   const register = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); setNotice('')
     if (registerPassword !== registerPasswordAgain) { setBusy(false); setError('Şifreler eşleşmiyor.'); return }
-    try { const result=await api<{message:string}>('/api/auth/register',undefined,{method:'POST',body:JSON.stringify({name:registerName,username:registerUsername,email:registerEmail,password:registerPassword})}); setNotice(result.message || 'Hesabın oluşturuldu. Şimdi giriş yapabilirsin.'); setError(''); setRegisterPassword(''); setRegisterPasswordAgain('') }
-    catch(e) { setError(e instanceof Error ? e.message : 'Başvuru gönderilemedi.') } finally { setBusy(false) }
+    try {
+      await api('/api/auth/register',undefined,{method:'POST',body:JSON.stringify({name:registerName,username:registerUsername,email:registerEmail,password:registerPassword})})
+      const account = await firebaseIdentityRequest<{idToken:string}>('accounts:signUp',{email:registerEmail.trim().toLowerCase(),password:registerPassword,returnSecureToken:true})
+      await firebaseIdentityRequest('accounts:sendOobCode',{requestType:'VERIFY_EMAIL',idToken:account.idToken,continueUrl:window.location.origin+'/verify-email'})
+      setVerifyEmailInput(registerEmail.trim().toLowerCase())
+      setVerifyPasswordInput('')
+      setView('verify')
+      setNotice('Doğrulama bağlantısı Gmail adresine gönderildi. E-postanı açıp bağlantıya tıkla; sonra bu ekranda şifreni girerek hesabını etkinleştir.')
+      setRegisterPassword(''); setRegisterPasswordAgain('')
+    } catch(e) { setError(e instanceof Error ? e.message : 'Kayıt başlatılamadı.') }
+    finally { setBusy(false) }
   }
   const requestPasswordReset = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(''); setNotice(''); try { const result=await api<{message:string}>('/api/auth/forgot-password',undefined,{method:'POST',body:JSON.stringify({email:forgotEmail})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'İstek gönderilemedi.') } finally { setBusy(false) } }
   const resetPassword = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(''); setNotice(''); if(resetPasswordValue!==resetPasswordAgain){setBusy(false);setError('Şifreler eşleşmiyor.');return} try { const result=await api<{message:string}>('/api/auth/reset-password',undefined,{method:'POST',body:JSON.stringify({token:resetToken,password:resetPasswordValue})}); setNotice(result.message); setResetPasswordValue('');setResetPasswordAgain('') } catch(e) { setError(e instanceof Error ? e.message : 'Şifre yenilenemedi.') } finally { setBusy(false) } }
-  const verifyRegistrationEmail = React.useCallback(async () => { if (!resetToken) { const token=new URLSearchParams(window.location.search).get('token') || ''; if (!token) { setError('Doğrulama bağlantısı bulunamadı.'); return } setResetToken(token); try { const result=await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({token})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'E-posta doğrulanamadı.') } } else { try { const result=await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({token:resetToken})}); setNotice(result.message) } catch(e) { setError(e instanceof Error ? e.message : 'E-posta doğrulanamadı.') } } },[resetToken])
+  const verifyRegistrationEmail = React.useCallback(async () => {
+    const legacyToken = new URLSearchParams(window.location.search).get('token') || ''
+    if (!legacyToken) return
+    try {
+      const result=await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({token:legacyToken})})
+      setNotice(result.message)
+    } catch(e) { setError(e instanceof Error ? e.message : 'E-posta doğrulanamadı.') }
+  },[])
   React.useEffect(() => {
     if (view === 'verify') verifyRegistrationEmail().catch(() => {})
   }, [view, verifyRegistrationEmail])
+
+  const completeFirebaseVerification = async (event: React.FormEvent) => {
+    event.preventDefault(); setBusy(true); setError(''); setNotice('')
+    try {
+      const signedIn = await firebaseIdentityRequest<{idToken:string}>('accounts:signInWithPassword',{email:verifyEmailInput.trim().toLowerCase(),password:verifyPasswordInput,returnSecureToken:true})
+      const result = await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({idToken:signedIn.idToken})})
+      setNotice(result.message)
+      setVerifyPasswordInput('')
+      setView('login')
+      setLoginMode('member')
+      setUsername(verifyEmailInput.trim().toLowerCase())
+      setPassword('')
+    } catch(e) { setError(e instanceof Error ? e.message : 'E-posta doğrulaması tamamlanamadı.') }
+    finally { setBusy(false) }
+  }
 
   const reviewRegistration = async (request: RegistrationRequest, action: 'approve'|'reject'|'reopen') => { if(!token)return; setError('');setNotice('');try{await api('/api/admin/registration-requests/'+encodeURIComponent(request.id),token,{method:'POST',body:JSON.stringify({action})});await loadAdmin(token);setNotice(action==='approve'?'Başvuru kabul edildi, hesap açıldı.':action==='reject'?'Başvuru reddedildi.':'Başvuru yeniden incelemeye alındı.')}catch(e){setError(e instanceof Error?e.message:'Başvuru işlenemedi.')} }
 
@@ -787,7 +845,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
 
   if (view === 'reset') return <main className="auth-screen-enter flex min-h-screen items-center justify-center bg-[#080B18] px-4 py-10 text-white"><section className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-6 sm:p-9"><Brand/><h1 className="mt-8 text-3xl font-black">Yeni şifre belirle</h1><form onSubmit={resetPassword} className="mt-6 grid gap-4"><label className="grid gap-2 text-sm font-semibold">Yeni şifre<input type="password" value={resetPasswordValue} onChange={e=>setResetPasswordValue(e.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><label className="grid gap-2 text-sm font-semibold">Yeni şifre tekrar<input type="password" value={resetPasswordAgain} onChange={e=>setResetPasswordAgain(e.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><ErrorText error={error}/><NoticeText notice={notice}/><button disabled={busy||!resetToken} className="h-12 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 font-bold disabled:opacity-50">Şifremi yenile</button></form><button onClick={()=>{setView('login');setError('');setNotice('')}} className="mt-5 w-full text-sm text-slate-400">Girişe dön</button></section></main>
 
-  if (view === 'verify') return <main className="auth-screen-enter flex min-h-screen items-center justify-center bg-[#080B18] px-4 py-10 text-white"><section className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-8 text-center"><Brand/><h1 className="mt-8 text-2xl font-black">E-posta doğrulama</h1><p className="mt-3 text-sm text-slate-300">Bağlantın kontrol ediliyor…</p><ErrorText error={error}/><NoticeText notice={notice}/><button onClick={()=>{setView('login');setError('');setNotice('')}} className="mt-6 w-full rounded-xl bg-violet-600 px-4 py-3 font-bold">Giriş ekranına dön</button></section></main>
+  if (view === 'verify') return <main className="auth-screen-enter flex min-h-screen items-center justify-center bg-[#080B18] px-4 py-10 text-white"><section className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-8"><Brand/><h1 className="mt-8 text-2xl font-black">Gmail doğrulaması</h1><p className="mt-3 text-sm leading-6 text-slate-300">Önce Gmail'ine gönderilen Mehmet IPA doğrulama bağlantısına tıkla. Ardından aşağıya kayıt olduğun e-posta ve şifreni girerek hesabını etkinleştir.</p><form onSubmit={completeFirebaseVerification} className="mt-6 grid gap-4"><label className="grid gap-2 text-sm font-semibold">E-posta<input type="email" value={verifyEmailInput} onChange={e=>setVerifyEmailInput(e.target.value)} required autoComplete="email" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><label className="grid gap-2 text-sm font-semibold">Kayıt şifren<input type="password" value={verifyPasswordInput} onChange={e=>setVerifyPasswordInput(e.target.value)} required autoComplete="current-password" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><ErrorText error={error}/><NoticeText notice={notice}/><button disabled={busy} className="h-12 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 font-bold disabled:opacity-50">{busy?'Doğrulama kontrol ediliyor…':'E-postamı doğruladım, hesabı aç →'}</button></form><button onClick={()=>{setView('login');setError('');setNotice('')}} className="mt-5 w-full text-sm text-slate-400">Giriş ekranına dön</button></section></main>
 
   if (view === 'admin' && user?.role === 'admin') return <Frame><header className="flex flex-wrap items-center justify-between gap-3"><Brand /><div className="flex flex-wrap items-center gap-2"><div id="language-picker-slot" className="shrink-0" /><button type="button" onClick={() => void runRefresh('admin-panel', 'Yönetim paneli', () => loadAdmin(token))} disabled={!!refreshing['admin-panel']} className="rounded-xl border px-3 py-2 text-sm transition disabled:cursor-wait disabled:opacity-60">{refreshing['admin-panel'] ? 'Yenileniyor…' : 'Yenile'}</button><button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button></div></header><div className="mt-8"><h1 className="text-2xl font-bold">Yönetim paneli</h1><p className="mt-1 text-sm text-muted-foreground">Üye hesapları ve cihaz onayları</p><ErrorText error={error} /><NoticeText notice={notice} />{refreshFeedback['admin-panel'] && <p aria-live="polite" className="mt-2 text-xs text-muted-foreground">{refreshFeedback['admin-panel']}</p>}</div>
 <nav aria-label="Yönetim bölümleri" className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">

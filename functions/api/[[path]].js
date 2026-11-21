@@ -516,9 +516,19 @@ async function ensureAppleAdHocProfile(env, device) {
   if (!device?.id || !device.apple_device_id) {
     return { ok: false, pending: true, reason: 'apple_device_not_registered' }
   }
+  const latest = await env.DB.prepare(
+    'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial, profile_last_attempt_at FROM devices WHERE id = ? LIMIT 1'
+  ).bind(device.id).first()
+  if (latest) device = { ...device, ...latest }
   if (device.status !== 'approved') {
     return { ok: false, pending: true, reason: 'local_device_not_approved' }
   }
+  if (device.profile_status === 'creating' && device.profile_last_attempt_at &&
+      Date.now() - new Date(device.profile_last_attempt_at).getTime() < 5 * 60 * 1000) {
+    return { ok: false, pending: true, reason: 'profile_creation_already_running' }
+  }
+  let createdAppleProfileId = ''
+  let storedObjectKey = ''
   try {
     const liveDevice = await appleApiFetch(
       env,
@@ -559,9 +569,13 @@ async function ensureAppleAdHocProfile(env, device) {
       return { ok: true, unchanged: true, status: 'active', profile_id: device.apple_profile_id }
     }
 
-    await env.DB.prepare(
-      "UPDATE devices SET profile_status = 'creating', profile_last_error = NULL, profile_last_attempt_at = ? WHERE id = ?"
-    ).bind(new Date().toISOString(), device.id).run()
+    const attemptAt = new Date().toISOString()
+    const lock = await env.DB.prepare(
+      "UPDATE devices SET profile_status = 'creating', profile_last_error = NULL, profile_last_attempt_at = ? WHERE id = ? AND (profile_status != 'creating' OR profile_last_attempt_at IS NULL OR julianday(profile_last_attempt_at) < julianday('now', '-5 minutes'))"
+    ).bind(attemptAt, device.id).run()
+    if (Number(lock.meta?.changes || 0) !== 1) {
+      return { ok: false, pending: true, reason: 'profile_creation_already_running' }
+    }
 
     const resources = await getAppleAdHocProfileResources(env, context)
     const profileName = ('Mehmet IPA ' + String(device.udid || '').replace(/[^A-F0-9]/gi, '').slice(-8) + ' AdHoc').slice(0, 100)
@@ -581,6 +595,7 @@ async function ensureAppleAdHocProfile(env, device) {
     })
     const profileId = String(created.data?.id || '')
     if (!profileId) throw new Error('Apple Ad Hoc provisioning profile ID döndürmedi.')
+    createdAppleProfileId = profileId
     let profileContent = created.data?.attributes?.profileContent || ''
     let profileAttributes = created.data?.attributes || {}
     if (!profileContent) {
@@ -615,6 +630,7 @@ async function ensureAppleAdHocProfile(env, device) {
     validateSigningMaterials(context.p12Bytes, profileBytes, context.password)
 
     const objectKey = 'device-profiles/' + device.id + '/' + randomId() + '.mobileprovision.enc'
+    storedObjectKey = objectKey
     const encrypted = await encryptBytes(profileBytes, env.SIGNING_ENCRYPTION_KEY)
     await env.CERTS.put(objectKey, encrypted.ciphertext, {
       httpMetadata: { contentType: 'application/octet-stream' },
@@ -644,6 +660,10 @@ async function ensureAppleAdHocProfile(env, device) {
     return { ok: true, status: 'active', profile_id: profileId, profile_name: profileAttributes.name || profileName, expires_at: metadata.expiresAt }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Apple Ad Hoc profili oluşturulamadı.'
+    if (storedObjectKey) await env.CERTS.delete(storedObjectKey).catch(() => {})
+    if (createdAppleProfileId) {
+      try { await appleApiFetch(env, '/v1/profiles/' + encodeURIComponent(createdAppleProfileId), { method: 'DELETE' }) } catch {}
+    }
     await env.DB.prepare(
       "UPDATE devices SET profile_status = 'error', profile_last_error = ?, profile_last_attempt_at = ? WHERE id = ?"
     ).bind(message.slice(0, 500), new Date().toISOString(), device.id).run().catch(() => {})
@@ -761,7 +781,13 @@ async function syncUserAppleDevices(env, userId, status, reason) {
   ).bind(userId).all()
   const outcomes = []
   for (const device of results) {
-    outcomes.push(await updateAppleDeviceStatus(env, device, status, reason))
+    const sync = await updateAppleDeviceStatus(env, device, status, reason)
+    let profile = null
+    if (status === 'ENABLED' && sync.ok && device.status === 'approved' &&
+        (device.profile_status !== 'active' || !device.profile_key || !device.apple_profile_id)) {
+      profile = await ensureAppleAdHocProfile(env, { ...device, apple_status: 'ENABLED' })
+    }
+    outcomes.push({ ...sync, profile })
   }
   return {
     ok: outcomes.every(item => item.ok),

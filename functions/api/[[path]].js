@@ -496,7 +496,8 @@ async function retireAppleProvisioningProfile(env, device, reason = 'device_disa
     try {
       await appleApiFetch(env, '/v1/profiles/' + encodeURIComponent(profileId), { method: 'DELETE' })
     } catch (error) {
-      appleDeleteError = error instanceof Error ? error.message : 'Apple provisioning profile silinemedi.'
+      const message = error instanceof Error ? error.message : 'Apple provisioning profile silinemedi.'
+      if (!message.startsWith('Apple API 404:')) appleDeleteError = message
     }
   }
   const profileKey = String(device.profile_key || '')
@@ -1536,7 +1537,14 @@ export async function onRequest({ request, env, params }) {
           const result = device.apple_device_id
             ? await updateAppleDeviceStatus(env, device, 'DISABLED', 'member_deleted')
             : await retireAppleProvisioningProfile(env, device, 'member_deleted')
-          cleanup.push({ device_id: device.id, ok: result.ok })
+          cleanup.push({ device_id: device.id, ok: !!result.ok, error: result.error || null })
+        }
+        if (cleanup.some(item => !item.ok)) {
+          return json({
+            success: false,
+            error: 'Üyelik silinmedi: Apple cihazı veya Ad Hoc profilinin kapatılması tamamlanamadı. Hatalı cihaz işlemleri tekrar denenmeli.',
+            device_cleanup: cleanup
+          }, 502)
         }
         await env.DB.prepare('DELETE FROM devices WHERE user_id = ?').bind(userMatch[1]).run()
         await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userMatch[1]).run()

@@ -1741,7 +1741,7 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, status: 'pending' }, 201)
       }
 
-      const memberDeviceMatch = path.match(/^\\/api\\/devices\\/([^/]+)$/)
+      const memberDeviceMatch = path.match(/^\/api\/devices\/([^/]+)$/)
       if (memberDeviceMatch && method === 'DELETE') {
         if (isAdmin) return json({ success: false, error: 'Yönetici cihaz kaydını bu uçtan silemez.' }, 403)
         const device = await env.DB.prepare(

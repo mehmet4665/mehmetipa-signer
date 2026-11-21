@@ -396,11 +396,11 @@ function readProvisioningProfileMetadata(profileBytes) {
   const arrayFor = (key) => {
     const match = xml.match(new RegExp('<key>' + key + '</key>\\s*<array>([\\s\\S]*?)</array>'))
     if (!match) return []
-    return [...match[1].matchAll(/<string>([^<]*)<\\/string>/g)].map(item => item[1].trim()).filter(Boolean)
+    return [...match[1].matchAll(/<string>([^<]*)<\/string>/g)].map(item => item[1].trim()).filter(Boolean)
   }
-  const dateMatch = xml.match(/<key>ExpirationDate<\\/key>\\s*<date>([^<]+)<\\/date>/)
+  const dateMatch = xml.match(/<key>ExpirationDate<\/key>\s*<date>([^<]+)<\/date>/)
   const applicationIdentifier = stringFor('application-identifier')
-  const appMatch = applicationIdentifier.match(/^[A-Z0-9]{10}\\.(.+)$/)
+  const appMatch = applicationIdentifier.match(/^[A-Z0-9]{10}\.(.+)$/)
   const expiration = dateMatch ? new Date(dateMatch[1]) : null
   if (!applicationIdentifier || !appMatch) throw new Error('Provisioning profile application-identifier alanı okunamadı.')
   if (!expiration || !Number.isFinite(expiration.getTime())) throw new Error('Provisioning profile bitiş tarihi okunamadı.')
@@ -412,7 +412,7 @@ function readProvisioningProfileMetadata(profileBytes) {
     teamIdentifier: arrayFor('TeamIdentifier')[0] || '',
     deviceUdis: arrayFor('ProvisionedDevices').map(value => value.toUpperCase()),
     expiresAt: expiration.toISOString(),
-    provisionedAllDevices: /<key>ProvisionsAllDevices<\\/key>\\s*<true\\s*\\/>/.test(xml)
+    provisionedAllDevices: /<key>ProvisionsAllDevices<\/key>\s*<true\s*\/>/.test(xml)
   }
 }
 function readP12SigningIdentity(p12Bytes, password) {

@@ -697,30 +697,45 @@ export async function onRequest({ request, env, params }) {
     }
 
     if (path === '/api/auth/register' && method === 'POST') {
-      return json({ success: false, error: 'Yeni üyelik kayıtları şu anda kapalı. Mevcut hesabınla giriş yapabilirsin.' }, 403)
       if (!(await rateLimit(env, request, 'register', 5, 30))) return json({ success: false, error: 'Çok fazla kayıt denemesi. Bir süre sonra tekrar dene.' }, 429)
+      if (!env.RESEND_API_KEY || !env.MAIL_FROM) return json({ success: false, error: 'E-posta doğrulama servisi şu anda hazır değil. Lütfen daha sonra tekrar dene.' }, 503)
       const body = await readBody(request)
       const name = String(body.name || '').trim().slice(0, 80)
       const username = String(body.username || '').trim().toLowerCase()
       const email = String(body.email || '').trim().toLowerCase()
       const password = String(body.password || '')
       if (!name || !/^[a-z0-9._-]{3,40}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || password.length > 128) return json({ success: false, error: 'Ad soyad, geçerli e-posta, uygun kullanıcı adı ve en az 8 karakterli şifre gerekli.' }, 400)
-      const existing = await env.DB.prepare('SELECT id FROM users WHERE username=? OR email=? LIMIT 1').bind(username, email).first()
+      const existing = await env.DB.prepare('SELECT id FROM users WHERE username=? OR lower(email)=? LIMIT 1').bind(username, email).first()
       if (existing) return json({ success: false, error: 'Bu kullanıcı adı veya e-posta zaten kayıtlı.' }, 409)
+      const pending = await env.DB.prepare("SELECT id FROM registration_requests WHERE (username=? OR email=?) AND status='verification_pending' AND verification_expires_at>? LIMIT 1").bind(username,email,new Date().toISOString()).first()
+      if (pending) return json({ success: false, error: 'Bu kullanıcı adı veya e-posta için doğrulama bekleyen kayıt var. E-postanı kontrol et.' }, 409)
       const id = randomId(), now = new Date().toISOString(), passwordHash = await hashPassword(password)
+      const verificationToken = randomToken(), tokenHash = await sha256Hex(verificationToken), expires = new Date(Date.now()+30*60*1000).toISOString()
       try {
-        await env.DB.prepare("INSERT INTO users (id,name,username,email,password_hash,group_name,status,created_at,email_verified) VALUES (?,?,?,?,?,'Standart','active',?,1)").bind(id,name,username,email,passwordHash,now).run()
-      } catch {
-        return json({ success: false, error: 'Bu kullanıcı adı veya e-posta zaten kullanılıyor.' }, 409)
+        await env.DB.prepare("INSERT INTO registration_requests (id,name,username,email,password_hash,status,created_at,verification_token_hash,verification_expires_at) VALUES (?,?,?,?,?,'verification_pending',?,?,?)").bind(id,name,username,email,passwordHash,now,tokenHash,expires).run()
+        const verifyUrl = 'https://mehmetipa-signer.pages.dev/verify-email?token=' + encodeURIComponent(verificationToken)
+        await sendMail(env,{to:email,subject:'Mehmet IPA e-posta doğrulama',html:emailHtml('E-posta adresini doğrula','Mehmet IPA hesabını etkinleştirmek için aşağıdaki bağlantıya tıkla. Bağlantı 30 dakika geçerlidir.',verifyUrl,'E-postamı doğrula')})
+      } catch (error) {
+        await env.DB.prepare("DELETE FROM registration_requests WHERE id=? AND status='verification_pending'").bind(id).run().catch(()=>{})
+        return json({ success: false, error: 'Doğrulama e-postası gönderilemedi. E-posta adresini kontrol edip tekrar dene.' }, 502)
       }
-      return json({ success: true, message: 'Hesabın oluşturuldu. Şimdi giriş yapabilirsin.' }, 201)
+      return json({ success: true, message: 'Doğrulama bağlantısı e-posta adresine gönderildi. Bağlantıya tıklayınca hesabın otomatik açılacak.' }, 201)
     }
     if (path === '/api/auth/verify-email' && method === 'POST') {
-      const body=await readBody(request), hash=await sha256Hex(String(body.token||'')); const row=await env.DB.prepare("SELECT id,status,verification_expires_at FROM registration_requests WHERE verification_token_hash=? LIMIT 1").bind(hash).first()
+      if (!(await rateLimit(env, request, 'verify-email', 10, 15))) return json({success:false,error:'Çok fazla doğrulama denemesi. Daha sonra tekrar dene.'},429)
+      const body=await readBody(request), hash=await sha256Hex(String(body.token||''))
+      const row=await env.DB.prepare("SELECT id,name,username,email,password_hash,status,verification_expires_at FROM registration_requests WHERE verification_token_hash=? LIMIT 1").bind(hash).first()
       if(!row || row.status!=='verification_pending' || !row.verification_expires_at || new Date(row.verification_expires_at).getTime()<Date.now()) return json({success:false,error:'Doğrulama bağlantısı geçersiz veya süresi dolmuş.'},400)
-      await env.DB.prepare("UPDATE registration_requests SET status='pending',verified_at=?,verification_token_hash=NULL,verification_expires_at=NULL WHERE id=?").bind(new Date().toISOString(),row.id).run()
-      if (env.ADMIN_NOTIFICATION_EMAIL && env.RESEND_API_KEY && env.MAIL_FROM) await sendMail(env,{to:env.ADMIN_NOTIFICATION_EMAIL,subject:'Mehmet IPA: yeni üyelik başvurusu',html:emailHtml('Yeni üyelik başvurusu',row.username+' kullanıcısının başvurusu yönetici onayını bekliyor. Yönetim panelinden inceleyebilirsin.','https://mehmetipa-signer.pages.dev','Yönetim panelini aç')}).catch(()=>{})
-      return json({success:true,message:'E-posta doğrulandı. Başvurun yönetici onayına gönderildi.'})
+      const conflict=await env.DB.prepare('SELECT id FROM users WHERE username=? OR lower(email)=? LIMIT 1').bind(row.username,row.email).first()
+      if(conflict) return json({success:false,error:'Bu kullanıcı adı veya e-posta zaten kayıtlı. Destekle iletişime geç.'},409)
+      const userId=randomId(), now=new Date().toISOString()
+      try {
+        await env.DB.batch([
+          env.DB.prepare("INSERT INTO users (id,name,username,email,password_hash,group_name,status,created_at,email_verified) VALUES (?,?,?,?,?,'Standart','active',?,1)").bind(userId,row.name,row.username,row.email,row.password_hash,now),
+          env.DB.prepare("UPDATE registration_requests SET status='approved',verified_at=?,reviewed_at=?,reviewed_by='email_verification',verification_token_hash=NULL,verification_expires_at=NULL WHERE id=? AND status='verification_pending'").bind(now,now,row.id)
+        ])
+      } catch { return json({success:false,error:'Hesap oluşturulamadı. Bilgiler zaten kullanılıyor olabilir.'},409) }
+      return json({success:true,message:'E-posta doğrulandı. Hesabın açıldı; artık giriş yapabilirsin.'})
     }
     if (path === '/api/auth/forgot-password' && method === 'POST') {
       if (!env.RESEND_API_KEY || !env.MAIL_FROM) return json({ success:false,error:'Şifre sıfırlama e-postası henüz yapılandırılmadı.' },503)
@@ -738,18 +753,19 @@ export async function onRequest({ request, env, params }) {
     }
     if (path === '/api/auth/login' && method === 'POST') {
       const body = await readBody(request)
-      const username = String(body.username || '').trim()
+      const loginIdentifier = String(body.username || body.email || '').trim()
+      const normalizedLogin = loginIdentifier.toLowerCase()
       const password = String(body.password || '')
       if (!(await rateLimit(env, request, 'login', 10, 15))) return json({ success: false, error: 'Çok fazla giriş denemesi. 15 dakika sonra tekrar dene.' }, 429)
-      if (!username || !password) return json({ success: false, error: 'Kullanıcı adı ve şifre gerekli.' }, 400)
+      if (!loginIdentifier || !password) return json({ success: false, error: 'E-posta veya kullanıcı adı ve şifre gerekli.' }, 400)
 
-      if (username === env.ADMIN_USERNAME && password === env.ADMIN_PASSWORD) {
+      if (loginIdentifier === env.ADMIN_USERNAME && password === env.ADMIN_PASSWORD) {
         await clearRateLimit(env, request, 'login')
-        const token = await issueToken({ sub: 'admin', role: 'admin', name: 'Yönetici', username }, env.ADMIN_PASSWORD)
-        return json({ success: true, token, user: { id: 'admin', name: 'Yönetici', username, role: 'admin' } })
+        const token = await issueToken({ sub: 'admin', role: 'admin', name: 'Yönetici', username: loginIdentifier }, env.ADMIN_PASSWORD)
+        return json({ success: true, token, user: { id: 'admin', name: 'Yönetici', username: loginIdentifier, role: 'admin' } })
       }
 
-      const row = await env.DB.prepare('SELECT id, name, username, password_hash, group_name, status, vip_plan, vip_expires_at, vip_access_status, email, created_at FROM users WHERE username = ? LIMIT 1').bind(username.toLowerCase()).first()
+      const row = await env.DB.prepare('SELECT id, name, username, password_hash, group_name, status, vip_plan, vip_expires_at, vip_access_status, email, created_at FROM users WHERE lower(username) = ? OR lower(email) = ? LIMIT 1').bind(normalizedLogin,normalizedLogin).first()
       if (!row || row.status !== 'active' || !(await verifyPassword(password, row.password_hash))) {
         return json({ success: false, error: 'Giriş bilgileri hatalı veya hesap engellenmiş.' }, 401)
       }

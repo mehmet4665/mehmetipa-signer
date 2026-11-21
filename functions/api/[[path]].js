@@ -957,15 +957,11 @@ export async function onRequest({ request, env, params }) {
           reason = expiredTrial && expiredVip ? 'trial_and_vip_expired' : expiredTrial ? 'trial_expired' : 'vip_expired'
         }
 
-        if (!desiredStatus) {
-          skipped++
-          continue
-        }
         let currentStatus = String(device.apple_status || '').toUpperCase()
         const profileAttemptRecent = device.profile_last_attempt_at
           ? Date.now() - new Date(device.profile_last_attempt_at).getTime() < 5 * 60 * 1000
           : false
-        if (currentStatus === 'PROCESSING' && device.device_status === 'approved') {
+        if (currentStatus === 'PROCESSING' && device.device_status === 'approved' && desiredStatus !== 'DISABLED') {
           try {
             const refreshed = await refreshAppleDeviceAndProfile(env, {
               id: device.id, user_id: device.user_id, udid: device.udid,
@@ -980,6 +976,24 @@ export async function onRequest({ request, env, params }) {
           } catch {
             failed++
           }
+          continue
+        }
+        if (!desiredStatus) {
+          if (currentStatus === 'ENABLED' && device.device_status === 'approved' &&
+              (device.profile_status !== 'active' || !device.profile_key || !device.apple_profile_id ||
+               !device.profile_expires_at || new Date(device.profile_expires_at).getTime() <= now) && !profileAttemptRecent) {
+            const profile = await ensureAppleAdHocProfile(env, {
+              id: device.id, user_id: device.user_id, udid: device.udid,
+              apple_device_id: device.apple_device_id, apple_status: currentStatus,
+              status: device.device_status, apple_profile_id: device.apple_profile_id,
+              profile_key: device.profile_key, profile_iv: device.profile_iv,
+              profile_status: device.profile_status, profile_expires_at: device.profile_expires_at,
+              profile_certificate_serial: device.profile_certificate_serial,
+              profile_last_attempt_at: device.profile_last_attempt_at
+            })
+            if (!profile.ok && !profile.pending) failed++
+            else skipped++
+          } else skipped++
           continue
         }
         if (currentStatus === desiredStatus) {

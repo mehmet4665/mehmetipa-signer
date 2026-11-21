@@ -1465,9 +1465,19 @@ export async function onRequest({ request, env, params }) {
       }
       if (userMatch && method === 'DELETE') {
         const denied = requireAdmin(); if (denied) return denied
+        const { results: userDevices = [] } = await env.DB.prepare(
+          'SELECT id, user_id, udid, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status FROM devices WHERE user_id = ?'
+        ).bind(userMatch[1]).all()
+        const cleanup = []
+        for (const device of userDevices) {
+          const result = device.apple_device_id
+            ? await updateAppleDeviceStatus(env, device, 'DISABLED', 'member_deleted')
+            : await retireAppleProvisioningProfile(env, device, 'member_deleted')
+          cleanup.push({ device_id: device.id, ok: result.ok })
+        }
         await env.DB.prepare('DELETE FROM devices WHERE user_id = ?').bind(userMatch[1]).run()
         await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userMatch[1]).run()
-        return json({ success: true })
+        return json({ success: true, device_cleanup: cleanup })
       }
 
       // APPLE: read-only connection check. Does not register or modify devices.
@@ -1495,7 +1505,7 @@ export async function onRequest({ request, env, params }) {
 
       if (path === '/api/admin/devices' && method === 'GET') {
         const denied = requireAdmin(); if (denied) return denied
-        const { results = [] } = await env.DB.prepare('SELECT devices.id, devices.user_id, devices.udid, devices.status, devices.created_at, devices.apple_status, devices.apple_last_error, devices.apple_status_updated_at, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id ORDER BY devices.created_at DESC').all()
+        const { results = [] } = await env.DB.prepare('SELECT devices.id, devices.user_id, devices.udid, devices.status, devices.created_at, devices.apple_status, devices.apple_last_error, devices.apple_status_updated_at, devices.profile_status, devices.profile_last_error, devices.profile_expires_at, devices.profile_updated_at, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id ORDER BY devices.created_at DESC').all()
         return json({ success: true, devices: results })
       }
       const deviceMatch = path.match(/^\/api\/(admin\/)?devices\/([^/]+)$/)
@@ -1507,7 +1517,7 @@ export async function onRequest({ request, env, params }) {
 
         if (status === 'approved') {
           const device = await env.DB.prepare(
-            'SELECT devices.id, devices.user_id, devices.udid, devices.apple_device_id, devices.apple_status, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id WHERE devices.id = ? LIMIT 1'
+            'SELECT devices.id, devices.user_id, devices.udid, devices.apple_device_id, devices.apple_status, devices.status, devices.apple_profile_id, devices.profile_key, devices.profile_iv, devices.profile_status, devices.profile_expires_at, devices.profile_certificate_serial, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id WHERE devices.id = ? LIMIT 1'
           ).bind(deviceMatch[2]).first()
           if (!device) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
 
@@ -1526,26 +1536,43 @@ export async function onRequest({ request, env, params }) {
               item => String(item.attributes?.udid || '').trim().toUpperCase() === udid
             )
             if (existingAppleDevice) {
-              if (device.apple_device_id && String(device.apple_device_id) === String(existingAppleDevice.id)) {
-                await env.DB.prepare('UPDATE devices SET status = ? WHERE id = ?').bind('approved', deviceMatch[2]).run()
-                const appleSync = await syncMemberAppleAccess(env, device.user_id, 'device_reapproved')
+              const appleDeviceId = String(existingAppleDevice.id)
+              let appleStatus = String(existingAppleDevice.attributes?.status || 'UNKNOWN').toUpperCase()
+              await env.DB.prepare(
+                "UPDATE devices SET status = 'approved', apple_device_id = ?, apple_status = ?, apple_last_error = NULL WHERE id = ?"
+              ).bind(appleDeviceId, appleStatus, deviceMatch[2]).run()
+              let appleSync = null
+              if (appleStatus === 'DISABLED') {
+                appleSync = await updateAppleDeviceStatus(env, {
+                  ...device, apple_device_id: appleDeviceId, apple_status: 'DISABLED',
+                  apple_profile_id: device.apple_profile_id, profile_key: device.profile_key,
+                  profile_iv: device.profile_iv
+                }, 'ENABLED', 'device_reapproved')
+                if (!appleSync.ok) {
+                  return json({ success: false, apple_registered: true, error: appleSync.error || 'Apple cihazı yeniden etkinleştirilemedi.' }, 502)
+                }
+                appleStatus = 'ENABLED'
+              }
+              const refreshedDevice = await env.DB.prepare(
+                'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE id = ? LIMIT 1'
+              ).bind(deviceMatch[2]).first()
+              const profile = await ensureAppleAdHocProfile(env, refreshedDevice)
+              if (!profile.ok && !profile.pending) {
                 return json({
-                  success: true,
-                  status: 'approved',
-                  apple_registered: true,
-                  already_registered: true,
-                  apple_device_id: existingAppleDevice.id,
-                  apple_device_sync: appleSync,
-                  message: 'Bu cihaz zaten Mehmet IPA hesabına bağlı. Apple kaydı doğrulandı.'
-                })
+                  success: false, apple_registered: true, status: 'approved',
+                  apple_device_id: appleDeviceId, apple_status: appleStatus, profile,
+                  error: 'Apple cihazı kayıtlı, ancak bu cihaza özel Ad Hoc profili oluşturulamadı.'
+                }, 502)
               }
               return json({
-                success: false,
-                code: 'UDID_ALREADY_REGISTERED',
-                already_registered: true,
-                apple_registered: true,
-                error: 'Bu UDID Apple Developer hesabında zaten kayıtlı. Üyelik onaylanmadı.'
-              }, 409)
+                success: true, status: 'approved', apple_registered: true,
+                already_registered: true, apple_device_id: appleDeviceId,
+                apple_status: appleStatus, profile_status: profile.ok ? 'active' : 'pending',
+                profile, apple_device_sync: appleSync,
+                message: profile.ok
+                  ? 'Apple cihazı doğrulandı ve cihaza özel Ad Hoc profili otomatik hazırlandı.'
+                  : 'Apple cihazı kayıtlı. Apple işlemi tamamlanınca Ad Hoc profili otomatik hazırlanacak.'
+              })
             }
 
             const deviceName = String(device.name || device.username || 'Mehmet IPA üyesi')
@@ -1564,19 +1591,30 @@ export async function onRequest({ request, env, params }) {
               return json({ success: false, error: 'Apple cihaz kaydı doğrulanamadı. Üyelik onaylanmadı.' }, 502)
             }
 
-            const appleStatus = String(appleDevice.attributes?.status || 'ENABLED').toUpperCase()
+            const appleStatus = String(appleDevice.attributes?.status || 'UNKNOWN').toUpperCase()
             const savedAt = new Date().toISOString()
             await env.DB.prepare(
-              'UPDATE devices SET status = ?, apple_device_id = ?, apple_status = ?, apple_last_error = NULL, apple_status_updated_at = ?, apple_last_attempt_at = ? WHERE id = ?'
-            ).bind('approved', appleDevice.id, appleStatus, savedAt, savedAt, deviceMatch[2]).run()
+              "UPDATE devices SET status = 'approved', apple_device_id = ?, apple_status = ?, apple_last_error = NULL, apple_status_updated_at = ?, apple_last_attempt_at = ?, profile_status = 'pending' WHERE id = ?"
+            ).bind(appleDevice.id, appleStatus, savedAt, savedAt, deviceMatch[2]).run()
+            const refreshedDevice = await env.DB.prepare(
+              'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE id = ? LIMIT 1'
+            ).bind(deviceMatch[2]).first()
+            const profile = await ensureAppleAdHocProfile(env, refreshedDevice)
+            if (!profile.ok && !profile.pending) {
+              return json({
+                success: false, apple_registered: true, status: 'approved',
+                apple_device_id: appleDevice.id, apple_status: appleStatus, profile,
+                error: 'Apple cihazı eklendi ancak otomatik Ad Hoc profili oluşturulamadı.'
+              }, 502)
+            }
             return json({
-              success: true,
-              status: 'approved',
-              apple_registered: true,
-              already_registered: false,
-              apple_device_id: appleDevice.id,
-              apple_status: appleStatus,
-              message: 'UDID Apple Developer hesabına kaydedildi; üyelik onaylandı.'
+              success: true, status: 'approved', apple_registered: true,
+              already_registered: false, apple_device_id: appleDevice.id,
+              apple_status: appleStatus, profile_status: profile.ok ? 'active' : 'pending',
+              profile,
+              message: profile.ok
+                ? 'UDID Apple Developer hesabına kaydedildi; cihaza özel Ad Hoc profili otomatik hazırlandı.'
+                : 'UDID Apple hesabına kaydedildi. Apple işlemi tamamlanınca profil otomatik hazırlanacak.'
             })
           } catch (error) {
             return json({
@@ -1588,17 +1626,29 @@ export async function onRequest({ request, env, params }) {
         }
 
         const localDevice = await env.DB.prepare(
-          'SELECT id, user_id, udid, apple_device_id, apple_status FROM devices WHERE id = ? LIMIT 1'
+          'SELECT id, user_id, udid, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status FROM devices WHERE id = ? LIMIT 1'
         ).bind(deviceMatch[2]).first()
         if (!localDevice) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
         await env.DB.prepare('UPDATE devices SET status = ? WHERE id = ?').bind(status, deviceMatch[2]).run()
         let appleSync = null
-        if (localDevice.apple_device_id && status !== 'approved') {
-          appleSync = await updateAppleDeviceStatus(env, localDevice, 'DISABLED', 'device_status_' + status)
-        } else if (status === 'approved') {
-          appleSync = await syncMemberAppleAccess(env, localDevice.user_id, 'device_status_approved')
+        let profile = null
+        if (status !== 'approved') {
+          if (localDevice.apple_device_id) {
+            appleSync = await updateAppleDeviceStatus(env, localDevice, 'DISABLED', 'device_status_' + status)
+          } else {
+            profile = await retireAppleProvisioningProfile(env, localDevice, 'device_status_' + status)
+          }
+        } else {
+          const current = await env.DB.prepare(
+            'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE id = ? LIMIT 1'
+          ).bind(deviceMatch[2]).first()
+          if (current?.apple_device_id && String(current.apple_status || '').toUpperCase() === 'DISABLED') {
+            appleSync = await updateAppleDeviceStatus(env, current, 'ENABLED', 'device_status_approved')
+            if (!appleSync.ok) return json({ success: false, status, apple_device_sync: appleSync }, 502)
+          }
+          if (current?.apple_device_id) profile = await ensureAppleAdHocProfile(env, { ...current, apple_status: 'ENABLED' })
         }
-        return json({ success: true, status, apple_device_sync: appleSync })
+        return json({ success: true, status, apple_device_sync: appleSync, profile })
       }
 
       if (path === '/api/devices' && method === 'GET') {

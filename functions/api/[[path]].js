@@ -2024,7 +2024,7 @@ export async function onRequest({ request, env, params }) {
         if (!isActiveVip(member) && !trialIsActive) {
           return json({ success: false, error: 'Aktif VIP üyeliği veya süresi dolmamış 1 saatlik deneme hakkı gerekiyor.' }, 403)
         }
-        const signingDevice = await env.DB.prepare(
+        let signingDevice = await env.DB.prepare(
           "SELECT id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at FROM devices WHERE user_id = ? AND status = 'approved' " +
           (trialIsActive ? "AND udid = ? " : "") + "ORDER BY created_at DESC LIMIT 1"
         ).bind(...(trialIsActive ? [session.sub, activeTrial.device_udid] : [session.sub])).first()

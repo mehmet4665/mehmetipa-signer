@@ -360,6 +360,369 @@ async function appleApiFetch(env, path, options = {}) {
   return body
 }
 
+
+function normalizeAppleSerial(value) {
+  return String(value || '').replace(/^0x/i, '').replace(/[^a-f0-9]/gi, '').replace(/^0+/, '').toLowerCase()
+}
+
+function readProvisioningProfileMetadata(profileBytes) {
+  let message
+  try {
+    const asn1 = forge.asn1.fromDer(bytesToBinary(profileBytes))
+    message = forge.pkcs7.messageFromAsn1(asn1)
+  } catch {
+    throw new Error('Provisioning profile içeriği Apple CMS biçiminde okunamadı.')
+  }
+  const content = message && message.content
+  const xml = content && typeof content.getBytes === 'function' ? content.getBytes() : ''
+  if (!xml || !xml.includes('<plist')) throw new Error('Provisioning profile XML içeriği bulunamadı.')
+  const stringFor = (key) => {
+    const match = xml.match(new RegExp('<key>' + key + '</key>\\s*<string>([^<]*)</string>'))
+    return match ? match[1].trim() : ''
+  }
+  const arrayFor = (key) => {
+    const match = xml.match(new RegExp('<key>' + key + '</key>\\s*<array>([\\s\\S]*?)</array>'))
+    if (!match) return []
+    return [...match[1].matchAll(/<string>([^<]*)<\/string>/g)].map(item => item[1].trim()).filter(Boolean)
+  }
+  const dateMatch = xml.match(/<key>ExpirationDate<\/key>\s*<date>([^<]+)<\/date>/)
+  const applicationIdentifier = stringFor('application-identifier')
+  const appMatch = applicationIdentifier.match(/^[A-Z0-9]{10}\.(.+)$/)
+  const expiration = dateMatch ? new Date(dateMatch[1]) : null
+  if (!applicationIdentifier || !appMatch) throw new Error('Provisioning profile application-identifier alanı okunamadı.')
+  if (!expiration || !Number.isFinite(expiration.getTime())) throw new Error('Provisioning profile bitiş tarihi okunamadı.')
+  return {
+    name: stringFor('Name') || 'Mehmet IPA Ad Hoc',
+    uuid: stringFor('UUID'),
+    applicationIdentifier,
+    bundleIdentifier: appMatch[1],
+    teamIdentifier: arrayFor('TeamIdentifier')[0] || '',
+    deviceUdis: arrayFor('ProvisionedDevices').map(value => value.toUpperCase()),
+    expiresAt: expiration.toISOString(),
+    provisionedAllDevices: /<key>ProvisionsAllDevices<\/key>\s*<true\s*\/>/.test(xml)
+  }
+}
+
+function readP12SigningIdentity(p12Bytes, password) {
+  let p12
+  try {
+    p12 = forge.pkcs12.pkcs12FromAsn1(forge.asn1.fromDer(bytesToBinary(p12Bytes)), false, password)
+  } catch {
+    throw new Error('P12 dosyası açılamadı. P12 parolasını kontrol et.')
+  }
+  const bags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || []
+  const certificate = bags.find(item => item.cert)?.cert
+  if (!certificate) throw new Error('P12 içinde Apple Distribution sertifikası bulunamadı.')
+  const commonName = certificateField(certificate, 'CN')
+  const serialNumber = normalizeAppleSerial(certificate.serialNumber)
+  if (!/Apple Distribution|iPhone Distribution/i.test(commonName) || !serialNumber) {
+    throw new Error('P12 içindeki sertifika Apple Distribution sertifikası değil.')
+  }
+  return { commonName, serialNumber }
+}
+
+async function loadAppleAdHocProfileContext(env) {
+  if (!env.CERTS || !env.SIGNING_ENCRYPTION_KEY) {
+    throw new Error('Özel sertifika kasası veya şifreleme anahtarı bağlı değil.')
+  }
+  const cert = await env.DB.prepare(
+    'SELECT status, password_ciphertext, password_iv, p12_key, profile_key, p12_iv, profile_iv, expires_at FROM signing_certificate ORDER BY updated_at DESC LIMIT 1'
+  ).first()
+  if (!cert || cert.status !== 'active' || !cert.p12_key || !cert.profile_key ||
+      !cert.password_ciphertext || !cert.password_iv || !cert.p12_iv || !cert.profile_iv) {
+    throw new Error('Otomatik Ad Hoc profili için P12 ve başlangıç provisioning profile dosyalarını yönetim panelinden bir kez yükle.')
+  }
+  const [p12Object, profileObject] = await Promise.all([
+    env.CERTS.get(cert.p12_key),
+    env.CERTS.get(cert.profile_key)
+  ])
+  if (!p12Object || !profileObject) throw new Error('Başlangıç P12 veya provisioning profile dosyası özel kasada bulunamadı.')
+  const [encryptedP12, encryptedProfile] = await Promise.all([
+    p12Object.arrayBuffer(),
+    profileObject.arrayBuffer()
+  ])
+  const [p12Bytes, profileBytes, password] = await Promise.all([
+    decryptBytes(encryptedP12, cert.p12_iv, env.SIGNING_ENCRYPTION_KEY),
+    decryptBytes(encryptedProfile, cert.profile_iv, env.SIGNING_ENCRYPTION_KEY),
+    decryptSecret(cert.password_ciphertext, cert.password_iv, env.SIGNING_ENCRYPTION_KEY)
+  ])
+  const identity = readP12SigningIdentity(p12Bytes, password)
+  const profile = readProvisioningProfileMetadata(profileBytes)
+  if (new Date(profile.expiresAt).getTime() <= Date.now()) {
+    throw new Error('Başlangıç profilinin süresi dolmuş. Yönetim panelinden güncel Ad Hoc profile yükle.')
+  }
+  return { cert, p12Bytes, profileBytes, password, identity, profile }
+}
+
+async function getAppleAdHocProfileResources(env, context) {
+  const bundlePath = '/v1/bundleIds?filter%5Bidentifier%5D=' +
+    encodeURIComponent(context.profile.bundleIdentifier) +
+    '&limit=200&fields%5BbundleIds%5D=identifier%2Cname%2Cplatform'
+  const certificatePath = '/v1/certificates?limit=200' +
+    '&fields%5Bcertificates%5D=name%2CcertificateType%2CdisplayName%2CserialNumber%2Cplatform%2CexpirationDate%2Cactivated'
+  const [bundleResponse, certificateResponse] = await Promise.all([
+    appleApiFetch(env, bundlePath),
+    appleApiFetch(env, certificatePath)
+  ])
+  const bundle = (bundleResponse.data || []).find(item =>
+    String(item.attributes?.identifier || '') === context.profile.bundleIdentifier &&
+    String(item.attributes?.platform || '').toUpperCase() === 'IOS'
+  )
+  if (!bundle) {
+    throw new Error('Apple Developer hesabında ' + context.profile.bundleIdentifier + ' App ID bulunamadı.')
+  }
+  const certificate = (certificateResponse.data || []).find(item => {
+    const attributes = item.attributes || {}
+    const exactSerial = normalizeAppleSerial(attributes.serialNumber) === context.identity.serialNumber
+    const exactName = String(attributes.displayName || '') === context.identity.commonName ||
+      String(attributes.name || '') === context.identity.commonName
+    const certificateType = String(attributes.certificateType || '').toUpperCase()
+    return (exactSerial || exactName) &&
+      ['DISTRIBUTION', 'IOS_DISTRIBUTION'].includes(certificateType) &&
+      attributes.activated !== false &&
+      (!attributes.expirationDate || new Date(attributes.expirationDate).getTime() > Date.now())
+  })
+  if (!certificate) {
+    throw new Error('P12 içindeki ' + context.identity.commonName + ' sertifikası App Store Connect API üzerinde etkin olarak bulunamadı.')
+  }
+  return { bundle, certificate }
+}
+
+async function retireAppleProvisioningProfile(env, device, reason = 'device_disabled') {
+  if (!device) return { ok: true, skipped: true }
+  let appleDeleteError = null
+  const profileId = String(device.apple_profile_id || '')
+  if (profileId) {
+    try {
+      await appleApiFetch(env, '/v1/profiles/' + encodeURIComponent(profileId), { method: 'DELETE' })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Apple provisioning profile silinemedi.'
+      if (!message.startsWith('Apple API 404:')) appleDeleteError = message
+    }
+  }
+  const profileKey = String(device.profile_key || '')
+  if (!appleDeleteError && profileKey && env.CERTS && typeof env.CERTS.delete === 'function') {
+    await env.CERTS.delete(profileKey).catch(() => {})
+  }
+  const updatedAt = new Date().toISOString()
+  await env.DB.prepare(
+    'UPDATE devices SET apple_profile_id = CASE WHEN ? = 1 THEN NULL ELSE apple_profile_id END, profile_key = CASE WHEN ? = 1 THEN NULL ELSE profile_key END, profile_iv = CASE WHEN ? = 1 THEN NULL ELSE profile_iv END, profile_status = ?, profile_last_error = ?, profile_updated_at = ? WHERE id = ?'
+  ).bind(
+    appleDeleteError ? 0 : 1, appleDeleteError ? 0 : 1, appleDeleteError ? 0 : 1,
+    appleDeleteError ? 'delete_pending' : 'disabled',
+    appleDeleteError ? (appleDeleteError + ' [' + reason + ']').slice(0, 500) : null,
+    updatedAt, device.id
+  ).run()
+  return { ok: !appleDeleteError, deleted: !appleDeleteError, error: appleDeleteError }
+}
+
+async function ensureAppleAdHocProfile(env, device) {
+  if (!device?.id || !device.apple_device_id) {
+    return { ok: false, pending: true, reason: 'apple_device_not_registered' }
+  }
+  const latest = await env.DB.prepare(
+    'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial, profile_last_attempt_at FROM devices WHERE id = ? LIMIT 1'
+  ).bind(device.id).first()
+  if (latest) device = { ...device, ...latest }
+  if (device.status !== 'approved') {
+    return { ok: false, pending: true, reason: 'local_device_not_approved' }
+  }
+  if (device.profile_status === 'creating' && device.profile_last_attempt_at &&
+      Date.now() - new Date(device.profile_last_attempt_at).getTime() < 5 * 60 * 1000) {
+    return { ok: false, pending: true, reason: 'profile_creation_already_running' }
+  }
+  let createdAppleProfileId = ''
+  let storedObjectKey = ''
+  try {
+    const liveDevice = await appleApiFetch(
+      env,
+      '/v1/devices/' + encodeURIComponent(device.apple_device_id) +
+        '?fields%5Bdevices%5D=name%2Cplatform%2Cudid%2Cstatus'
+    )
+    const liveStatus = String(liveDevice.data?.attributes?.status || '').toUpperCase()
+    const liveUdid = String(liveDevice.data?.attributes?.udid || '').trim().toUpperCase()
+    if (liveUdid !== String(device.udid || '').trim().toUpperCase()) {
+      throw new Error('Apple kayıtlı cihazının UDID bilgisi yerel kayıtla eşleşmiyor.')
+    }
+    await env.DB.prepare(
+      'UPDATE devices SET apple_status = ?, apple_status_updated_at = ? WHERE id = ?'
+    ).bind(liveStatus || 'UNKNOWN', new Date().toISOString(), device.id).run()
+    if (liveStatus !== 'ENABLED') {
+      await env.DB.prepare(
+        'UPDATE devices SET profile_status = ?, profile_last_error = ?, profile_last_attempt_at = ? WHERE id = ?'
+      ).bind(
+        liveStatus === 'PROCESSING' ? 'waiting_for_apple_processing' : 'waiting_for_device_enable',
+        liveStatus === 'PROCESSING'
+          ? 'Apple cihaz kaydını işliyor. Hazır olduğunda profil otomatik oluşturulacak.'
+          : 'Apple cihazı ENABLED durumunda değil.',
+        new Date().toISOString(), device.id
+      ).run()
+      return { ok: false, pending: true, apple_status: liveStatus }
+    }
+
+    const context = await loadAppleAdHocProfileContext(env)
+    const existingProfileValid =
+      device.profile_status === 'active' &&
+      !!device.apple_profile_id &&
+      !!device.profile_key &&
+      !!device.profile_iv &&
+      !!device.profile_expires_at &&
+      new Date(device.profile_expires_at).getTime() > Date.now() &&
+      normalizeAppleSerial(device.profile_certificate_serial) === context.identity.serialNumber
+    if (existingProfileValid) {
+      try {
+        const existingProfile = await appleApiFetch(
+          env,
+          '/v1/profiles/' + encodeURIComponent(device.apple_profile_id) +
+            '?fields%5Bprofiles%5D=profileState%2CexpirationDate'
+        )
+        const attributes = existingProfile.data?.attributes || {}
+        const appleProfileActive = String(attributes.profileState || '').toUpperCase() === 'ACTIVE'
+        const appleProfileExpiry = attributes.expirationDate ? new Date(attributes.expirationDate).getTime() : 0
+        if (appleProfileActive && appleProfileExpiry > Date.now()) {
+          return { ok: true, unchanged: true, status: 'active', profile_id: device.apple_profile_id }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Apple profile status could not be verified.'
+        if (!message.startsWith('Apple API 404:')) {
+          return { ok: false, pending: true, error: message }
+        }
+        // A profile that Apple no longer has is safe to retire locally and recreate.
+      }
+      await retireAppleProvisioningProfile(env, device, 'apple_profile_not_active')
+      device = { ...device, apple_profile_id: null, profile_key: null, profile_iv: null, profile_status: 'disabled' }
+    }
+
+    const attemptAt = new Date().toISOString()
+    const lock = await env.DB.prepare(
+      "UPDATE devices SET profile_status = 'creating', profile_last_error = NULL, profile_last_attempt_at = ? WHERE id = ? AND (profile_status != 'creating' OR profile_last_attempt_at IS NULL OR julianday(profile_last_attempt_at) < julianday('now', '-5 minutes'))"
+    ).bind(attemptAt, device.id).run()
+    if (Number(lock.meta?.changes || 0) !== 1) {
+      return { ok: false, pending: true, reason: 'profile_creation_already_running' }
+    }
+
+    const resources = await getAppleAdHocProfileResources(env, context)
+    const profileName = ('Mehmet IPA ' + String(device.udid || '').replace(/[^A-F0-9]/gi, '').slice(-8) + ' AdHoc').slice(0, 100)
+    const created = await appleApiFetch(env, '/v1/profiles', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'profiles',
+          attributes: { name: profileName, profileType: 'IOS_APP_ADHOC' },
+          relationships: {
+            bundleId: { data: { type: 'bundleIds', id: resources.bundle.id } },
+            certificates: { data: [{ type: 'certificates', id: resources.certificate.id }] },
+            devices: { data: [{ type: 'devices', id: device.apple_device_id }] }
+          }
+        }
+      }
+    })
+    const profileId = String(created.data?.id || '')
+    if (!profileId) throw new Error('Apple Ad Hoc provisioning profile ID döndürmedi.')
+    createdAppleProfileId = profileId
+    let profileContent = created.data?.attributes?.profileContent || ''
+    let profileAttributes = created.data?.attributes || {}
+    if (!profileContent) {
+      const read = await appleApiFetch(
+        env,
+        '/v1/profiles/' + encodeURIComponent(profileId) +
+          '?fields%5Bprofiles%5D=name%2CprofileType%2CprofileState%2CprofileContent%2Cuuid%2CexpirationDate'
+      )
+      profileAttributes = read.data?.attributes || profileAttributes
+      profileContent = profileAttributes.profileContent || ''
+    }
+    const profileState = String(profileAttributes.profileState || '').toUpperCase()
+    if (profileState && profileState !== 'ACTIVE') {
+      throw new Error('Apple tarafından oluşturulan Ad Hoc profili ACTIVE durumunda değil: ' + profileState)
+    }
+    if (typeof profileContent !== 'string' || !profileContent.trim()) {
+      throw new Error('Apple profile oluşturdu ancak profileContent indirme verisini döndürmedi.')
+    }
+    const normalizedContent = profileContent.replace(/\s/g, '')
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalizedContent) || normalizedContent.length % 4 !== 0) {
+      throw new Error('Apple Ad Hoc profileContent Base64 biçiminde değil.')
+    }
+    const profileBytes = Uint8Array.from(atob(normalizedContent), char => char.charCodeAt(0))
+    const metadata = readProvisioningProfileMetadata(profileBytes)
+    const requestedUdid = String(device.udid || '').trim().toUpperCase()
+    const profileContainsDevice = metadata.deviceUdis.some(value =>
+      value.replace(/-/g, '') === requestedUdid.replace(/-/g, '')
+    )
+    if (!profileContainsDevice) throw new Error('Apple tarafından oluşturulan Ad Hoc profili bu cihazın UDID bilgisini içermiyor.')
+    if (metadata.bundleIdentifier !== context.profile.bundleIdentifier) {
+      throw new Error('Apple Ad Hoc profili beklenmeyen Bundle ID ile oluşturuldu.')
+    }
+    if (new Date(metadata.expiresAt).getTime() <= Date.now()) {
+      throw new Error('Apple Ad Hoc profili oluşturulur oluşturulmaz süresi dolmuş görünüyor.')
+    }
+    validateSigningMaterials(context.p12Bytes, profileBytes, context.password)
+
+    const objectKey = 'device-profiles/' + device.id + '/' + randomId() + '.mobileprovision.enc'
+    storedObjectKey = objectKey
+    const encrypted = await encryptBytes(profileBytes, env.SIGNING_ENCRYPTION_KEY)
+    await env.CERTS.put(objectKey, encrypted.ciphertext, {
+      httpMetadata: { contentType: 'application/octet-stream' },
+      customMetadata: { encryption: 'AES-256-GCM', iv: encrypted.iv }
+    })
+    const previousProfileId = String(device.apple_profile_id || '')
+    const previousProfileKey = String(device.profile_key || '')
+    const updatedAt = new Date().toISOString()
+    try {
+      await env.DB.prepare(
+        "UPDATE devices SET apple_profile_id = ?, profile_key = ?, profile_iv = ?, profile_name = ?, profile_expires_at = ?, profile_certificate_serial = ?, profile_status = 'active', profile_last_error = NULL, profile_updated_at = ?, profile_last_attempt_at = ? WHERE id = ?"
+      ).bind(
+        profileId, objectKey, encrypted.iv, profileAttributes.name || profileName,
+        metadata.expiresAt, context.identity.serialNumber, updatedAt, updatedAt, device.id
+      ).run()
+    } catch (error) {
+      await env.CERTS.delete(objectKey).catch(() => {})
+      try { await appleApiFetch(env, '/v1/profiles/' + encodeURIComponent(profileId), { method: 'DELETE' }) } catch {}
+      throw error
+    }
+    if (previousProfileKey && previousProfileKey !== objectKey) {
+      await env.CERTS.delete(previousProfileKey).catch(() => {})
+    }
+    if (previousProfileId && previousProfileId !== profileId) {
+      try { await appleApiFetch(env, '/v1/profiles/' + encodeURIComponent(previousProfileId), { method: 'DELETE' }) } catch {}
+    }
+    return { ok: true, status: 'active', profile_id: profileId, profile_name: profileAttributes.name || profileName, expires_at: metadata.expiresAt }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Apple Ad Hoc profili oluşturulamadı.'
+    if (storedObjectKey) await env.CERTS.delete(storedObjectKey).catch(() => {})
+    if (createdAppleProfileId) {
+      try { await appleApiFetch(env, '/v1/profiles/' + encodeURIComponent(createdAppleProfileId), { method: 'DELETE' }) } catch {}
+    }
+    await env.DB.prepare(
+      "UPDATE devices SET profile_status = 'error', profile_last_error = ?, profile_last_attempt_at = ? WHERE id = ?"
+    ).bind(message.slice(0, 500), new Date().toISOString(), device.id).run().catch(() => {})
+    return { ok: false, pending: false, error: message }
+  }
+}
+
+async function refreshAppleDeviceAndProfile(env, device) {
+  if (!device?.apple_device_id) return { ok: false, reason: 'apple_device_id_missing' }
+  const refreshed = await appleApiFetch(
+    env,
+    '/v1/devices/' + encodeURIComponent(device.apple_device_id) +
+      '?fields%5Bdevices%5D=name%2Cplatform%2Cudid%2Cstatus'
+  )
+  const status = String(refreshed.data?.attributes?.status || '').toUpperCase()
+  const now = new Date().toISOString()
+  await env.DB.prepare(
+    'UPDATE devices SET apple_status = ?, apple_status_updated_at = ?, apple_last_attempt_at = ? WHERE id = ?'
+  ).bind(status || 'UNKNOWN', now, now, device.id).run()
+  const current = { ...device, apple_status: status }
+  if (status === 'DISABLED') {
+    await retireAppleProvisioningProfile(env, current, 'apple_device_disabled')
+    return { ok: true, status, profile_status: 'disabled' }
+  }
+  if (status === 'ENABLED' && current.status === 'approved') {
+    const profile = await ensureAppleAdHocProfile(env, current)
+    return { ok: profile.ok, status, profile }
+  }
+  return { ok: true, status, profile_status: current.profile_status || 'pending' }
+}
+
 async function logAppleDeviceEvent(env, device, requestedStatus, appliedStatus, reason, error = null) {
   const createdAt = new Date().toISOString()
   await env.DB.prepare(
@@ -378,6 +741,10 @@ async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
     return { ok: false, error: 'Geçersiz Apple cihaz durumu.' }
   }
   if (!device?.apple_device_id) {
+    if (status === 'DISABLED') {
+      const profileRetirement = await retireAppleProvisioningProfile(env, device, reason)
+      return { ok: profileRetirement.ok, skipped: true, reason: 'apple_device_id_missing', profile_retirement: profileRetirement }
+    }
     return { ok: true, skipped: true, reason: 'apple_device_id_missing' }
   }
 
@@ -386,6 +753,10 @@ async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
     .bind(now, device.id).run()
 
   if (String(device.apple_status || '').toUpperCase() === status) {
+    if (status === 'DISABLED') {
+      const profileRetirement = await retireAppleProvisioningProfile(env, device, reason)
+      return { ok: profileRetirement.ok, unchanged: true, status, profile_retirement: profileRetirement }
+    }
     return { ok: true, unchanged: true, status }
   }
 
@@ -418,7 +789,10 @@ async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
       'UPDATE devices SET apple_status = ?, apple_last_error = NULL, apple_status_updated_at = ?, apple_last_attempt_at = ? WHERE id = ?'
     ).bind(status, updatedAt, updatedAt, device.id).run()
     await logAppleDeviceEvent(env, device, status, status, reason).catch(() => {})
-    return { ok: true, changed: true, status }
+    const profileRetirement = status === 'DISABLED'
+      ? await retireAppleProvisioningProfile(env, device, reason)
+      : null
+    return { ok: !profileRetirement || profileRetirement.ok, changed: true, status, profile_retirement: profileRetirement }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Apple cihaz durumu güncellenemedi.'
     await env.DB.prepare('UPDATE devices SET apple_last_error = ?, apple_last_attempt_at = ? WHERE id = ?')
@@ -430,11 +804,17 @@ async function updateAppleDeviceStatus(env, device, requestedStatus, reason) {
 
 async function syncUserAppleDevices(env, userId, status, reason) {
   const { results = [] } = await env.DB.prepare(
-    'SELECT id, user_id, udid, apple_device_id, apple_status FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
+    'SELECT id, user_id, udid, apple_device_id, apple_status, status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
   ).bind(userId).all()
   const outcomes = []
   for (const device of results) {
-    outcomes.push(await updateAppleDeviceStatus(env, device, status, reason))
+    const sync = await updateAppleDeviceStatus(env, device, status, reason)
+    let profile = null
+    if (status === 'ENABLED' && sync.ok && device.status === 'approved' &&
+        (device.profile_status !== 'active' || !device.profile_key || !device.apple_profile_id)) {
+      profile = await ensureAppleAdHocProfile(env, { ...device, apple_status: 'ENABLED' })
+    }
+    outcomes.push({ ...sync, profile })
   }
   return {
     ok: outcomes.every(item => item.ok),
@@ -472,12 +852,18 @@ async function syncMemberAppleAccess(env, userId, reason, forceDisable = false) 
   if (!desiredStatus) return { ok: true, skipped: true, reason: 'no_expiring_or_active_entitlement' }
 
   const { results = [] } = await env.DB.prepare(
-    'SELECT id, user_id, udid, apple_device_id, apple_status, status FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
+    'SELECT id, user_id, udid, apple_device_id, apple_status, status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE user_id = ? AND apple_device_id IS NOT NULL'
   ).bind(userId).all()
   const outcomes = []
   for (const device of results) {
     const deviceStatus = device.status === 'approved' ? desiredStatus : 'DISABLED'
-    outcomes.push(await updateAppleDeviceStatus(env, device, deviceStatus, deviceStatus === desiredStatus ? reason : 'device_not_approved'))
+    const sync = await updateAppleDeviceStatus(env, device, deviceStatus, deviceStatus === desiredStatus ? reason : 'device_not_approved')
+    let profile = null
+    if (deviceStatus === 'ENABLED' && sync.ok &&
+        (device.profile_status !== 'active' || !device.profile_key || !device.apple_profile_id)) {
+      profile = await ensureAppleAdHocProfile(env, { ...device, apple_status: 'ENABLED' })
+    }
+    outcomes.push({ ...sync, profile })
   }
   return {
     ok: outcomes.every(item => item.ok),
@@ -564,7 +950,7 @@ export async function onRequest({ request, env, params }) {
       let offset = 0
       while (true) {
         const { results = [] } = await env.DB.prepare(
-          'SELECT devices.id, devices.user_id, devices.udid, devices.status AS device_status, devices.apple_device_id, devices.apple_status, users.status AS user_status, users.group_name, users.vip_plan, users.vip_expires_at, users.vip_access_status, trial_access.expires_at AS trial_expires_at FROM devices INNER JOIN users ON users.id = devices.user_id LEFT JOIN trial_access ON trial_access.user_id = users.id WHERE devices.apple_device_id IS NOT NULL ORDER BY devices.created_at DESC LIMIT ? OFFSET ?'
+          'SELECT devices.id, devices.user_id, devices.udid, devices.status AS device_status, devices.apple_device_id, devices.apple_status, devices.apple_profile_id, devices.profile_key, devices.profile_iv, devices.profile_status, devices.profile_expires_at, devices.profile_certificate_serial, devices.profile_last_attempt_at, users.status AS user_status, users.group_name, users.vip_plan, users.vip_expires_at, users.vip_access_status, trial_access.expires_at AS trial_expires_at FROM devices INNER JOIN users ON users.id = devices.user_id LEFT JOIN trial_access ON trial_access.user_id = users.id WHERE devices.apple_device_id IS NOT NULL ORDER BY devices.created_at DESC LIMIT ? OFFSET ?'
         ).bind(pageSize, offset).all()
         if (!results.length) break
         inspected += results.length
@@ -598,18 +984,86 @@ export async function onRequest({ request, env, params }) {
           reason = expiredTrial && expiredVip ? 'trial_and_vip_expired' : expiredTrial ? 'trial_expired' : 'vip_expired'
         }
 
-        if (!desiredStatus) {
-          skipped++
+        let currentStatus = String(device.apple_status || '').toUpperCase()
+        const profileAttemptRecent = device.profile_last_attempt_at
+          ? Date.now() - new Date(device.profile_last_attempt_at).getTime() < 5 * 60 * 1000
+          : false
+        if (currentStatus === 'PROCESSING' && device.device_status === 'approved' && desiredStatus !== 'DISABLED') {
+          try {
+            const refreshed = await refreshAppleDeviceAndProfile(env, {
+              id: device.id, user_id: device.user_id, udid: device.udid,
+              apple_device_id: device.apple_device_id, apple_status: device.apple_status,
+              status: device.device_status, apple_profile_id: device.apple_profile_id,
+              profile_key: device.profile_key, profile_iv: device.profile_iv,
+              profile_status: device.profile_status, profile_expires_at: device.profile_expires_at,
+              profile_certificate_serial: device.profile_certificate_serial
+            })
+            if (refreshed.profile && !refreshed.profile.ok && !refreshed.profile.pending) failed++
+            else skipped++
+          } catch {
+            failed++
+          }
           continue
         }
-        const currentStatus = String(device.apple_status || '').toUpperCase()
+        if (!desiredStatus) {
+          if (currentStatus === 'ENABLED' && device.device_status === 'approved' &&
+              (device.profile_status !== 'active' || !device.profile_key || !device.apple_profile_id ||
+               !device.profile_expires_at || new Date(device.profile_expires_at).getTime() <= now) && !profileAttemptRecent) {
+            const profile = await ensureAppleAdHocProfile(env, {
+              id: device.id, user_id: device.user_id, udid: device.udid,
+              apple_device_id: device.apple_device_id, apple_status: currentStatus,
+              status: device.device_status, apple_profile_id: device.apple_profile_id,
+              profile_key: device.profile_key, profile_iv: device.profile_iv,
+              profile_status: device.profile_status, profile_expires_at: device.profile_expires_at,
+              profile_certificate_serial: device.profile_certificate_serial,
+              profile_last_attempt_at: device.profile_last_attempt_at
+            })
+            if (!profile.ok && !profile.pending) failed++
+            else skipped++
+          } else skipped++
+          continue
+        }
         if (currentStatus === desiredStatus) {
-          skipped++
+          if (desiredStatus === 'DISABLED') {
+            const retired = await retireAppleProvisioningProfile(env, {
+              id: device.id, apple_profile_id: device.apple_profile_id,
+              profile_key: device.profile_key, profile_iv: device.profile_iv,
+              profile_status: device.profile_status
+            }, reason)
+            if (!retired.ok) failed++
+            else skipped++
+          } else if (device.device_status === 'approved' &&
+              (device.profile_status !== 'active' || !device.profile_key ||
+               !device.apple_profile_id || !device.profile_expires_at ||
+               new Date(device.profile_expires_at).getTime() <= now) && !profileAttemptRecent) {
+            const profile = await ensureAppleAdHocProfile(env, {
+              id: device.id, user_id: device.user_id, udid: device.udid,
+              apple_device_id: device.apple_device_id, apple_status: currentStatus,
+              status: device.device_status, apple_profile_id: device.apple_profile_id,
+              profile_key: device.profile_key, profile_iv: device.profile_iv,
+              profile_status: device.profile_status, profile_expires_at: device.profile_expires_at,
+              profile_certificate_serial: device.profile_certificate_serial
+            })
+            if (!profile.ok && !profile.pending) failed++
+            else skipped++
+          } else skipped++
           continue
         }
         const result = await updateAppleDeviceStatus(env, device, desiredStatus, reason)
-        if (result.ok && result.changed) changed++
-        else if (!result.ok) failed++
+        if (result.ok && result.changed) {
+          changed++
+          if (desiredStatus === 'ENABLED' && device.device_status === 'approved') {
+            const profile = await ensureAppleAdHocProfile(env, {
+              id: device.id, user_id: device.user_id, udid: device.udid,
+              apple_device_id: device.apple_device_id, apple_status: 'ENABLED',
+              status: device.device_status, apple_profile_id: device.apple_profile_id,
+              profile_key: device.profile_key, profile_iv: device.profile_iv,
+              profile_status: device.profile_status, profile_expires_at: device.profile_expires_at,
+              profile_certificate_serial: device.profile_certificate_serial
+            })
+            if (!profile.ok && !profile.pending) failed++
+          }
+        } else if (!result.ok) failed++
         else skipped++
         }
         offset += results.length
@@ -837,12 +1291,13 @@ export async function onRequest({ request, env, params }) {
         const vip = isActiveVip(member)
         const trial = await env.DB.prepare('SELECT device_udid, started_at, expires_at FROM trial_access WHERE user_id = ? LIMIT 1').bind(session.sub).first()
         const approvedDevice = await env.DB.prepare("SELECT udid FROM devices WHERE user_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 1").bind(session.sub).first()
-        const active = !!trial && new Date(trial.expires_at).getTime() > Date.now()
+        const accountCanAccess = member?.status === 'active' && member?.vip_access_status !== 'blocked'
+        const active = accountCanAccess && !!trial && new Date(trial.expires_at).getTime() > Date.now()
         return json({
           success: true,
           started: !!trial,
           active,
-          can_start: !vip && !trial && !!approvedDevice,
+          can_start: accountCanAccess && !vip && !trial && !!approvedDevice,
           has_approved_device: !!approvedDevice,
           started_at: trial?.started_at || null,
           expires_at: trial?.expires_at || null,
@@ -853,15 +1308,32 @@ export async function onRequest({ request, env, params }) {
       if (path === '/api/trial/start' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici hesabı deneme başlatamaz.' }, 403)
         const member = await env.DB.prepare('SELECT status, group_name, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id = ? LIMIT 1').bind(session.sub).first()
+        if (!member || member.status !== 'active' || member.vip_access_status === 'blocked') {
+          return json({ success: false, error: 'Hesabın devre dışı. Deneme başlatılamaz.' }, 403)
+        }
         if (isActiveVip(member)) return json({ success: false, error: 'Zaten aktif VIP üyeliğin var.' }, 409)
         const existing = await env.DB.prepare('SELECT expires_at FROM trial_access WHERE user_id = ? LIMIT 1').bind(session.sub).first()
         if (existing) return json({ success: false, error: 'Ücretsiz deneme hakkın daha önce kullanılmış. Deneme yalnızca bir kez başlatılabilir.' }, 409)
-        const approvedDevice = await env.DB.prepare("SELECT id, udid, apple_device_id, apple_status, user_id FROM devices WHERE user_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 1").bind(session.sub).first()
+        const approvedDevice = await env.DB.prepare("SELECT id, udid, apple_device_id, apple_status, user_id, status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE user_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 1").bind(session.sub).first()
         if (!approvedDevice) return json({ success: false, error: 'Önce Hesabım bölümünden UDID kaydını gönderip yönetici onayı alman gerekiyor. Bu onay şu an Apple Developer kaydı değildir.' }, 409)
         let appleTrialSync = null
-        if (approvedDevice.apple_device_id) {
-          appleTrialSync = await updateAppleDeviceStatus(env, approvedDevice, 'ENABLED', 'trial_started')
-          if (!appleTrialSync.ok) return json({ success: false, error: 'Deneme başlatılamadı: Apple cihazı yeniden etkinleştirilemedi.', apple_device_sync: appleTrialSync }, 502)
+        if (!approvedDevice.apple_device_id) {
+          return json({ success: false, error: 'Apple cihaz kaydı tamamlanmadan deneme başlatılamaz.' }, 409)
+        }
+        appleTrialSync = await updateAppleDeviceStatus(env, approvedDevice, 'ENABLED', 'trial_started')
+        if (!appleTrialSync.ok) {
+          return json({ success: false, error: 'Deneme başlatılamadı: Apple cihazı yeniden etkinleştirilemedi.', apple_device_sync: appleTrialSync }, 502)
+        }
+        const deviceProfile = await ensureAppleAdHocProfile(env, { ...approvedDevice, apple_status: 'ENABLED' })
+        if (!deviceProfile.ok) {
+          return json({
+            success: false,
+            error: deviceProfile.pending
+              ? 'Apple cihazı henüz profil oluşturmaya hazır değil. Apple kaydı tamamlanınca tekrar dene.'
+              : 'Deneme başlatılamadı: Bu iPhone için Ad Hoc profili otomatik oluşturulamadı.',
+            apple_device_sync: appleTrialSync,
+            profile: deviceProfile
+          }, 502)
         }
         const now = new Date()
         const startedAt = now.toISOString()
@@ -1064,9 +1536,26 @@ export async function onRequest({ request, env, params }) {
       }
       if (userMatch && method === 'DELETE') {
         const denied = requireAdmin(); if (denied) return denied
+        const { results: userDevices = [] } = await env.DB.prepare(
+          'SELECT id, user_id, udid, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status FROM devices WHERE user_id = ?'
+        ).bind(userMatch[1]).all()
+        const cleanup = []
+        for (const device of userDevices) {
+          const result = device.apple_device_id
+            ? await updateAppleDeviceStatus(env, device, 'DISABLED', 'member_deleted')
+            : await retireAppleProvisioningProfile(env, device, 'member_deleted')
+          cleanup.push({ device_id: device.id, ok: !!result.ok, error: result.error || null })
+        }
+        if (cleanup.some(item => !item.ok)) {
+          return json({
+            success: false,
+            error: 'Üyelik silinmedi: Apple cihazı veya Ad Hoc profilinin kapatılması tamamlanamadı. Hatalı cihaz işlemleri tekrar denenmeli.',
+            device_cleanup: cleanup
+          }, 502)
+        }
         await env.DB.prepare('DELETE FROM devices WHERE user_id = ?').bind(userMatch[1]).run()
         await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userMatch[1]).run()
-        return json({ success: true })
+        return json({ success: true, device_cleanup: cleanup })
       }
 
       // APPLE: read-only connection check. Does not register or modify devices.
@@ -1094,7 +1583,7 @@ export async function onRequest({ request, env, params }) {
 
       if (path === '/api/admin/devices' && method === 'GET') {
         const denied = requireAdmin(); if (denied) return denied
-        const { results = [] } = await env.DB.prepare('SELECT devices.id, devices.user_id, devices.udid, devices.status, devices.created_at, devices.apple_status, devices.apple_last_error, devices.apple_status_updated_at, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id ORDER BY devices.created_at DESC').all()
+        const { results = [] } = await env.DB.prepare('SELECT devices.id, devices.user_id, devices.udid, devices.status, devices.created_at, devices.apple_status, devices.apple_last_error, devices.apple_status_updated_at, devices.profile_status, devices.profile_last_error, devices.profile_expires_at, devices.profile_updated_at, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id ORDER BY devices.created_at DESC').all()
         return json({ success: true, devices: results })
       }
       const deviceMatch = path.match(/^\/api\/(admin\/)?devices\/([^/]+)$/)
@@ -1106,7 +1595,7 @@ export async function onRequest({ request, env, params }) {
 
         if (status === 'approved') {
           const device = await env.DB.prepare(
-            'SELECT devices.id, devices.user_id, devices.udid, devices.apple_device_id, devices.apple_status, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id WHERE devices.id = ? LIMIT 1'
+            'SELECT devices.id, devices.user_id, devices.udid, devices.apple_device_id, devices.apple_status, devices.status, devices.apple_profile_id, devices.profile_key, devices.profile_iv, devices.profile_status, devices.profile_expires_at, devices.profile_certificate_serial, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id WHERE devices.id = ? LIMIT 1'
           ).bind(deviceMatch[2]).first()
           if (!device) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
 
@@ -1125,26 +1614,43 @@ export async function onRequest({ request, env, params }) {
               item => String(item.attributes?.udid || '').trim().toUpperCase() === udid
             )
             if (existingAppleDevice) {
-              if (device.apple_device_id && String(device.apple_device_id) === String(existingAppleDevice.id)) {
-                await env.DB.prepare('UPDATE devices SET status = ? WHERE id = ?').bind('approved', deviceMatch[2]).run()
-                const appleSync = await syncMemberAppleAccess(env, device.user_id, 'device_reapproved')
+              const appleDeviceId = String(existingAppleDevice.id)
+              let appleStatus = String(existingAppleDevice.attributes?.status || 'UNKNOWN').toUpperCase()
+              await env.DB.prepare(
+                "UPDATE devices SET status = 'approved', apple_device_id = ?, apple_status = ?, apple_last_error = NULL WHERE id = ?"
+              ).bind(appleDeviceId, appleStatus, deviceMatch[2]).run()
+              let appleSync = null
+              if (appleStatus === 'DISABLED') {
+                appleSync = await updateAppleDeviceStatus(env, {
+                  ...device, apple_device_id: appleDeviceId, apple_status: 'DISABLED',
+                  apple_profile_id: device.apple_profile_id, profile_key: device.profile_key,
+                  profile_iv: device.profile_iv
+                }, 'ENABLED', 'device_reapproved')
+                if (!appleSync.ok) {
+                  return json({ success: false, apple_registered: true, error: appleSync.error || 'Apple cihazı yeniden etkinleştirilemedi.' }, 502)
+                }
+                appleStatus = 'ENABLED'
+              }
+              const refreshedDevice = await env.DB.prepare(
+                'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE id = ? LIMIT 1'
+              ).bind(deviceMatch[2]).first()
+              const profile = await ensureAppleAdHocProfile(env, refreshedDevice)
+              if (!profile.ok && !profile.pending) {
                 return json({
-                  success: true,
-                  status: 'approved',
-                  apple_registered: true,
-                  already_registered: true,
-                  apple_device_id: existingAppleDevice.id,
-                  apple_device_sync: appleSync,
-                  message: 'Bu cihaz zaten Mehmet IPA hesabına bağlı. Apple kaydı doğrulandı.'
-                })
+                  success: false, apple_registered: true, status: 'approved',
+                  apple_device_id: appleDeviceId, apple_status: appleStatus, profile,
+                  error: 'Apple cihazı kayıtlı, ancak bu cihaza özel Ad Hoc profili oluşturulamadı.'
+                }, 502)
               }
               return json({
-                success: false,
-                code: 'UDID_ALREADY_REGISTERED',
-                already_registered: true,
-                apple_registered: true,
-                error: 'Bu UDID Apple Developer hesabında zaten kayıtlı. Üyelik onaylanmadı.'
-              }, 409)
+                success: true, status: 'approved', apple_registered: true,
+                already_registered: true, apple_device_id: appleDeviceId,
+                apple_status: appleStatus, profile_status: profile.ok ? 'active' : 'pending',
+                profile, apple_device_sync: appleSync,
+                message: profile.ok
+                  ? 'Apple cihazı doğrulandı ve cihaza özel Ad Hoc profili otomatik hazırlandı.'
+                  : 'Apple cihazı kayıtlı. Apple işlemi tamamlanınca Ad Hoc profili otomatik hazırlanacak.'
+              })
             }
 
             const deviceName = String(device.name || device.username || 'Mehmet IPA üyesi')
@@ -1163,19 +1669,30 @@ export async function onRequest({ request, env, params }) {
               return json({ success: false, error: 'Apple cihaz kaydı doğrulanamadı. Üyelik onaylanmadı.' }, 502)
             }
 
-            const appleStatus = String(appleDevice.attributes?.status || 'ENABLED').toUpperCase()
+            const appleStatus = String(appleDevice.attributes?.status || 'UNKNOWN').toUpperCase()
             const savedAt = new Date().toISOString()
             await env.DB.prepare(
-              'UPDATE devices SET status = ?, apple_device_id = ?, apple_status = ?, apple_last_error = NULL, apple_status_updated_at = ?, apple_last_attempt_at = ? WHERE id = ?'
-            ).bind('approved', appleDevice.id, appleStatus, savedAt, savedAt, deviceMatch[2]).run()
+              "UPDATE devices SET status = 'approved', apple_device_id = ?, apple_status = ?, apple_last_error = NULL, apple_status_updated_at = ?, apple_last_attempt_at = ?, profile_status = 'pending' WHERE id = ?"
+            ).bind(appleDevice.id, appleStatus, savedAt, savedAt, deviceMatch[2]).run()
+            const refreshedDevice = await env.DB.prepare(
+              'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE id = ? LIMIT 1'
+            ).bind(deviceMatch[2]).first()
+            const profile = await ensureAppleAdHocProfile(env, refreshedDevice)
+            if (!profile.ok && !profile.pending) {
+              return json({
+                success: false, apple_registered: true, status: 'approved',
+                apple_device_id: appleDevice.id, apple_status: appleStatus, profile,
+                error: 'Apple cihazı eklendi ancak otomatik Ad Hoc profili oluşturulamadı.'
+              }, 502)
+            }
             return json({
-              success: true,
-              status: 'approved',
-              apple_registered: true,
-              already_registered: false,
-              apple_device_id: appleDevice.id,
-              apple_status: appleStatus,
-              message: 'UDID Apple Developer hesabına kaydedildi; üyelik onaylandı.'
+              success: true, status: 'approved', apple_registered: true,
+              already_registered: false, apple_device_id: appleDevice.id,
+              apple_status: appleStatus, profile_status: profile.ok ? 'active' : 'pending',
+              profile,
+              message: profile.ok
+                ? 'UDID Apple Developer hesabına kaydedildi; cihaza özel Ad Hoc profili otomatik hazırlandı.'
+                : 'UDID Apple hesabına kaydedildi. Apple işlemi tamamlanınca profil otomatik hazırlanacak.'
             })
           } catch (error) {
             return json({
@@ -1187,17 +1704,29 @@ export async function onRequest({ request, env, params }) {
         }
 
         const localDevice = await env.DB.prepare(
-          'SELECT id, user_id, udid, apple_device_id, apple_status FROM devices WHERE id = ? LIMIT 1'
+          'SELECT id, user_id, udid, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status FROM devices WHERE id = ? LIMIT 1'
         ).bind(deviceMatch[2]).first()
         if (!localDevice) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
         await env.DB.prepare('UPDATE devices SET status = ? WHERE id = ?').bind(status, deviceMatch[2]).run()
         let appleSync = null
-        if (localDevice.apple_device_id && status !== 'approved') {
-          appleSync = await updateAppleDeviceStatus(env, localDevice, 'DISABLED', 'device_status_' + status)
-        } else if (status === 'approved') {
-          appleSync = await syncMemberAppleAccess(env, localDevice.user_id, 'device_status_approved')
+        let profile = null
+        if (status !== 'approved') {
+          if (localDevice.apple_device_id) {
+            appleSync = await updateAppleDeviceStatus(env, localDevice, 'DISABLED', 'device_status_' + status)
+          } else {
+            profile = await retireAppleProvisioningProfile(env, localDevice, 'device_status_' + status)
+          }
+        } else {
+          const current = await env.DB.prepare(
+            'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE id = ? LIMIT 1'
+          ).bind(deviceMatch[2]).first()
+          if (current?.apple_device_id && String(current.apple_status || '').toUpperCase() === 'DISABLED') {
+            appleSync = await updateAppleDeviceStatus(env, current, 'ENABLED', 'device_status_approved')
+            if (!appleSync.ok) return json({ success: false, status, apple_device_sync: appleSync }, 502)
+          }
+          if (current?.apple_device_id) profile = await ensureAppleAdHocProfile(env, { ...current, apple_status: 'ENABLED' })
         }
-        return json({ success: true, status, apple_device_sync: appleSync })
+        return json({ success: true, status, apple_device_sync: appleSync, profile })
       }
 
       if (path === '/api/devices' && method === 'GET') {
@@ -1207,6 +1736,10 @@ export async function onRequest({ request, env, params }) {
       }
       if (path === '/api/devices' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici cihaz kaydı yapamaz.' }, 400)
+        const member = await env.DB.prepare('SELECT status, vip_access_status FROM users WHERE id = ? LIMIT 1').bind(session.sub).first()
+        if (!member || member.status !== 'active' || member.vip_access_status === 'blocked') {
+          return json({ success: false, error: 'Hesabın devre dışı. Yeni cihaz kaydedilemez.' }, 403)
+        }
         const body = await readBody(request)
         const udid = String(body.udid || '').trim().toUpperCase()
         if (!/^[A-F0-9-]{20,40}$/.test(udid)) return json({ success: false, error: 'UDID biçimi geçerli görünmüyor.' }, 400)
@@ -1217,6 +1750,38 @@ export async function onRequest({ request, env, params }) {
         await env.DB.prepare('INSERT INTO devices (id, user_id, udid, status, created_at) VALUES (?, ?, ?, ?, ?)')
           .bind(randomId(), session.sub, udid, 'pending', new Date().toISOString()).run()
         return json({ success: true, status: 'pending' }, 201)
+      }
+
+      const memberDeviceMatch = path.match(/^\/api\/devices\/([^/]+)$/)
+      if (memberDeviceMatch && method === 'DELETE') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici cihaz kaydını bu uçtan silemez.' }, 403)
+        const device = await env.DB.prepare(
+          'SELECT id, user_id, udid, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status FROM devices WHERE id = ? AND user_id = ? LIMIT 1'
+        ).bind(memberDeviceMatch[1], session.sub).first()
+        if (!device) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
+        let appleSync = null
+        if (device.apple_device_id) {
+          appleSync = await updateAppleDeviceStatus(env, device, 'DISABLED', 'member_removed_own_device')
+          if (!appleSync.ok) {
+            return json({
+              success: false,
+              error: 'Apple cihazı devre dışı bırakılamadı. Yerel UDID kaydı korunuyor; tekrar deneyin.',
+              apple_device_sync: appleSync
+            }, 502)
+          }
+        } else {
+          const profile = await retireAppleProvisioningProfile(env, device, 'member_removed_own_device')
+          if (!profile.ok) return json({ success: false, error: profile.error || 'Cihaza ait profil kaldırılamadı.' }, 502)
+        }
+        await env.DB.prepare('DELETE FROM devices WHERE id = ? AND user_id = ?').bind(device.id, session.sub).run()
+        return json({
+          success: true,
+          apple_device_disabled: !!device.apple_device_id,
+          apple_record_deleted: false,
+          trial_reset: false,
+          apple_device_sync: appleSync,
+          message: 'Mehmet IPA cihaz kaydı kaldırıldı. Apple Developer cihazı silinmedi; devre dışı bırakıldı ve yıllık cihaz kotası geri verilmedi.'
+        })
       }
         
 
@@ -1400,6 +1965,15 @@ export async function onRequest({ request, env, params }) {
           try { await env.DB.prepare('DELETE FROM signing_certificate WHERE id = ?').bind(old.id).run() } catch {}
         }
 
+        const { results: approvedDevices = [] } = await env.DB.prepare(
+          "SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE status = 'approved' AND apple_device_id IS NOT NULL"
+        ).all()
+        const profileSync = []
+        for (const device of approvedDevices) {
+          const result = await ensureAppleAdHocProfile(env, device)
+          profileSync.push({ device_id: device.id, ok: result.ok, pending: !!result.pending, status: result.status || null, error: result.error || null })
+        }
+
         return json({
           success: true,
           certificate: {
@@ -1410,7 +1984,8 @@ export async function onRequest({ request, env, params }) {
             expires_at: expiresAt
           },
           validation,
-          message: 'P12 parolası, sertifika-anahtar eşleşmesi, sertifika süresi ve provisioning profile CMS imzası kontrol edildi. Dosyalar AES-256-GCM ile şifrelenerek özel kasaya kaydedildi.'
+          profile_sync: profileSync,
+          message: 'P12 parolası, sertifika-anahtar eşleşmesi, sertifika süresi ve provisioning profile CMS imzası kontrol edildi. Dosyalar AES-256-GCM ile şifrelenerek özel kasaya kaydedildi; onaylı cihaz profilleri otomatik eşitlendi.'
         }, 201)
       }
 
@@ -1439,6 +2014,9 @@ export async function onRequest({ request, env, params }) {
         const member = await env.DB.prepare(
           'SELECT username, group_name, status, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id = ? LIMIT 1'
         ).bind(session.sub).first()
+        if (!member || member.status !== 'active' || member.vip_access_status === 'blocked') {
+          return json({ success: false, error: 'Hesabın devre dışı. IPA imzalama erişimi kapalı.' }, 403)
+        }
         const activeTrial = !isActiveVip(member)
           ? await env.DB.prepare('SELECT device_udid, expires_at FROM trial_access WHERE user_id = ? LIMIT 1').bind(session.sub).first()
           : null
@@ -1446,9 +2024,37 @@ export async function onRequest({ request, env, params }) {
         if (!isActiveVip(member) && !trialIsActive) {
           return json({ success: false, error: 'Aktif VIP üyeliği veya süresi dolmamış 1 saatlik deneme hakkı gerekiyor.' }, 403)
         }
-        if (trialIsActive) {
-          const trialDevice = await env.DB.prepare("SELECT id FROM devices WHERE user_id = ? AND udid = ? AND status = 'approved' LIMIT 1").bind(session.sub, activeTrial.device_udid).first()
-          if (!trialDevice) return json({ success: false, error: 'Denemeyi başlattığın onaylı UDID hesabında bulunamadı. Aynı cihazı yeniden kaydedip onaylatman gerekiyor.' }, 403)
+        let signingDevice = await env.DB.prepare(
+          "SELECT id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at FROM devices WHERE user_id = ? AND status = 'approved' " +
+          (trialIsActive ? "AND udid = ? " : "") + "ORDER BY created_at DESC LIMIT 1"
+        ).bind(...(trialIsActive ? [session.sub, activeTrial.device_udid] : [session.sub])).first()
+        if (!signingDevice) {
+          return json({ success: false, error: trialIsActive
+            ? 'Denemeyi başlattığın onaylı UDID hesabında bulunamadı.'
+            : 'IPA imzalamak için onaylı cihaz kaydı gerekiyor.' }, 403)
+        }
+        const liveDeviceState = await refreshAppleDeviceAndProfile(env, signingDevice)
+        if (!liveDeviceState.ok || String(liveDeviceState.status || '').toUpperCase() !== 'ENABLED') {
+          return json({
+            success: false,
+            error: liveDeviceState.status === 'DISABLED'
+              ? 'Apple cihazı devre dışı. Bu iPhone için yeni IPA imzalanamaz.'
+              : liveDeviceState.profile?.pending
+                ? 'Apple cihazı veya Ad Hoc profili henüz hazır değil. Biraz sonra tekrar dene.'
+                : liveDeviceState.profile?.error || 'Apple cihazı ve imza profili doğrulanamadı.'
+          }, 403)
+        }
+        const currentSigningDevice = await env.DB.prepare(
+          "SELECT id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at FROM devices WHERE id = ? AND user_id = ? LIMIT 1"
+        ).bind(signingDevice.id, session.sub).first()
+        if (!currentSigningDevice) return json({ success: false, error: 'Onaylı cihaz kaydı bulunamadı.' }, 403)
+        signingDevice = currentSigningDevice
+        if (String(signingDevice.apple_status || '').toUpperCase() !== 'ENABLED') {
+          return json({ success: false, error: 'Apple cihazı ENABLED durumda değil. Apple cihaz durumunu kontrol et.' }, 403)
+        }
+        if (signingDevice.profile_status !== 'active' || !signingDevice.profile_key || !signingDevice.profile_iv ||
+            !signingDevice.profile_expires_at || new Date(signingDevice.profile_expires_at).getTime() <= Date.now()) {
+          return json({ success: false, error: 'Bu iPhone için Ad Hoc profili henüz hazır değil veya süresi dolmuş.' }, 409)
         }
         const blockedDevice = await env.DB.prepare(
           "SELECT udid FROM devices WHERE user_id = ? AND status = 'blocked' ORDER BY created_at DESC LIMIT 1"
@@ -1526,18 +2132,22 @@ export async function onRequest({ request, env, params }) {
         try {
           const [p12Object, profileObject] = await Promise.all([
             env.CERTS.get(cert.p12_key),
-            env.CERTS.get(cert.profile_key)
+            env.CERTS.get(signingDevice.profile_key)
           ])
-          if (!p12Object || !profileObject) throw new Error('Sertifika dosyaları kasada bulunamadı.')
+          if (!p12Object || !profileObject) throw new Error('P12 veya cihaza özel Ad Hoc profile dosyası kasada bulunamadı.')
           const [encryptedP12, encryptedProfile] = await Promise.all([
             p12Object.arrayBuffer(),
             profileObject.arrayBuffer()
           ])
           const [p12Bytes, profileBytes, password] = await Promise.all([
             decryptBytes(encryptedP12, cert.p12_iv, env.SIGNING_ENCRYPTION_KEY),
-            decryptBytes(encryptedProfile, cert.profile_iv, env.SIGNING_ENCRYPTION_KEY),
+            decryptBytes(encryptedProfile, signingDevice.profile_iv, env.SIGNING_ENCRYPTION_KEY),
             decryptSecret(cert.password_ciphertext, cert.password_iv, env.SIGNING_ENCRYPTION_KEY)
           ])
+          const profileMetadata = readProvisioningProfileMetadata(profileBytes)
+          if (!profileMetadata.deviceUdis.some(value => value.replace(/-/g, '') === signingDevice.udid.replace(/-/g, ''))) {
+            throw new Error("Cihaza özel Ad Hoc profile içinde bu iPhone'un UDID bilgisi yok.")
+          }
           await writeProgress(3, 58, 'Sertifika ve profil hazır', '03/05 · Şifreli P12 ve provisioning profile özel kasadan çözüldü; sertifika durumu ve süre kontrol edildi.')
 
           const signingForm = new FormData()

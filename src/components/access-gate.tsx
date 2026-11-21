@@ -614,9 +614,14 @@ export function AccessGate() {
       const body: Record<string, unknown> = action === 'unlimited' ? { plan_code: 'unlimited' } : { action }
       if (amount && action === 'extend') body.days = amount
       if (amount && action === 'extend_time') body.minutes = amount
-      await api(`/api/admin/users/${encodeURIComponent(target.id)}/vip`, token, { method: 'POST', body: JSON.stringify(body) })
+      const result = await api<{ apple_device_sync?: { ok: boolean; outcomes?: Array<{ error?: string }> } }>(`/api/admin/users/${encodeURIComponent(target.id)}/vip`, token, { method: 'POST', body: JSON.stringify(body) })
       await loadAdmin(token)
-      setNotice(`@${target.username} VIP bilgisi güncellendi.`)
+      const appleError = result.apple_device_sync?.outcomes?.find(item => item.error)?.error
+      if (result.apple_device_sync && !result.apple_device_sync.ok) {
+        setError(`VIP bilgisi güncellendi; ancak Apple cihaz durumu güncellenemedi: ${appleError || 'Apple API hatası'}`)
+      } else {
+        setNotice(`@${target.username} VIP bilgisi güncellendi.`)
+      }
     } catch (e) { setError(e instanceof Error ? e.message : 'VIP işlemi başarısız.') }
   }
 
@@ -647,8 +652,14 @@ export function AccessGate() {
   const updateDevice = async (device: Device, status: Device['status']) => {
     if (!token) return
     try {
-      await api(`/api/admin/devices/${encodeURIComponent(device.id)}`, token, { method: 'PATCH', body: JSON.stringify({ status }) })
-      await loadAdmin(token); setNotice('Cihaz durumu güncellendi.')
+      const result = await api<{ apple_device_sync?: { ok: boolean; outcomes?: Array<{ error?: string }> } }>(`/api/admin/devices/${encodeURIComponent(device.id)}`, token, { method: 'PATCH', body: JSON.stringify({ status }) })
+      await loadAdmin(token)
+      const appleError = result.apple_device_sync?.outcomes?.find(item => item.error)?.error
+      if (result.apple_device_sync && !result.apple_device_sync.ok) {
+        setError(`Cihazın yerel durumu güncellendi; Apple tarafında işlem başarısız: ${appleError || 'Apple API hatası'}`)
+      } else {
+        setNotice('Cihaz durumu güncellendi.')
+      }
     } catch (e) { setError(e instanceof Error ? e.message : 'Cihaz güncellenemedi.') }
   }
 

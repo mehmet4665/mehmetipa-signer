@@ -582,8 +582,12 @@ async function ensureAppleAdHocProfile(env, device) {
         if (appleProfileActive && appleProfileExpiry > Date.now()) {
           return { ok: true, unchanged: true, status: 'active', profile_id: device.apple_profile_id }
         }
-      } catch {
-        // A missing or unreadable Apple profile is regenerated below after retiring its stale reference.
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Apple profile status could not be verified.'
+        if (!message.startsWith('Apple API 404:')) {
+          return { ok: false, pending: true, error: message }
+        }
+        // A profile that Apple no longer has is safe to retire locally and recreate.
       }
       await retireAppleProvisioningProfile(env, device, 'apple_profile_not_active')
       device = { ...device, apple_profile_id: null, profile_key: null, profile_iv: null, profile_status: 'disabled' }

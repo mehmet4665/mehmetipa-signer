@@ -467,9 +467,9 @@ async function loadAppleAdHocProfileContext(env) {
 }
 
 async function getAppleAdHocProfileResources(env, context) {
-  const bundlePath = '/v1/bundleIds?filter%5Bidentifier%5D=' +
-    encodeURIComponent(context.profile.bundleIdentifier) +
-    '&limit=200&fields%5BbundleIds%5D=identifier%2Cname%2Cplatform'
+  // Apple may not return wildcard identifiers through filter[identifier].
+  // List the account's Bundle IDs and perform the exact identifier match locally.
+  const bundlePath = '/v1/bundleIds?limit=200&fields%5BbundleIds%5D=identifier%2Cname%2Cplatform'
   const certificatePath = '/v1/certificates?limit=200' +
     '&fields%5Bcertificates%5D=name%2CcertificateType%2CdisplayName%2CserialNumber%2Cplatform%2CexpirationDate%2Cactivated'
   const [bundleResponse, certificateResponse] = await Promise.all([
@@ -481,7 +481,14 @@ async function getAppleAdHocProfileResources(env, context) {
     String(item.attributes?.platform || '').toUpperCase() === 'IOS'
   )
   if (!bundle) {
-    throw new Error('Apple Developer hesabında ' + context.profile.bundleIdentifier + ' App ID bulunamadı.')
+    const identifiers = (bundleResponse.data || []).map(item =>
+      String(item.attributes?.identifier || '') + ' (' + String(item.attributes?.platform || 'unknown') + ')'
+    ).slice(0, 25)
+    throw new Error(
+      'Apple Developer hesabında ' + context.profile.bundleIdentifier +
+      ' App ID bulunamadı. Listelenen App ID sayısı: ' + (bundleResponse.data || []).length +
+      '. Görülenler: ' + (identifiers.join(', ') || 'Apple API boş liste döndürdü.')
+    )
   }
   const certificate = (certificateResponse.data || []).find(item => {
     const attributes = item.attributes || {}

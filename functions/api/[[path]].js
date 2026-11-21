@@ -828,28 +828,36 @@ export async function onRequest({ request, env, params }) {
           }
 
           try {
-            // Apple Developer'a daha önce eklenmiş UDID'yi tekrar oluşturmadan eşleştir.
-            const appleList = await appleApiFetch(env, '/v1/devices?limit=200&fields%5Bdevices%5D=name%2Cplatform%2Cudid%2Cstatus%2CaddedDate')
-            const existingAppleDevice = (appleList.data || []).find(
+            // Önce Apple'da tam UDID eşleşmesini sorgula. Kayıt varsa üyeliği onaylama.
+            const appleLookup = await appleApiFetch(
+              env,
+              '/v1/devices?filter%5Budid%5D=' + encodeURIComponent(udid) + '&limit=1&fields%5Bdevices%5D=name%2Cplatform%2Cudid%2Cstatus'
+            )
+            const existingAppleDevice = (appleLookup.data || []).find(
               item => String(item.attributes?.udid || '').trim().toUpperCase() === udid
             )
-
-            let appleDevice = existingAppleDevice
-            if (!appleDevice) {
-              const deviceName = String(device.name || device.username || 'Mehmet IPA üyesi')
-                .replace(/[\r\n]/g, ' ').trim().slice(0, 50) || 'Mehmet IPA üyesi'
-              const created = await appleApiFetch(env, '/v1/devices', {
-                method: 'POST',
-                body: {
-                  data: {
-                    type: 'devices',
-                    attributes: { name: deviceName, platform: 'IOS', udid }
-                  }
-                }
-              })
-              appleDevice = created.data
+            if (existingAppleDevice) {
+              return json({
+                success: false,
+                code: 'UDID_ALREADY_REGISTERED',
+                already_registered: true,
+                apple_registered: true,
+                error: 'Bu UDID Apple Developer hesabında zaten kayıtlı. Üyelik onaylanmadı.'
+              }, 409)
             }
 
+            const deviceName = String(device.name || device.username || 'Mehmet IPA üyesi')
+              .replace(/[\\r\\n]/g, ' ').trim().slice(0, 50) || 'Mehmet IPA üyesi'
+            const created = await appleApiFetch(env, '/v1/devices', {
+              method: 'POST',
+              body: {
+                data: {
+                  type: 'devices',
+                  attributes: { name: deviceName, platform: 'IOS', udid }
+                }
+              }
+            })
+            const appleDevice = created.data
             if (!appleDevice?.id) {
               return json({ success: false, error: 'Apple cihaz kaydı doğrulanamadı. Üyelik onaylanmadı.' }, 502)
             }
@@ -859,11 +867,9 @@ export async function onRequest({ request, env, params }) {
               success: true,
               status: 'approved',
               apple_registered: true,
-              already_registered: !!existingAppleDevice,
+              already_registered: false,
               apple_device_id: appleDevice.id,
-              message: existingAppleDevice
-                ? 'UDID Apple Developer hesabında zaten kayıtlıydı; üyelik onaylandı.'
-                : 'UDID Apple Developer hesabına kaydedildi; üyelik onaylandı.'
+              message: 'UDID Apple Developer hesabına kaydedildi; üyelik onaylandı.'
             })
           } catch (error) {
             return json({

@@ -540,14 +540,19 @@ export async function onRequest({ request, env, params }) {
 
       const now = Date.now()
       const nowIso = new Date(now).toISOString()
-      const { results = [] } = await env.DB.prepare(
-        'SELECT devices.id, devices.user_id, devices.udid, devices.status AS device_status, devices.apple_device_id, devices.apple_status, users.status AS user_status, users.group_name, users.vip_plan, users.vip_expires_at, users.vip_access_status, trial_access.expires_at AS trial_expires_at FROM devices INNER JOIN users ON users.id = devices.user_id LEFT JOIN trial_access ON trial_access.user_id = users.id WHERE devices.apple_device_id IS NOT NULL ORDER BY devices.created_at DESC LIMIT 250'
-      ).all()
-
       let changed = 0
       let failed = 0
       let skipped = 0
-      for (const device of results) {
+      let inspected = 0
+      const pageSize = 250
+      let offset = 0
+      while (true) {
+        const { results = [] } = await env.DB.prepare(
+          'SELECT devices.id, devices.user_id, devices.udid, devices.status AS device_status, devices.apple_device_id, devices.apple_status, users.status AS user_status, users.group_name, users.vip_plan, users.vip_expires_at, users.vip_access_status, trial_access.expires_at AS trial_expires_at FROM devices INNER JOIN users ON users.id = devices.user_id LEFT JOIN trial_access ON trial_access.user_id = users.id WHERE devices.apple_device_id IS NOT NULL ORDER BY devices.created_at DESC LIMIT ? OFFSET ?'
+        ).bind(pageSize, offset).all()
+        if (!results.length) break
+        inspected += results.length
+        for (const device of results) {
         const member = {
           status: device.user_status,
           group_name: device.group_name,
@@ -590,13 +595,17 @@ export async function onRequest({ request, env, params }) {
         if (result.ok && result.changed) changed++
         else if (!result.ok) failed++
         else skipped++
+        }
+        offset += results.length
+        if (results.length < pageSize) break
       }
 
       const runId = randomId()
       await env.DB.prepare(
         'INSERT INTO expiry_sweep_runs (id, run_at, inspected, changed, failed, skipped) VALUES (?, ?, ?, ?, ?, ?)'
-      ).bind(runId, nowIso, results.length, changed, failed, skipped).run()
-      return json({ success: true, run_id: runId, inspected: results.length, changed, failed, skipped, checked_at: nowIso })
+      ).bind(runId, nowIso, inspected, changed, failed, skipped).run()
+      await env.DB.prepare("DELETE FROM expiry_sweep_runs WHERE run_at < datetime('now', '-30 days')").run()
+      return json({ success: true, run_id: runId, inspected, changed, failed, skipped, checked_at: nowIso })
     }
 
     if (path === '/api/health' && method === 'GET') {
@@ -862,7 +871,7 @@ export async function onRequest({ request, env, params }) {
           env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_updated_at=? WHERE id=?").bind(order.plan_code, expiresAt, now, order.user_id)
         ])
         if (!result?.length || Number(result[0]?.meta?.changes || 0) !== 1) return json({ success: false, error: 'Talep eşzamanlı olarak işlenmiş olabilir; yenileyip kontrol et.' }, 409)
-        const appleSync = await syncUserAppleDevices(env, order.user_id, 'ENABLED', 'vip_order_approved')
+        const appleSync = await syncMemberAppleAccess(env, order.user_id, 'vip_order_approved')
         return json({ success: true, expires_at: expiresAt, apple_device_sync: appleSync })
       }
 
@@ -892,7 +901,7 @@ export async function onRequest({ request, env, params }) {
           const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
           const expiresAt = new Date(base + days * 86400000).toISOString()
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=CASE WHEN vip_plan='unlimited' THEN 'unlimited' ELSE COALESCE(vip_plan,'manual') END, vip_expires_at=CASE WHEN vip_plan='unlimited' THEN NULL ELSE ? END, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(expiresAt, now, target.id).run()
-          const appleSync = await syncUserAppleDevices(env, target.id, 'ENABLED', 'vip_extended_days')
+          const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_extended_days')
           return json({ success: true, expires_at: target.vip_plan === 'unlimited' ? null : expiresAt, apple_device_sync: appleSync })
         }
         if (body.action === 'extend_time') {
@@ -903,12 +912,12 @@ export async function onRequest({ request, env, params }) {
           const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
           const expiresAt = new Date(base + minutes * 60000).toISOString()
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=COALESCE(vip_plan,'manual'), vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(expiresAt, now, target.id).run()
-          const appleSync = await syncUserAppleDevices(env, target.id, 'ENABLED', 'vip_extended_minutes')
+          const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_extended_minutes')
           return json({ success: true, expires_at: expiresAt, minutes_added: minutes, apple_device_sync: appleSync })
         }
         if (body.plan_code === 'unlimited') {
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan='unlimited', vip_expires_at=NULL, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(now, target.id).run()
-          const appleSync = await syncUserAppleDevices(env, target.id, 'ENABLED', 'vip_unlimited_granted')
+          const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_unlimited_granted')
           return json({ success: true, expires_at: null, unlimited: true, apple_device_sync: appleSync })
         }
         const plan = VIP_PLANS[String(body.plan_code || '')]
@@ -917,7 +926,7 @@ export async function onRequest({ request, env, params }) {
         const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
         const expiresAt = new Date(base + plan.duration_days * 86400000).toISOString()
         await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(plan.code, expiresAt, now, target.id).run()
-        const appleSync = await syncUserAppleDevices(env, target.id, 'ENABLED', 'vip_plan_granted')
+        const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_plan_granted')
         return json({ success: true, expires_at: expiresAt, apple_device_sync: appleSync })
       }
 

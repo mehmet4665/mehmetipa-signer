@@ -1851,6 +1851,15 @@ export async function onRequest({ request, env, params }) {
           try { await env.DB.prepare('DELETE FROM signing_certificate WHERE id = ?').bind(old.id).run() } catch {}
         }
 
+        const { results: approvedDevices = [] } = await env.DB.prepare(
+          "SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE status = 'approved' AND apple_device_id IS NOT NULL"
+        ).all()
+        const profileSync = []
+        for (const device of approvedDevices) {
+          const result = await ensureAppleAdHocProfile(env, device)
+          profileSync.push({ device_id: device.id, ok: result.ok, pending: !!result.pending, status: result.status || null, error: result.error || null })
+        }
+
         return json({
           success: true,
           certificate: {
@@ -1861,7 +1870,8 @@ export async function onRequest({ request, env, params }) {
             expires_at: expiresAt
           },
           validation,
-          message: 'P12 parolası, sertifika-anahtar eşleşmesi, sertifika süresi ve provisioning profile CMS imzası kontrol edildi. Dosyalar AES-256-GCM ile şifrelenerek özel kasaya kaydedildi.'
+          profile_sync: profileSync,
+          message: 'P12 parolası, sertifika-anahtar eşleşmesi, sertifika süresi ve provisioning profile CMS imzası kontrol edildi. Dosyalar AES-256-GCM ile şifrelenerek özel kasaya kaydedildi; onaylı cihaz profilleri otomatik eşitlendi.'
         }, 201)
       }
 

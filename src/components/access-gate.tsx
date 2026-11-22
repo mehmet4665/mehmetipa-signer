@@ -111,7 +111,7 @@ async function openPaddleCheckout(order: { id: string; plan_code: string }) {
   paddle.Checkout.open({
     items: [{ priceId, quantity: 1 }],
     customData: { vip_order_id: order.id },
-    settings: { displayMode: 'overlay', theme: 'dark', locale: 'tr' }
+    settings: { displayMode: 'wide-overlay', theme: 'dark', locale: 'tr', variant: 'one-page' }
   })
 }
 

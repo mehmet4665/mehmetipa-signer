@@ -882,8 +882,8 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
 
             <section>
               <h2 className="text-base font-semibold text-foreground">8. Your requests</h2>
-              <p className="mt-2">You may request access to, correction of or deletion of personal information, subject to identity checks and records that must be retained by law or for security and dispute-resolution purposes. Account and device removal requests may affect your ability to use VIP signing. The public support email must be confirmed by the service operator before this page is submitted for payment-provider review.</p>
-              <p className="mt-2">Kimlik doğrulaması ve kanunen ya da güvenlik/uyuşmazlık çözümü için tutulması gereken kayıtlar saklı kalmak üzere kişisel verilerinize erişim, düzeltme veya silme talebinde bulunabilirsiniz. Hesap veya cihazın silinmesi VIP imzalama erişiminizi etkileyebilir. Bu sayfanın ödeme sağlayıcısına sunulmasından önce herkese açık destek e-postasının hizmet işletmecisi tarafından doğrulanması gerekir.</p>
+              <p className="mt-2">You may request access to, correction of or deletion of personal information, subject to identity checks and records that must be retained by law or for security and dispute-resolution purposes. Account and device removal requests may affect your ability to use VIP signing. For privacy requests and questions about this policy, contact mehmetipa.destek@gmail.com.</p>
+              <p className="mt-2">Kimlik doğrulaması ve kanunen ya da güvenlik/uyuşmazlık çözümü için tutulması gereken kayıtlar saklı kalmak üzere kişisel verilerinize erişim, düzeltme veya silme talebinde bulunabilirsiniz. Hesap veya cihazın silinmesi VIP imzalama erişiminizi etkileyebilir. Gizlilik talepleri ve bu politikayla ilgili sorular için mehmetipa.destek@gmail.com adresinden iletişime geçebilirsiniz.</p>
             </section>
           </div>
         ) : isRefund ? (
@@ -951,8 +951,8 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
 
         <div className="mt-8 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <p className="font-semibold text-foreground">Contact / İletişim</p>
-          <p className="mt-1">A public support email address must be added here before payment-provider verification. For now, please retain your account username and any VIP request reference for support.</p>
-          <p className="mt-1">Ödeme sağlayıcısı doğrulamasından önce buraya herkese açık bir destek e-posta adresi eklenmelidir. Şimdilik destek talebiniz için hesap kullanıcı adınızı ve VIP talep referansınızı saklayın.</p>
+          <p className="mt-1">Support: mehmetipa.destek@gmail.com. Include your account username and any VIP request reference when contacting support.</p>
+          <p className="mt-1">Destek: mehmetipa.destek@gmail.com. İletişime geçerken hesap kullanıcı adınızı ve varsa VIP talep referansınızı ekleyin.</p>
         </div>
       </section>
 

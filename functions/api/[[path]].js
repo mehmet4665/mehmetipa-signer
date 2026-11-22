@@ -1524,7 +1524,7 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, order: { id, ...plan, plan_code: plan.code, status: 'pending', created_at: createdAt } }, 201)
       }
 
-      const cancelVipOrderMatch = path.match(/^\\/api\\/vip\\/orders\\/([^/]+)\\/cancel$/)
+      const cancelVipOrderMatch = path.match(/^\/api\/vip\/orders\/([^/]+)\/cancel$/)
       if (cancelVipOrderMatch && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Bu işlem üye hesabı içindir.' }, 403)
         const orderId = cancelVipOrderMatch[1]

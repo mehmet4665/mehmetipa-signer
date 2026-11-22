@@ -978,7 +978,7 @@ async function verifyPaddleSignature(rawBody, signatureHeader, secret) {
   }))
   const timestamp = parts.ts
   const signatures = String(parts.h1 || '').split(',')
-  if (!/^\\d+$/.test(timestamp || '') || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300 || !signatures.length) return false
+  if (!/^\d+$/.test(timestamp || '') || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300 || !signatures.length) return false
   const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(timestamp + ':' + rawBody)))
   const expected = [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('')

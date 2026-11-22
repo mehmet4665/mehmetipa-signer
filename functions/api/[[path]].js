@@ -1021,6 +1021,7 @@ export async function onRequest({ request, env, params }) {
       const order = await env.DB.prepare('SELECT * FROM vip_orders WHERE id=? LIMIT 1').bind(orderId).first()
       if (!order) return json({ success: false, error: 'VIP siparişi bulunamadı.' }, 404)
       if (order.status === 'approved' || order.status === 'paid') return json({ success: true, duplicate: true })
+      if (order.status === 'cancelled') return json({ success: true, ignored: true, reason: 'order_cancelled' })
       const userId = String(order.user_id || '')
       const planCode = String(order.plan_code || '')
       const plan = VIP_PLANS[planCode]
@@ -1523,6 +1524,20 @@ export async function onRequest({ request, env, params }) {
         return json({ success: true, order: { id, ...plan, plan_code: plan.code, status: 'pending', created_at: createdAt } }, 201)
       }
 
+      const cancelVipOrderMatch = path.match(/^\\/api\\/vip\\/orders\\/([^/]+)\\/cancel$/)
+      if (cancelVipOrderMatch && method === 'POST') {
+        if (isAdmin) return json({ success: false, error: 'Bu işlem üye hesabı içindir.' }, 403)
+        const orderId = cancelVipOrderMatch[1]
+        const result = await env.DB.prepare(
+          "UPDATE vip_orders SET status='cancelled' WHERE id=? AND user_id=? AND provider='paddle' AND status='pending'"
+        ).bind(orderId, session.sub).run()
+        if (Number(result.meta?.changes || 0) === 1) return json({ success: true, status: 'cancelled' })
+        const existing = await env.DB.prepare('SELECT status FROM vip_orders WHERE id=? AND user_id=? LIMIT 1').bind(orderId, session.sub).first()
+        if (!existing) return json({ success: false, error: 'Sipariş bulunamadı.' }, 404)
+        if (existing.status === 'paid' || existing.status === 'approved') return json({ success: false, error: 'Ödeme zaten doğrulanmış; VIP durumunu yenile.' }, 409)
+        return json({ success: true, status: existing.status })
+      }
+
       if (path === '/api/admin/vip-orders' && method === 'GET') {
         const denied = requireAdmin(); if (denied) return denied
         const { results = [] } = await env.DB.prepare(
@@ -1538,6 +1553,7 @@ export async function onRequest({ request, env, params }) {
         const action = String(body.action || '')
         const order = await env.DB.prepare('SELECT * FROM vip_orders WHERE id=? LIMIT 1').bind(vipOrderMatch[1]).first()
         if (!order) return json({ success: false, error: 'VIP talebi bulunamadı.' }, 404)
+        if (order.provider === 'paddle') return json({ success: false, error: 'Paddle siparişleri yalnızca doğrulanmış ödeme webhooku ile etkinleştirilebilir.' }, 403)
         if (order.status !== 'pending') return json({ success: false, error: 'Bu talep daha önce işlenmiş.' }, 409)
         const now = new Date().toISOString()
         if (action === 'reject') {

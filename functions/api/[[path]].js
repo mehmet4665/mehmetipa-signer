@@ -1545,21 +1545,18 @@ export async function onRequest({ request, env, params }) {
         const denied = requireAdmin(); if (denied) return denied
         const user = await env.DB.prepare('SELECT id FROM users WHERE id = ? LIMIT 1').bind(resetDevicesMatch[1]).first()
         if (!user) return json({ success: false, error: 'Kullanıcı bulunamadı.' }, 404)
-        const { results: userDevices = [] } = await env.DB.prepare(
-          'SELECT id, user_id, udid, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status FROM devices WHERE user_id = ?'
-        ).bind(resetDevicesMatch[1]).all()
-        const cleanup = []
-        for (const device of userDevices) {
-          const result = device.apple_device_id
-            ? await updateAppleDeviceStatus(env, device, 'DISABLED', 'member_udid_reset')
-            : await retireAppleProvisioningProfile(env, device, 'member_udid_reset')
-          cleanup.push({ device_id: device.id, ok: !!result.ok, error: result.error || null })
-        }
-        if (cleanup.some(item => !item.ok)) {
-          return json({ success: false, error: 'UDID kayıtları sıfırlanmadı: Apple cihazı/profili kapatılamadı.', device_cleanup: cleanup }, 502)
-        }
-        await env.DB.prepare('DELETE FROM devices WHERE user_id = ?').bind(resetDevicesMatch[1]).run()
-        return json({ success: true, reset_count: userDevices.length, device_cleanup: cleanup })
+        // Local-only reset: clear Mehmet IPA UDID form records. Never call Apple APIs.
+        const result = await env.DB.prepare('DELETE FROM devices WHERE user_id = ?').bind(resetDevicesMatch[1]).run()
+        return json({ success: true, reset_count: Number(result.meta?.changes || 0), apple_untouched: true })
+      }
+
+      const resetSingleDeviceMatch = path.match(/^\/api\/admin\/devices\/([^/]+)\/reset-udid$/)
+      if (resetSingleDeviceMatch && method === 'POST') {
+        const denied = requireAdmin(); if (denied) return denied
+        const result = await env.DB.prepare('DELETE FROM devices WHERE id = ?').bind(resetSingleDeviceMatch[1]).run()
+        if (!Number(result.meta?.changes || 0)) return json({ success: false, error: 'UDID kaydı bulunamadı.' }, 404)
+        // This clears only the local Mehmet IPA entry. Apple Developer remains untouched.
+        return json({ success: true, reset_count: 1, apple_untouched: true })
       }
 
       const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/)

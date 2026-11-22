@@ -1961,14 +1961,14 @@ export async function onRequest({ request, env, params }) {
         const submittedAt = new Date().toISOString()
         await env.DB.prepare('INSERT INTO devices (id, user_id, udid, status, created_at) VALUES (?, ?, ?, ?, ?)')
           .bind(deviceId, session.sub, udid, 'pending', submittedAt).run()
-        await sendAdminAlert(env, 'Yeni UDID kayıt isteği', 'Yeni cihaz kaydı bekliyor', [
+        const adminNotice = await sendAdminAlert(env, 'Yeni UDID kayıt isteği', 'Yeni cihaz kaydı bekliyor', [
           ['Üye', member.name || member.username || session.sub],
           ['Kullanıcı adı', member.username || 'Belirtilmemiş'],
           ['E-posta', member.email || 'Belirtilmemiş'],
           ['UDID', udid],
           ['Gönderim zamanı', submittedAt]
         ])
-        return json({ success: true, status: 'pending', notification_sent: !!env.ADMIN_NOTIFICATION_EMAIL }, 201)
+        return json({ success: true, status: 'pending', notification_sent: adminNotice.sent }, 201)
       }
 
       const memberDeviceMatch = path.match(/^\/api\/devices\/([^/]+)$/)

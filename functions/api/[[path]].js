@@ -64,7 +64,10 @@ async function sendAdminAlert(env, subject, title, lines) {
 }
 async function clearRateLimit(env, request, action) { const ip=request.headers.get('cf-connecting-ip')||'unknown'; const key=await sha256Hex(action+':'+ip); await env.DB.prepare('DELETE FROM auth_rate_limits WHERE rate_key=?').bind(key).run() }
 async function rateLimit(env, request, action, limit = 6, windowMinutes = 15) { const ip = request.headers.get('cf-connecting-ip') || 'unknown'; const key = await sha256Hex(action + ':' + ip); const now = Date.now(); const row = await env.DB.prepare('SELECT attempts, window_started_at, blocked_until FROM auth_rate_limits WHERE rate_key = ?').bind(key).first(); if (row && row.blocked_until && new Date(row.blocked_until).getTime() > now) return false; const expired = !row || now - new Date(row.window_started_at).getTime() > windowMinutes * 60000; const attempts = expired ? 1 : Number(row.attempts || 0) + 1; const started = expired ? new Date(now).toISOString() : row.window_started_at; const blocked = attempts > limit ? new Date(now + windowMinutes * 60000).toISOString() : null; await env.DB.prepare('INSERT INTO auth_rate_limits (rate_key, attempts, window_started_at, blocked_until) VALUES (?, ?, ?, ?) ON CONFLICT(rate_key) DO UPDATE SET attempts=excluded.attempts, window_started_at=excluded.window_started_at, blocked_until=excluded.blocked_until').bind(key, attempts, started, blocked).run(); return !blocked }
-function emailHtml(title, message, url, label) { return '<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:28px;color:#171727"><h2>' + title + '</h2><p style="line-height:1.7">' + message + '</p><p style="margin:28px 0"><a href="' + url + '" style="background:#7047d8;color:#fff;text-decoration:none;padding:13px 20px;border-radius:10px;display:inline-block">' + label + '</a></p><p style="color:#777;font-size:12px">Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin.</p></div>' }
+function emailHtml(title, message, url, label) {
+  const safeTitle=escapeMailText(title), safeMessage=escapeMailText(message), safeUrl=escapeMailText(url), safeLabel=escapeMailText(label)
+  return '<!doctype html><html><body style="margin:0;padding:0;background:#f3f4f8;font-family:Arial,Helvetica,sans-serif;color:#171727"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4f8;padding:36px 12px"><tr><td align="center"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #e8e8ef;border-radius:18px;overflow:hidden"><tr><td style="padding:28px 32px 18px;text-align:center;border-bottom:1px solid #eeeeF3"><div style="display:inline-block;width:42px;height:42px;line-height:42px;border-radius:13px;background:#171727;color:#ffffff;font-size:20px;font-weight:800">M</div><div style="margin-top:10px;font-size:20px;font-weight:800;letter-spacing:-.4px">Mehmet IPA</div><div style="margin-top:4px;font-size:12px;color:#777b8a">IPA İmzalama Platformu</div></td></tr><tr><td style="padding:34px 32px 30px"><h1 style="margin:0 0 16px;font-size:25px;line-height:1.25;color:#171727">' + safeTitle + '</h1><p style="margin:0;color:#454858;font-size:15px;line-height:1.75">' + safeMessage + '</p><div style="padding:28px 0 22px"><a href="' + safeUrl + '" style="display:inline-block;background:#7047d8;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 23px;border-radius:10px">' + safeLabel + '</a></div><p style="margin:0;color:#858895;font-size:12px;line-height:1.6">Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin. Güvenliğin için bağlantıyı kimseyle paylaşma.</p></td></tr><tr><td style="padding:18px 32px;background:#fafafd;border-top:1px solid #eeeeF3;text-align:center;color:#999daa;font-size:11px">© Mehmet IPA · Güvenli hesap işlemleri</td></tr></table></td></tr></table></body></html>'
+}
 async function readBody(request) {
   try {
     return await request.json()
@@ -1335,20 +1338,31 @@ export async function onRequest({ request, env, params }) {
       if (existing) return json({ success: false, error: 'Bu kullanıcı adı veya e-posta zaten kayıtlı.' }, 409)
       const now = new Date().toISOString()
       const passwordHash = await hashPassword(password)
+      if (!env.RESEND_API_KEY || !env.MAIL_FROM) return json({success:false,error:'E-posta gönderimi şu anda yapılandırılmamış. Lütfen daha sonra tekrar dene.'},503)
       const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      const verificationToken = randomToken()
+      const verificationHash = await sha256Hex(verificationToken)
       const sameEmail = await env.DB.prepare("SELECT id,username FROM registration_requests WHERE lower(email)=? AND status='verification_pending' LIMIT 1").bind(email).first()
       const sameUsername = await env.DB.prepare("SELECT id,email FROM registration_requests WHERE lower(username)=? AND status='verification_pending' AND lower(email)<>? LIMIT 1").bind(username,email).first()
       if (sameUsername) return json({ success: false, error: 'Bu kullanıcı adı başka bir bekleyen kayıt tarafından kullanılıyor.' }, 409)
+      const requestId = sameEmail?.id || randomId()
       try {
         if (sameEmail) {
-          await env.DB.prepare("UPDATE registration_requests SET name=?,username=?,password_hash=?,created_at=?,verification_expires_at=?,verification_token_hash=NULL WHERE id=?").bind(name,username,passwordHash,now,expires,sameEmail.id).run()
+          await env.DB.prepare("UPDATE registration_requests SET name=?,username=?,password_hash=?,created_at=?,verification_expires_at=?,verification_token_hash=? WHERE id=?").bind(name,username,passwordHash,now,expires,verificationHash,requestId).run()
         } else {
-          await env.DB.prepare("INSERT INTO registration_requests (id,name,username,email,password_hash,status,created_at,verification_token_hash,verification_expires_at) VALUES (?,?,?,?,?,'verification_pending',?,NULL,?)").bind(randomId(),name,username,email,passwordHash,now,expires).run()
+          await env.DB.prepare("INSERT INTO registration_requests (id,name,username,email,password_hash,status,created_at,verification_token_hash,verification_expires_at) VALUES (?,?,?,?,?,'verification_pending',?,?,?)").bind(requestId,name,username,email,passwordHash,now,verificationHash,expires).run()
         }
       } catch {
         return json({ success: false, error: 'Kayıt isteği kaydedilemedi. Bilgileri kontrol edip tekrar dene.' }, 500)
       }
-      return json({ success: true, message: 'Kayıt isteğin hazır. Firebase şimdi e-posta adresine doğrulama bağlantısı gönderecek.' }, 201)
+      const verifyUrl='https://mehmetipa-signer.pages.dev/verify-email?token='+encodeURIComponent(verificationToken)
+      try {
+        await sendMail(env,{to:email,subject:'Mehmet IPA e-posta adresini doğrula',html:emailHtml('E-posta adresini doğrula','Mehmet IPA hesabını etkinleştirmek için aşağıdaki bağlantıyı kullan. Bağlantı 24 saat geçerlidir ve tek kullanımlıktır.',verifyUrl,'E-posta adresimi doğrula')})
+      } catch(error) {
+        console.error('[Registration email] Send failed',error)
+        return json({success:false,error:'Doğrulama e-postası gönderilemedi. Biraz sonra yeniden gönder butonunu kullan.'},502)
+      }
+      return json({ success: true, message: 'Doğrulama bağlantısını e-posta adresine gönderdik. Gelen kutunu ve spam klasörünü kontrol et.' }, 201)
     }
     if (path === '/api/auth/verify-email' && method === 'POST') {
       if (!(await rateLimit(env, request, 'verify-email', 10, 15))) return json({success:false,error:'Çok fazla doğrulama denemesi. Daha sonra tekrar dene.'},429)

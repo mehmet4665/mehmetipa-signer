@@ -127,7 +127,7 @@ async function firebaseIdentityRequest<T>(method: string, payload: Record<string
   if (!response.ok) {
     const code = String((data as any)?.error?.message || '')
     const messages: Record<string, string> = {
-      EMAIL_EXISTS: 'Bu e-posta Firebase üzerinde zaten kayıtlı. Giriş yapmayı veya şifre sıfırlamayı dene.',
+      EMAIL_EXISTS: 'Bu e-posta ile daha önce kayıt başlatılmış. Bilgilerinle devam ederek doğrulama e-postasını yeniden gönderebilirsin.',
       INVALID_EMAIL: 'E-posta adresi geçersiz.',
       WEAK_PASSWORD: 'Şifre en az 8 karakter olmalı.',
       TOO_MANY_ATTEMPTS_TRY_LATER: 'Çok fazla deneme yapıldı. Bir süre sonra tekrar dene.',
@@ -387,6 +387,25 @@ export function AccessGate() {
   const [resetPasswordValue, setResetPasswordValue] = React.useState('')
   const [resetPasswordAgain, setResetPasswordAgain] = React.useState('')
   const [resetToken, setResetToken] = React.useState(() => typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : '')
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('mehmetipa.pendingRegistration.v1')
+      if (!raw) return
+      const pending = JSON.parse(raw) as {name?:string;username?:string;email?:string;createdAt?:number}
+      if (!pending.email || !pending.createdAt || Date.now() - pending.createdAt > 24*60*60*1000) {
+        window.localStorage.removeItem('mehmetipa.pendingRegistration.v1')
+        return
+      }
+      setRegisterName(pending.name || '')
+      setRegisterUsername(pending.username || '')
+      setRegisterEmail(pending.email)
+      setVerifyEmailInput(pending.email)
+      setView('verify')
+      setNotice('Bekleyen kayıt işlemin bulundu. E-postanı doğrulayarak kaldığın yerden devam edebilirsin.')
+    } catch {
+      window.localStorage.removeItem('mehmetipa.pendingRegistration.v1')
+    }
+  }, [])
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState('')
   const [notice, setNotice] = React.useState('')
@@ -587,22 +606,32 @@ export function AccessGate() {
     finally { setBusy(false) }
   }
 
+  const PENDING_REGISTRATION_KEY = 'mehmetipa.pendingRegistration.v1'
   const register = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); setNotice('')
     if (registerPassword !== registerPasswordAgain) { setBusy(false); setError('Şifreler eşleşmiyor.'); return }
+    const email = registerEmail.trim().toLowerCase()
     let firebaseIdToken = ''
     try {
-      const account = await firebaseIdentityRequest<{idToken:string}>('accounts:signUp',{email:registerEmail.trim().toLowerCase(),password:registerPassword,returnSecureToken:true})
+      let account: {idToken:string}
+      try {
+        account = await firebaseIdentityRequest<{idToken:string}>('accounts:signUp',{email,password:registerPassword,returnSecureToken:true})
+      } catch (signupError) {
+        const message = signupError instanceof Error ? signupError.message : ''
+        if (!message.includes('daha önce kayıt başlatılmış')) throw signupError
+        account = await firebaseIdentityRequest<{idToken:string}>('accounts:signInWithPassword',{email,password:registerPassword,returnSecureToken:true})
+      }
       firebaseIdToken = account.idToken
-      await api('/api/auth/register',undefined,{method:'POST',body:JSON.stringify({name:registerName,username:registerUsername,email:registerEmail,password:registerPassword,firebaseIdToken})})
+      await api('/api/auth/register',undefined,{method:'POST',body:JSON.stringify({name:registerName,username:registerUsername,email,password:registerPassword,firebaseIdToken})})
       await firebaseIdentityRequest('accounts:sendOobCode',{requestType:'VERIFY_EMAIL',idToken:firebaseIdToken,continueUrl:window.location.origin+'/verify-email'})
-      setVerifyEmailInput(registerEmail.trim().toLowerCase())
+      const pending = {name:registerName,username:registerUsername,email,createdAt:Date.now()}
+      window.localStorage.setItem(PENDING_REGISTRATION_KEY,JSON.stringify(pending))
+      setVerifyEmailInput(email)
       setVerifyPasswordInput('')
       setView('verify')
-      setNotice('Doğrulama bağlantısı Gmail adresine gönderildi. E-postanı açıp bağlantıya tıkla; sonra bu ekranda şifreni girerek hesabını etkinleştir.')
+      setNotice('Doğrulama bağlantısını e-posta adresine gönderdik. Gelen kutunu ve spam klasörünü kontrol et. Sayfayı yenilesen bile bu adım korunacak.')
       setRegisterPassword(''); setRegisterPasswordAgain('')
     } catch(e) {
-      if (firebaseIdToken) await firebaseIdentityRequest('accounts:delete',{idToken:firebaseIdToken}).catch(()=>{})
       setError(e instanceof Error ? e.message : 'Kayıt başlatılamadı.')
     }
     finally { setBusy(false) }
@@ -627,6 +656,7 @@ export function AccessGate() {
       const signedIn = await firebaseIdentityRequest<{idToken:string}>('accounts:signInWithPassword',{email:verifyEmailInput.trim().toLowerCase(),password:verifyPasswordInput,returnSecureToken:true})
       const result = await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({idToken:signedIn.idToken})})
       setNotice(result.message)
+      window.localStorage.removeItem(PENDING_REGISTRATION_KEY)
       setVerifyPasswordInput('')
       setView('login')
       setLoginMode('member')
@@ -970,7 +1000,7 @@ if (view === 'method' && user?.role === 'member') return <main className="relati
 
   if (view === 'reset') return <main className="auth-screen-enter flex min-h-screen items-center justify-center bg-[#080B18] px-4 py-10 text-white"><section className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-6 sm:p-9"><Brand/><h1 className="mt-8 text-3xl font-black">Yeni şifre belirle</h1><form onSubmit={resetPassword} className="mt-6 grid gap-4"><label className="grid gap-2 text-sm font-semibold">Yeni şifre<input type="password" value={resetPasswordValue} onChange={e=>setResetPasswordValue(e.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><label className="grid gap-2 text-sm font-semibold">Yeni şifre tekrar<input type="password" value={resetPasswordAgain} onChange={e=>setResetPasswordAgain(e.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><ErrorText error={error}/><NoticeText notice={notice}/><button disabled={busy||!resetToken} className="h-12 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 font-bold disabled:opacity-50">Şifremi yenile</button></form><button onClick={()=>{setView('login');setError('');setNotice('')}} className="mt-5 w-full text-sm text-slate-400">Girişe dön</button></section></main>
 
-  if (view === 'verify') return <main className="auth-screen-enter flex min-h-screen items-center justify-center bg-[#080B18] px-4 py-10 text-white"><section className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-8"><Brand/><h1 className="mt-8 text-2xl font-black">Gmail doğrulaması</h1><p className="mt-3 text-sm leading-6 text-slate-300">Önce Gmail'ine gönderilen Mehmet IPA doğrulama bağlantısına tıkla. Ardından aşağıya kayıt olduğun e-posta ve şifreni girerek hesabını etkinleştir.</p><form onSubmit={completeFirebaseVerification} className="mt-6 grid gap-4"><label className="grid gap-2 text-sm font-semibold">E-posta<input type="email" value={verifyEmailInput} onChange={e=>setVerifyEmailInput(e.target.value)} required autoComplete="email" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><label className="grid gap-2 text-sm font-semibold">Kayıt şifren<input type="password" value={verifyPasswordInput} onChange={e=>setVerifyPasswordInput(e.target.value)} required autoComplete="current-password" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><ErrorText error={error}/><NoticeText notice={notice}/><button disabled={busy} className="h-12 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 font-bold disabled:opacity-50">{busy?'Doğrulama kontrol ediliyor…':'E-postamı doğruladım, hesabı aç →'}</button></form><button onClick={()=>{setView('login');setError('');setNotice('')}} className="mt-5 w-full text-sm text-slate-400">Giriş ekranına dön</button></section></main>
+  if (view === 'verify') return <main className="auth-screen-enter flex min-h-screen items-center justify-center bg-[#080B18] px-4 py-10 text-white"><section className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-8"><Brand/><h1 className="mt-8 text-2xl font-black">Gmail doğrulaması</h1><p className="mt-3 text-sm leading-6 text-slate-300">Doğrulama bağlantısını e-posta kutuna gönderdik. Gelen kutunu ve spam klasörünü kontrol et. Bağlantıya tıkladıktan sonra e-posta ve kayıt şifrenle devam et. Bu sayfayı yenilesen bile kayıt bilgilerin korunur.</p><form onSubmit={completeFirebaseVerification} className="mt-6 grid gap-4"><label className="grid gap-2 text-sm font-semibold">E-posta<input type="email" value={verifyEmailInput} onChange={e=>setVerifyEmailInput(e.target.value)} required autoComplete="email" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><label className="grid gap-2 text-sm font-semibold">Kayıt şifren<input type="password" value={verifyPasswordInput} onChange={e=>setVerifyPasswordInput(e.target.value)} required autoComplete="current-password" className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white"/></label><ErrorText error={error}/><NoticeText notice={notice}/><button disabled={busy} className="h-12 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 font-bold disabled:opacity-50">{busy?'Doğrulama kontrol ediliyor…':'E-postamı doğruladım, hesabı aç →'}</button></form><button onClick={()=>{setView('login');setError('');setNotice('')}} className="mt-5 w-full text-sm text-slate-400">Giriş ekranına dön</button></section></main>
 
   if (view === 'admin' && user?.role === 'admin') return <Frame><header className="flex flex-wrap items-center justify-between gap-3"><Brand /><div className="flex flex-wrap items-center gap-2"><div id="language-picker-slot" className="shrink-0" /><button type="button" onClick={() => void runRefresh('admin-panel', 'Yönetim paneli', () => loadAdmin(token))} disabled={!!refreshing['admin-panel']} className="rounded-xl border px-3 py-2 text-sm transition disabled:cursor-wait disabled:opacity-60">{refreshing['admin-panel'] ? 'Yenileniyor…' : 'Yenile'}</button><button onClick={logout} className="rounded-xl border px-3 py-2 text-sm">Çıkış</button></div></header><div className="mt-8"><h1 className="text-2xl font-bold">Yönetim paneli</h1><p className="mt-1 text-sm text-muted-foreground">Üye hesapları ve cihaz onayları</p><ErrorText error={error} /><NoticeText notice={notice} />{refreshFeedback['admin-panel'] && <p aria-live="polite" className="mt-2 text-xs text-muted-foreground">{refreshFeedback['admin-panel']}</p>}</div>
 <nav aria-label="Yönetim bölümleri" className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">

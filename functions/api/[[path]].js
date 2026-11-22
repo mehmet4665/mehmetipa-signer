@@ -970,6 +970,26 @@ const VIP_PLANS = {
   quarter: { code: 'quarter', name: '3 Ay VIP', amount_try: 800, duration_days: 90 },
 }
 
+async function verifyPaddleSignature(rawBody, signatureHeader, secret) {
+  if (!secret || !signatureHeader) return false
+  const parts = Object.fromEntries(String(signatureHeader).split(';').map(part => {
+    const index = part.indexOf('=')
+    return index < 0 ? ['', ''] : [part.slice(0, index).trim(), part.slice(index + 1).trim()]
+  }))
+  const timestamp = parts.ts
+  const signatures = String(parts.h1 || '').split(',')
+  if (!/^\\d+$/.test(timestamp || '') || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300 || !signatures.length) return false
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(timestamp + ':' + rawBody)))
+  const expected = [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('')
+  return signatures.some(value => {
+    if (!/^[a-f0-9]{64}$/i.test(value)) return false
+    let mismatch = 0
+    for (let i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ value.toLowerCase().charCodeAt(i)
+    return mismatch === 0
+  })
+}
+
 export async function onRequest({ request, env, params }) {
   try {
     if (request.method.toUpperCase() === 'OPTIONS') return new Response(null, { status: 204, headers: {
@@ -983,6 +1003,65 @@ export async function onRequest({ request, env, params }) {
     const path = `/api/${Array.isArray(params.path) ? params.path.join('/') : params.path || ''}`.replace(/\/$/, '')
     const method = request.method.toUpperCase()
 
+
+    // Paddle webhook is public by design; authenticity is established by the Paddle signature.
+    if (path === '/api/paddle/webhook' && method === 'POST') {
+      const rawBody = await request.text()
+      const signature = request.headers.get('paddle-signature') || ''
+      if (!await verifyPaddleSignature(rawBody, signature, env.PADDLE_WEBHOOK_SECRET)) {
+        return json({ success: false, error: 'Webhook imzası doğrulanamadı.' }, 401)
+      }
+      let event
+      try { event = JSON.parse(rawBody) } catch { return json({ success: false, error: 'Webhook JSON biçimi geçersiz.' }, 400) }
+      if (event?.event_type !== 'transaction.completed') return json({ success: true, ignored: true })
+      const transaction = event?.data || {}
+      const custom = transaction.custom_data || {}
+      const orderId = String(custom.vip_order_id || '')
+      const userId = String(custom.user_id || '')
+      const planCode = String(custom.plan_code || '')
+      const plan = VIP_PLANS[planCode]
+      if (!orderId || !userId || !plan) return json({ success: false, error: 'Ödeme siparişi eşleştirilemedi.' }, 400)
+      const expectedPriceId = planCode === 'month'
+        ? 'pri_01m81yayae4ex556q74z32zwnj'
+        : 'pri_01m81y7amgews1qk8ebsc7a4v1'
+      const items = Array.isArray(transaction.items) ? transaction.items : []
+      if (!items.some(item => item?.price?.id === expectedPriceId && Number(item?.quantity || 0) === 1)) {
+        return json({ success: false, error: 'Ödeme ürün kimliği sipariş planıyla eşleşmiyor.' }, 400)
+      }
+      if (String(transaction.currency_code || '').toUpperCase() !== 'TRY') {
+        return json({ success: false, error: 'Ödeme para birimi TRY değil.' }, 400)
+      }
+      const order = await env.DB.prepare('SELECT * FROM vip_orders WHERE id=? AND user_id=? LIMIT 1').bind(orderId, userId).first()
+      if (!order) return json({ success: false, error: 'VIP siparişi bulunamadı.' }, 404)
+      if (order.status === 'approved' || order.status === 'paid') return json({ success: true, duplicate: true })
+      if (order.status !== 'pending' || order.plan_code !== planCode ||
+          Number(order.amount_try) !== plan.amount_try || Number(order.duration_days) !== plan.duration_days) {
+        return json({ success: false, error: 'Sipariş durumu veya tutarı eşleşmiyor.' }, 409)
+      }
+      const now = new Date().toISOString()
+      const member = await env.DB.prepare('SELECT id, name, email, status, vip_expires_at FROM users WHERE id=? LIMIT 1').bind(userId).first()
+      if (!member || member.status !== 'active') return json({ success: false, error: 'Üye hesabı etkin değil.' }, 409)
+      const currentExpiry = member.vip_expires_at ? new Date(member.vip_expires_at).getTime() : 0
+      const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
+      const expiresAt = new Date(base + plan.duration_days * 86400000).toISOString()
+      const transactionId = String(transaction.id || '')
+      if (!transactionId) return json({ success: false, error: 'Paddle işlem kimliği eksik.' }, 400)
+      const update = await env.DB.prepare(
+        "UPDATE vip_orders SET status='approved', provider='paddle', provider_reference=?, paid_at=?, activated_at=? WHERE id=? AND user_id=? AND status='pending'"
+      ).bind(transactionId, now, now, orderId, userId).run()
+      if (Number(update.meta?.changes || 0) !== 1) {
+        const latest = await env.DB.prepare('SELECT status FROM vip_orders WHERE id=?').bind(orderId).first()
+        if (latest?.status === 'approved') return json({ success: true, duplicate: true })
+        return json({ success: false, error: 'Sipariş eşzamanlı olarak işlendi.' }, 409)
+      }
+      await env.DB.prepare(
+        "UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?"
+      ).bind(plan.code, expiresAt, now, userId).run()
+      const appleSync = await syncMemberAppleAccess(env, userId, 'paddle_payment_completed')
+      await sendMemberNotice(env, member.email, 'Mehmet IPA VIP üyeliğin etkinleştirildi', 'Ödemen alındı, VIP aktif!', plan.name + ' paketin etkinleştirildi. Bitiş tarihi: ' + new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }))
+      console.log('[Paddle] VIP activated', { orderId, transactionId, userId, appleSyncOk: appleSync.ok })
+      return json({ success: true, activated: true })
+    }
 
     if (path === '/api/internal/expire-access' && method === 'POST') {
       const timestamp = request.headers.get('x-mehmetipa-timestamp') || ''
@@ -1437,11 +1516,9 @@ export async function onRequest({ request, env, params }) {
         if (!plan) return json({ success: false, error: 'Geçersiz VIP paketi.' }, 400)
         const id = randomId(), createdAt = new Date().toISOString()
         await env.DB.prepare(
-          "INSERT INTO vip_orders (id,user_id,plan_code,plan_name,amount_try,duration_days,status,created_at) VALUES (?,?,?,?,?,?,'pending',?)"
+          "INSERT INTO vip_orders (id,user_id,plan_code,plan_name,amount_try,duration_days,status,provider,created_at) VALUES (?,?,?,?,?,?,'pending','paddle',?)"
         ).bind(id, session.sub, plan.code, plan.name, plan.amount_try, plan.duration_days, createdAt).run()
-        const purchaser = await env.DB.prepare('SELECT email FROM users WHERE id=? LIMIT 1').bind(session.sub).first()
-        const mailNotice = await sendMemberNotice(env, purchaser?.email, 'Mehmet IPA VIP talebin alındı', 'VIP talebin alındı!', `${plan.name} paketi için talebin oluşturuldu. Yönetici incelemesinden sonra sonucunu e-posta ile bildireceğiz.`)
-        return json({ success: true, email_notification: mailNotice, order: { id, ...plan, status: 'pending', created_at: createdAt }, message: 'VIP talebin oluşturuldu. Ödeme bağlantısı henüz etkinleştirilmedi; yönetici onayı bekleniyor.' }, 201)
+        return json({ success: true, order: { id, ...plan, status: 'pending', created_at: createdAt } }, 201)
       }
 
       if (path === '/api/admin/vip-orders' && method === 'GET') {

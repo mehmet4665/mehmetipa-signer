@@ -1520,7 +1520,7 @@ export async function onRequest({ request, env, params }) {
         await env.DB.prepare(
           "INSERT INTO vip_orders (id,user_id,plan_code,plan_name,amount_try,duration_days,status,provider,created_at) VALUES (?,?,?,?,?,?,'pending','paddle',?)"
         ).bind(id, session.sub, plan.code, plan.name, plan.amount_try, plan.duration_days, createdAt).run()
-        return json({ success: true, order: { id, ...plan, status: 'pending', created_at: createdAt } }, 201)
+        return json({ success: true, order: { id, ...plan, plan_code: plan.code, status: 'pending', created_at: createdAt } }, 201)
       }
 
       if (path === '/api/admin/vip-orders' && method === 'GET') {

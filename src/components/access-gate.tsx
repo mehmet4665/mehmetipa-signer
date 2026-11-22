@@ -69,7 +69,7 @@ const PADDLE_PRICE_IDS: Record<string, string> = {
   quarter: 'pri_01m81y7amgews1qk8ebsc7a4v1',
 }
 
-async function openPaddleCheckout(order: { id: string; plan_code: string }, userId: string) {
+async function openPaddleCheckout(order: { id: string; plan_code: string }) {
   if (!PADDLE_CLIENT_TOKEN) throw new Error('Paddle istemci anahtarı derleme ortamında bulunamadı.')
   const priceId = PADDLE_PRICE_IDS[order.plan_code]
   if (!priceId) throw new Error('VIP paket fiyatı tanımlı değil.')
@@ -608,7 +608,7 @@ export function AccessGate() {
     setVipBusy(true); setError(''); setNotice('')
     try {
       const result = await api<{ order: { id: string; plan_code: string } }>('/api/vip/orders', token, { method:'POST', body:JSON.stringify({ plan_code:planCode }) })
-      await openPaddleCheckout(result.order, user.id)
+      await openPaddleCheckout(result.order)
       await loadVip(token)
       setNotice('Güvenli Paddle ödeme ekranı açıldı. VIP, yalnızca ödeme Paddle tarafından doğrulandıktan sonra etkinleşir.')
     } catch (e) { setError(e instanceof Error ? e.message : 'Ödeme ekranı açılamadı.') }

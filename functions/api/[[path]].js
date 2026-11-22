@@ -53,6 +53,7 @@ async function verifyPassword(password, stored) {
 async function sha256Hex(value) { const digest = await crypto.subtle.digest('SHA-256', encoder.encode(String(value))); return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2, '0')).join('') }
 function randomToken() { return b64url(crypto.getRandomValues(new Uint8Array(32))) }
 async function sendMail(env, { to, subject, html }) { if (!env.RESEND_API_KEY || !env.MAIL_FROM) return false; const response = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: env.MAIL_FROM, to: [to], subject, html }) }); if (!response.ok) throw new Error('E-posta gönderimi başarısız.'); return true }
+async function sendMemberNotice(env, to, subject, title, message) { if (!to || !env.RESEND_API_KEY || !env.MAIL_FROM) return { sent: false, reason: 'mail_not_configured' }; try { await sendMail(env, { to, subject, html: emailHtml(title, message, 'https://mehmetipa-signer.pages.dev', 'Mehmet IPA\'yı aç') }); return { sent: true }; } catch (error) { return { sent: false, reason: error instanceof Error ? error.message : 'send_failed' }; } }
 async function clearRateLimit(env, request, action) { const ip=request.headers.get('cf-connecting-ip')||'unknown'; const key=await sha256Hex(action+':'+ip); await env.DB.prepare('DELETE FROM auth_rate_limits WHERE rate_key=?').bind(key).run() }
 async function rateLimit(env, request, action, limit = 6, windowMinutes = 15) { const ip = request.headers.get('cf-connecting-ip') || 'unknown'; const key = await sha256Hex(action + ':' + ip); const now = Date.now(); const row = await env.DB.prepare('SELECT attempts, window_started_at, blocked_until FROM auth_rate_limits WHERE rate_key = ?').bind(key).first(); if (row && row.blocked_until && new Date(row.blocked_until).getTime() > now) return false; const expired = !row || now - new Date(row.window_started_at).getTime() > windowMinutes * 60000; const attempts = expired ? 1 : Number(row.attempts || 0) + 1; const started = expired ? new Date(now).toISOString() : row.window_started_at; const blocked = attempts > limit ? new Date(now + windowMinutes * 60000).toISOString() : null; await env.DB.prepare('INSERT INTO auth_rate_limits (rate_key, attempts, window_started_at, blocked_until) VALUES (?, ?, ?, ?) ON CONFLICT(rate_key) DO UPDATE SET attempts=excluded.attempts, window_started_at=excluded.window_started_at, blocked_until=excluded.blocked_until').bind(key, attempts, started, blocked).run(); return !blocked }
 function emailHtml(title, message, url, label) { return '<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:28px;color:#171727"><h2>' + title + '</h2><p style="line-height:1.7">' + message + '</p><p style="margin:28px 0"><a href="' + url + '" style="background:#7047d8;color:#fff;text-decoration:none;padding:13px 20px;border-radius:10px;display:inline-block">' + label + '</a></p><p style="color:#777;font-size:12px">Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin.</p></div>' }
@@ -1413,7 +1414,7 @@ export async function onRequest({ request, env, params }) {
           return json({ success: true })
         }
         if (action !== 'approve') return json({ success: false, error: 'Geçersiz işlem.' }, 400)
-        const member = await env.DB.prepare('SELECT id, group_name, vip_expires_at, status FROM users WHERE id=? LIMIT 1').bind(order.user_id).first()
+        const member = await env.DB.prepare('SELECT id, name, username, email, group_name, vip_expires_at, status FROM users WHERE id=? LIMIT 1').bind(order.user_id).first()
         if (!member || member.status !== 'active') return json({ success: false, error: 'Üye hesabı etkin değil.' }, 409)
         const currentExpiry = member.vip_expires_at ? new Date(member.vip_expires_at).getTime() : 0
         const base = Number.isFinite(currentExpiry) && currentExpiry > Date.now() ? currentExpiry : Date.now()
@@ -1424,14 +1425,15 @@ export async function onRequest({ request, env, params }) {
         ])
         if (!result?.length || Number(result[0]?.meta?.changes || 0) !== 1) return json({ success: false, error: 'Talep eşzamanlı olarak işlenmiş olabilir; yenileyip kontrol et.' }, 409)
         const appleSync = await syncMemberAppleAccess(env, order.user_id, 'vip_order_approved')
-        return json({ success: true, expires_at: expiresAt, apple_device_sync: appleSync })
+        const mailNotice = await sendMemberNotice(env, member.email, 'Mehmet IPA VIP üyeliğin etkinleştirildi', 'VIP üyeliğin aktif!', `${order.plan_name} paketin onaylandı. VIP erişimin etkinleştirildi. Bitiş tarihi: ${new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`)
+        return json({ success: true, expires_at: expiresAt, apple_device_sync: appleSync, email_notification: mailNotice })
       }
 
       const manualVipMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/vip$/)
       if (manualVipMatch && method === 'POST') {
         const denied = requireAdmin(); if (denied) return denied
         const body = await readBody(request)
-        const target = await env.DB.prepare('SELECT id, status, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id=? LIMIT 1').bind(manualVipMatch[1]).first()
+        const target = await env.DB.prepare('SELECT id, name, username, email, status, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id=? LIMIT 1').bind(manualVipMatch[1]).first()
         if (!target) return json({ success: false, error: 'Üye bulunamadı.' }, 404)
         const now = new Date().toISOString()
         if (body.action === 'revoke') {
@@ -1454,7 +1456,8 @@ export async function onRequest({ request, env, params }) {
           const expiresAt = new Date(base + days * 86400000).toISOString()
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=CASE WHEN vip_plan='unlimited' THEN 'unlimited' ELSE COALESCE(vip_plan,'manual') END, vip_expires_at=CASE WHEN vip_plan='unlimited' THEN NULL ELSE ? END, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(expiresAt, now, target.id).run()
           const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_extended_days')
-          return json({ success: true, expires_at: target.vip_plan === 'unlimited' ? null : expiresAt, apple_device_sync: appleSync })
+          const mailNotice = await sendMemberNotice(env, target.email, 'Mehmet IPA VIP süren uzatıldı', 'VIP süren uzatıldı!', `VIP erişimine ${days} gün eklendi. Yeni bitiş tarihi: ${new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`)
+          return json({ success: true, expires_at: target.vip_plan === 'unlimited' ? null : expiresAt, apple_device_sync: appleSync, email_notification: mailNotice })
         }
         if (body.action === 'extend_time') {
           const minutes = Number(body.minutes)
@@ -1465,12 +1468,14 @@ export async function onRequest({ request, env, params }) {
           const expiresAt = new Date(base + minutes * 60000).toISOString()
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=COALESCE(vip_plan,'manual'), vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(expiresAt, now, target.id).run()
           const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_extended_minutes')
-          return json({ success: true, expires_at: expiresAt, minutes_added: minutes, apple_device_sync: appleSync })
+          const mailNotice = await sendMemberNotice(env, target.email, 'Mehmet IPA VIP süren uzatıldı', 'VIP süren uzatıldı!', `VIP erişimine ${minutes} dakika eklendi. Yeni bitiş tarihi: ${new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`)
+          return json({ success: true, expires_at: expiresAt, minutes_added: minutes, apple_device_sync: appleSync, email_notification: mailNotice })
         }
         if (body.plan_code === 'unlimited') {
           await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan='unlimited', vip_expires_at=NULL, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(now, target.id).run()
           const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_unlimited_granted')
-          return json({ success: true, expires_at: null, unlimited: true, apple_device_sync: appleSync })
+          const mailNotice = await sendMemberNotice(env, target.email, 'Mehmet IPA sınırsız VIP etkinleştirildi', 'Sınırsız VIP erişimin açıldı!', 'Hesabına sınırsız VIP erişimi tanımlandı. İyi kullanımlar!')
+          return json({ success: true, expires_at: null, unlimited: true, apple_device_sync: appleSync, email_notification: mailNotice })
         }
         const plan = VIP_PLANS[String(body.plan_code || '')]
         if (!plan) return json({ success: false, error: 'Geçersiz VIP paketi.' }, 400)
@@ -1479,7 +1484,8 @@ export async function onRequest({ request, env, params }) {
         const expiresAt = new Date(base + plan.duration_days * 86400000).toISOString()
         await env.DB.prepare("UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?").bind(plan.code, expiresAt, now, target.id).run()
         const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_plan_granted')
-        return json({ success: true, expires_at: expiresAt, apple_device_sync: appleSync })
+        const mailNotice = await sendMemberNotice(env, target.email, 'Mehmet IPA VIP üyeliğin etkinleştirildi', 'VIP üyeliğin aktif!', `${plan.name} paketin hesabına tanımlandı. Yeni bitiş tarihi: ${new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`)
+        return json({ success: true, expires_at: expiresAt, apple_device_sync: appleSync, email_notification: mailNotice })
       }
 
       // Per-user signing progress feed. Job IDs are unguessable UUIDs and records live in the private R2 bucket.
@@ -1633,7 +1639,7 @@ export async function onRequest({ request, env, params }) {
 
         if (status === 'approved') {
           const device = await env.DB.prepare(
-            'SELECT devices.id, devices.user_id, devices.udid, devices.apple_device_id, devices.apple_status, devices.status, devices.apple_profile_id, devices.profile_key, devices.profile_iv, devices.profile_status, devices.profile_expires_at, devices.profile_certificate_serial, users.name, users.username FROM devices LEFT JOIN users ON users.id = devices.user_id WHERE devices.id = ? LIMIT 1'
+            'SELECT devices.id, devices.user_id, devices.udid, devices.apple_device_id, devices.apple_status, devices.status, devices.apple_profile_id, devices.profile_key, devices.profile_iv, devices.profile_status, devices.profile_expires_at, devices.profile_certificate_serial, users.name, users.username, users.email FROM devices LEFT JOIN users ON users.id = devices.user_id WHERE devices.id = ? LIMIT 1'
           ).bind(deviceMatch[2]).first()
           if (!device) return json({ success: false, error: 'Cihaz kaydı bulunamadı.' }, 404)
 
@@ -1673,6 +1679,7 @@ export async function onRequest({ request, env, params }) {
                 'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE id = ? LIMIT 1'
               ).bind(deviceMatch[2]).first()
               const profile = await ensureAppleAdHocProfile(env, refreshedDevice)
+              const mailNotice = await sendMemberNotice(env, device.email, 'Mehmet IPA cihazın onaylandı', 'Cihazın onaylandı!', 'UDID kaydın yönetici tarafından onaylandı. Apple Developer kaydı ve cihazına özel Ad Hoc profili hazır.');
               if (!profile.ok && !profile.pending) {
                 return json({
                   success: false, apple_registered: true, status: 'approved',
@@ -1684,7 +1691,7 @@ export async function onRequest({ request, env, params }) {
                 success: true, status: 'approved', apple_registered: true,
                 already_registered: true, apple_device_id: appleDeviceId,
                 apple_status: appleStatus, profile_status: profile.ok ? 'active' : 'pending',
-                profile, apple_device_sync: appleSync,
+                profile, apple_device_sync: appleSync, email_notification: mailNotice,
                 message: profile.ok
                   ? 'Apple cihazı doğrulandı ve cihaza özel Ad Hoc profili otomatik hazırlandı.'
                   : 'Apple cihazı kayıtlı. Apple işlemi tamamlanınca Ad Hoc profili otomatik hazırlanacak.'
@@ -1716,6 +1723,7 @@ export async function onRequest({ request, env, params }) {
               'SELECT id, user_id, udid, status, apple_device_id, apple_status, apple_profile_id, profile_key, profile_iv, profile_status, profile_expires_at, profile_certificate_serial FROM devices WHERE id = ? LIMIT 1'
             ).bind(deviceMatch[2]).first()
             const profile = await ensureAppleAdHocProfile(env, refreshedDevice)
+            const mailNotice = await sendMemberNotice(env, device.email, 'Mehmet IPA cihazın onaylandı', 'Cihazın onaylandı!', 'UDID kaydın yönetici tarafından onaylandı. Apple Developer kaydı ve cihazına özel Ad Hoc profili hazır.');
             if (!profile.ok && !profile.pending) {
               return json({
                 success: false, apple_registered: true, status: 'approved',
@@ -1727,7 +1735,7 @@ export async function onRequest({ request, env, params }) {
               success: true, status: 'approved', apple_registered: true,
               already_registered: false, apple_device_id: appleDevice.id,
               apple_status: appleStatus, profile_status: profile.ok ? 'active' : 'pending',
-              profile,
+              profile, email_notification: mailNotice,
               message: profile.ok
                 ? 'UDID Apple Developer hesabına kaydedildi; cihaza özel Ad Hoc profili otomatik hazırlandı.'
                 : 'UDID Apple hesabına kaydedildi. Apple işlemi tamamlanınca profil otomatik hazırlanacak.'

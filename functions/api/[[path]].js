@@ -54,6 +54,14 @@ async function sha256Hex(value) { const digest = await crypto.subtle.digest('SHA
 function randomToken() { return b64url(crypto.getRandomValues(new Uint8Array(32))) }
 async function sendMail(env, { to, subject, html }) { if (!env.RESEND_API_KEY || !env.MAIL_FROM) return false; const response = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: env.MAIL_FROM, to: [to], subject, html }) }); if (!response.ok) throw new Error('E-posta gönderimi başarısız.'); return true }
 async function sendMemberNotice(env, to, subject, title, message) { if (!to || !env.RESEND_API_KEY || !env.MAIL_FROM) return { sent: false, reason: 'mail_not_configured' }; try { await sendMail(env, { to, subject, html: emailHtml(title, message, 'https://mehmetipa-signer.pages.dev', 'Mehmet IPA\'yı aç') }); return { sent: true }; } catch (error) { return { sent: false, reason: error instanceof Error ? error.message : 'send_failed' }; } }
+function escapeMailText(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
+async function sendAdminAlert(env, subject, title, lines) {
+  const to = String(env.ADMIN_NOTIFICATION_EMAIL || '').trim();
+  if (!to || !env.RESEND_API_KEY || !env.MAIL_FROM) return { sent: false, reason: 'admin_mail_not_configured' };
+  const body = lines.map(([label, value]) => '<p style="margin:8px 0"><strong>' + escapeMailText(label) + ':</strong> ' + escapeMailText(value) + '</p>').join('');
+  try { await sendMail(env, { to, subject, html: '<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:24px;color:#171727"><h2>' + escapeMailText(title) + '</h2>' + body + '<p style="margin-top:24px"><a href="https://mehmetipa-signer.pages.dev" style="background:#7047d8;color:#fff;text-decoration:none;padding:12px 18px;border-radius:9px">Yönetim panelini aç</a></p></div>' }); return { sent: true }; }
+  catch (error) { console.error('[Admin mail] Notification failed', error); return { sent: false, reason: 'send_failed' }; }
+}
 async function clearRateLimit(env, request, action) { const ip=request.headers.get('cf-connecting-ip')||'unknown'; const key=await sha256Hex(action+':'+ip); await env.DB.prepare('DELETE FROM auth_rate_limits WHERE rate_key=?').bind(key).run() }
 async function rateLimit(env, request, action, limit = 6, windowMinutes = 15) { const ip = request.headers.get('cf-connecting-ip') || 'unknown'; const key = await sha256Hex(action + ':' + ip); const now = Date.now(); const row = await env.DB.prepare('SELECT attempts, window_started_at, blocked_until FROM auth_rate_limits WHERE rate_key = ?').bind(key).first(); if (row && row.blocked_until && new Date(row.blocked_until).getTime() > now) return false; const expired = !row || now - new Date(row.window_started_at).getTime() > windowMinutes * 60000; const attempts = expired ? 1 : Number(row.attempts || 0) + 1; const started = expired ? new Date(now).toISOString() : row.window_started_at; const blocked = attempts > limit ? new Date(now + windowMinutes * 60000).toISOString() : null; await env.DB.prepare('INSERT INTO auth_rate_limits (rate_key, attempts, window_started_at, blocked_until) VALUES (?, ?, ?, ?) ON CONFLICT(rate_key) DO UPDATE SET attempts=excluded.attempts, window_started_at=excluded.window_started_at, blocked_until=excluded.blocked_until').bind(key, attempts, started, blocked).run(); return !blocked }
 function emailHtml(title, message, url, label) { return '<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:28px;color:#171727"><h2>' + title + '</h2><p style="line-height:1.7">' + message + '</p><p style="margin:28px 0"><a href="' + url + '" style="background:#7047d8;color:#fff;text-decoration:none;padding:13px 20px;border-radius:10px;display:inline-block">' + label + '</a></p><p style="color:#777;font-size:12px">Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin.</p></div>' }
@@ -1062,6 +1070,15 @@ export async function onRequest({ request, env, params }) {
       let appleSync = { ok: false, error: 'Apple eşitlemesi henüz tamamlanmadı.' }
       try { appleSync = await syncMemberAppleAccess(env, userId, 'paddle_payment_completed') } catch (error) { console.error('[Paddle] Apple access sync failed', error) }
       await sendMemberNotice(env, member.email, 'Mehmet IPA VIP üyeliğin etkinleştirildi', 'Ödemen alındı, VIP aktif!', plan.name + ' paketin etkinleştirildi. Bitiş tarihi: ' + new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })).catch(() => {})
+      await sendAdminAlert(env, 'Mehmet IPA VIP ödemesi alındı', 'Yeni VIP satın alımı doğrulandı', [
+        ['Üye', member.name || userId],
+        ['E-posta', member.email || 'Belirtilmemiş'],
+        ['Paket', plan.name],
+        ['Tutar', Number(order.amount_try).toLocaleString('tr-TR') + ' TL'],
+        ['Sipariş numarası', orderId],
+        ['Paddle işlem numarası', transactionId],
+        ['VIP bitiş tarihi', new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })]
+      ])
       console.log('[Paddle] VIP activated', { orderId, transactionId, userId, appleSyncOk: appleSync.ok })
       return json({ success: true, activated: true })
     }
@@ -1929,7 +1946,7 @@ export async function onRequest({ request, env, params }) {
       }
       if (path === '/api/devices' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici cihaz kaydı yapamaz.' }, 400)
-        const member = await env.DB.prepare('SELECT status, vip_access_status FROM users WHERE id = ? LIMIT 1').bind(session.sub).first()
+        const member = await env.DB.prepare('SELECT name, username, email, status, vip_access_status FROM users WHERE id = ? LIMIT 1').bind(session.sub).first()
         if (!member || member.status !== 'active' || member.vip_access_status === 'blocked') {
           return json({ success: false, error: 'Hesabın devre dışı. Yeni cihaz kaydedilemez.' }, 403)
         }
@@ -1940,9 +1957,18 @@ export async function onRequest({ request, env, params }) {
         if (accountDevice) return json({ success: false, error: 'Her hesap için yalnızca bir UDID kaydı yapılabilir. Kayıt silinemez veya değiştirilemez.' }, 409)
         const existing = await env.DB.prepare('SELECT id FROM devices WHERE user_id = ? AND udid = ?').bind(session.sub, udid).first()
         if (existing) return json({ success: false, error: 'Bu cihaz zaten kayıtlı.' }, 409)
+        const deviceId = randomId()
+        const submittedAt = new Date().toISOString()
         await env.DB.prepare('INSERT INTO devices (id, user_id, udid, status, created_at) VALUES (?, ?, ?, ?, ?)')
-          .bind(randomId(), session.sub, udid, 'pending', new Date().toISOString()).run()
-        return json({ success: true, status: 'pending' }, 201)
+          .bind(deviceId, session.sub, udid, 'pending', submittedAt).run()
+        await sendAdminAlert(env, 'Yeni UDID kayıt isteği', 'Yeni cihaz kaydı bekliyor', [
+          ['Üye', member.name || member.username || session.sub],
+          ['Kullanıcı adı', member.username || 'Belirtilmemiş'],
+          ['E-posta', member.email || 'Belirtilmemiş'],
+          ['UDID', udid],
+          ['Gönderim zamanı', submittedAt]
+        ])
+        return json({ success: true, status: 'pending', notification_sent: !!env.ADMIN_NOTIFICATION_EMAIL }, 201)
       }
 
       const memberDeviceMatch = path.match(/^\/api\/devices\/([^/]+)$/)

@@ -625,7 +625,6 @@ export function AccessGate() {
       await api('/api/auth/register',undefined,{method:'POST',body:JSON.stringify({name:registerName,username:registerUsername,email,password:registerPassword,firebaseIdToken})})
       const pending = {name:registerName,username:registerUsername,email,createdAt:Date.now()}
       window.localStorage.setItem(PENDING_REGISTRATION_KEY,JSON.stringify(pending))
-      await firebaseIdentityRequest('accounts:sendOobCode',{requestType:'VERIFY_EMAIL',idToken:firebaseIdToken,continueUrl:window.location.origin+'/verify-email'})
       setVerifyEmailInput(email)
       setVerifyPasswordInput('')
       setView('verify')
@@ -643,7 +642,13 @@ export function AccessGate() {
     if (!legacyToken) return
     try {
       const result=await api<{message:string}>('/api/auth/verify-email',undefined,{method:'POST',body:JSON.stringify({token:legacyToken})})
-      setNotice(result.message)
+      const raw=window.localStorage.getItem('mehmetipa.pendingRegistration.v1')
+      const pending=raw ? JSON.parse(raw) as {email?:string} : null
+      if (pending?.email) setUsername(pending.email)
+      window.localStorage.removeItem('mehmetipa.pendingRegistration.v1')
+      setNotice(result.message+' Giriş yaparak devam edebilirsin.')
+      setView('login')
+      setLoginMode('member')
     } catch(e) { setError(e instanceof Error ? e.message : 'E-posta doğrulanamadı.') }
   },[])
   React.useEffect(() => {
@@ -654,8 +659,8 @@ export function AccessGate() {
     setBusy(true); setError(''); setNotice('')
     try {
       const signedIn = await firebaseIdentityRequest<{idToken:string}>('accounts:signInWithPassword',{email:verifyEmailInput.trim().toLowerCase(),password:verifyPasswordInput,returnSecureToken:true})
-      await firebaseIdentityRequest('accounts:sendOobCode',{requestType:'VERIFY_EMAIL',idToken:signedIn.idToken,continueUrl:window.location.origin+'/verify-email'})
-      setNotice('Yeni doğrulama bağlantısı gönderildi. Gelen kutunu ve spam klasörünü kontrol et.')
+      await api('/api/auth/register',undefined,{method:'POST',body:JSON.stringify({name:registerName,username:registerUsername,email:verifyEmailInput.trim().toLowerCase(),password:verifyPasswordInput,firebaseIdToken:signedIn.idToken})})
+      setNotice('Yeni doğrulama bağlantısını gönderdik. Gelen kutunu ve spam klasörünü kontrol et.')
     } catch(e) {
       setError(e instanceof Error ? e.message : 'Doğrulama e-postası gönderilemedi.')
     } finally { setBusy(false) }

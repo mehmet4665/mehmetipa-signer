@@ -1571,7 +1571,7 @@ export async function onRequest({ request, env, params }) {
       if (path === '/api/admin/vip-orders' && method === 'GET') {
         const denied = requireAdmin(); if (denied) return denied
         const { results = [] } = await env.DB.prepare(
-          'SELECT vip_orders.id, vip_orders.user_id, vip_orders.plan_code, vip_orders.plan_name, vip_orders.amount_try, vip_orders.duration_days, vip_orders.status, vip_orders.provider, vip_orders.provider_reference, vip_orders.created_at, vip_orders.paid_at, vip_orders.activated_at, users.name, users.username, users.email FROM vip_orders JOIN users ON users.id=vip_orders.user_id ORDER BY CASE vip_orders.status WHEN \'pending\' THEN 0 ELSE 1 END, vip_orders.created_at DESC LIMIT 200'
+          'SELECT vip_orders.id, vip_orders.user_id, vip_orders.plan_code, vip_orders.plan_name, vip_orders.amount_try, vip_orders.duration_days, vip_orders.status, vip_orders.provider, vip_orders.provider_reference, vip_orders.created_at, vip_orders.paid_at, vip_orders.activated_at, users.name, users.username, users.email FROM vip_orders JOIN users ON users.id=vip_orders.user_id WHERE vip_orders.status=\'approved\' ORDER BY vip_orders.activated_at DESC, vip_orders.created_at DESC LIMIT 50'
         ).all()
         return json({ success: true, orders: results })
       }

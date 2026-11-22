@@ -120,6 +120,27 @@ export function AdminPanel({ token, onLogout }: Props) {
     }
   }
 
+  async function resetUserUdids(user: User) {
+    if (!window.confirm(`${user.name} hesabına ait kayıtlı tüm UDID/Cihaz kayıtları sıfırlansın mı? Apple tarafındaki cihazlar önce devre dışı bırakılacak.`)) return
+    setBusy(true)
+    setMessage(`${user.name} cihaz kayıtları sıfırlanıyor…`)
+    try {
+      const response = await fetch(`${API_URL}/api/admin/users/${user.id}/reset-udid`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({})
+      })
+      const data = await response.json()
+      if (!response.ok || !data.success) throw new Error(data.error || 'UDID sıfırlanamadı.')
+      setMessage(`${user.name}: ${data.reset_count || 0} cihaz/UDID kaydı sıfırlandı.`)
+      await loadData()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'UDID sıfırlama başarısız.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function updateDevice(id: string, status: string) {
     try {
       const response = await fetch(`${API_URL}/api/admin/devices/${id}`, {
@@ -194,6 +215,9 @@ export function AdminPanel({ token, onLogout }: Props) {
               <p>Durum: {user.status || 'active'}</p>
               <button style={button} onClick={() => updateUser(user.id, user.status === 'blocked' ? 'active' : 'blocked')}>
                 {user.status === 'blocked' ? 'Engeli Kaldır' : 'Engelle'}
+              </button>
+              <button style={{ ...button, background: '#92400e' }} disabled={busy} onClick={() => resetUserUdids(user)}>
+                UDID sıfırla
               </button>
             </section>
           ))}

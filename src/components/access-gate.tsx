@@ -102,7 +102,7 @@ async function openPaddleCheckout(order: { id: string; plan_code: string }, user
   }
   paddle.Checkout.open({
     items: [{ priceId, quantity: 1 }],
-    customData: { vip_order_id: order.id, user_id: userId, plan_code: order.plan_code },
+    customData: { vip_order_id: order.id },
     settings: { displayMode: 'overlay', theme: 'dark', locale: 'tr' }
   })
 }

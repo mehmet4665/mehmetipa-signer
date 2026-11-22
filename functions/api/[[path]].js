@@ -623,23 +623,73 @@ async function ensureAppleAdHocProfile(env, device) {
 
     const resources = await getAppleAdHocProfileResources(env, context)
     const profileName = ('Mehmet IPA ' + String(device.udid || '').replace(/[^A-F0-9]/gi, '').slice(-8) + ' AdHoc').slice(0, 100)
-    const created = await appleApiFetch(env, '/v1/profiles', {
-      method: 'POST',
-      body: {
-        data: {
-          type: 'profiles',
-          attributes: { name: profileName, profileType: 'IOS_APP_ADHOC' },
-          relationships: {
-            bundleId: { data: { type: 'bundleIds', id: resources.bundle.id } },
-            certificates: { data: [{ type: 'certificates', id: resources.certificate.id }] },
-            devices: { data: [{ type: 'devices', id: device.apple_device_id }] }
+    let created
+    let reusedExistingAppleProfile = false
+    try {
+      created = await appleApiFetch(env, '/v1/profiles', {
+        method: 'POST',
+        body: {
+          data: {
+            type: 'profiles',
+            attributes: { name: profileName, profileType: 'IOS_APP_ADHOC' },
+            relationships: {
+              bundleId: { data: { type: 'bundleIds', id: resources.bundle.id } },
+              certificates: { data: [{ type: 'certificates', id: resources.certificate.id }] },
+              devices: { data: [{ type: 'devices', id: device.apple_device_id }] }
+            }
           }
         }
+      })
+    } catch (createError) {
+      const createMessage = createError instanceof Error ? createError.message : String(createError)
+      if (!createMessage.includes('Apple API 409:')) throw createError
+      // Apple rejects duplicate profile names. Reuse an existing ACTIVE profile only
+      // when its signed payload proves it belongs to this exact device and bundle.
+      const list = await appleApiFetch(
+        env,
+        '/v1/profiles?filter%5Bname%5D=' + encodeURIComponent(profileName) +
+          '&filter%5BprofileType%5D=IOS_APP_ADHOC&limit=200&fields%5Bprofiles%5D=name%2CprofileType%2CprofileState%2CprofileContent%2Cuuid%2CexpirationDate'
+      )
+      let reusable = null
+      for (const candidate of (list.data || [])) {
+        const candidateId = String(candidate.id || '')
+        const candidateAttrs = candidate.attributes || {}
+        if (!candidateId || String(candidateAttrs.name || '') !== profileName ||
+            String(candidateAttrs.profileState || '').toUpperCase() !== 'ACTIVE') continue
+        let candidateContent = candidateAttrs.profileContent || ''
+        let fullAttrs = candidateAttrs
+        if (!candidateContent) {
+          const detail = await appleApiFetch(
+            env,
+            '/v1/profiles/' + encodeURIComponent(candidateId) +
+              '?fields%5Bprofiles%5D=name%2CprofileType%2CprofileState%2CprofileContent%2Cuuid%2CexpirationDate'
+          )
+          fullAttrs = detail.data?.attributes || candidateAttrs
+          candidateContent = fullAttrs.profileContent || ''
+        }
+        if (!candidateContent) continue
+        const normalized = candidateContent.replace(/\\s/g, '')
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalized) || normalized.length % 4 !== 0) continue
+        try {
+          const bytes = Uint8Array.from(atob(normalized), char => char.charCodeAt(0))
+          const meta = readProvisioningProfileMetadata(bytes)
+          const containsDevice = meta.deviceUdis.some(value =>
+            value.replace(/-/g, '') === String(device.udid || '').replace(/-/g, '').toUpperCase()
+          )
+          if (containsDevice && meta.bundleIdentifier === context.profile.bundleIdentifier &&
+              new Date(meta.expiresAt).getTime() > Date.now()) {
+            reusable = { data: { id: candidateId, attributes: fullAttrs } }
+            break
+          }
+        } catch {}
       }
-    })
+      if (!reusable) throw new Error(createMessage + ' Aynı isimli profiller bulundu ancak bu cihaz için güvenle kullanılabilecek etkin profil doğrulanamadı.')
+      created = reusable
+      reusedExistingAppleProfile = true
+    }
     const profileId = String(created.data?.id || '')
     if (!profileId) throw new Error('Apple Ad Hoc provisioning profile ID döndürmedi.')
-    createdAppleProfileId = profileId
+    createdAppleProfileId = reusedExistingAppleProfile ? '' : profileId
     let profileContent = created.data?.attributes?.profileContent || ''
     let profileAttributes = created.data?.attributes || {}
     if (!profileContent) {

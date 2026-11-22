@@ -917,7 +917,6 @@ function cleanUser(row) {
 const VIP_PLANS = {
   month: { code: 'month', name: '1 Ay VIP', amount_try: 450, duration_days: 30 },
   quarter: { code: 'quarter', name: '3 Ay VIP', amount_try: 800, duration_days: 90 },
-  half_year: { code: 'half_year', name: '6 Ay VIP', amount_try: 1500, duration_days: 180 },
 }
 
 export async function onRequest({ request, env, params }) {

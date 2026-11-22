@@ -1017,10 +1017,17 @@ export async function onRequest({ request, env, params }) {
       const transaction = event?.data || {}
       const custom = transaction.custom_data || {}
       const orderId = String(custom.vip_order_id || '')
-      const userId = String(custom.user_id || '')
-      const planCode = String(custom.plan_code || '')
+      if (!orderId) return json({ success: false, error: 'Ödeme sipariş kimliği eksik.' }, 400)
+      const order = await env.DB.prepare('SELECT * FROM vip_orders WHERE id=? LIMIT 1').bind(orderId).first()
+      if (!order) return json({ success: false, error: 'VIP siparişi bulunamadı.' }, 404)
+      if (order.status === 'approved' || order.status === 'paid') return json({ success: true, duplicate: true })
+      const userId = String(order.user_id || '')
+      const planCode = String(order.plan_code || '')
       const plan = VIP_PLANS[planCode]
-      if (!orderId || !userId || !plan) return json({ success: false, error: 'Ödeme siparişi eşleştirilemedi.' }, 400)
+      if (!userId || !plan || order.status !== 'pending' ||
+          Number(order.amount_try) !== plan.amount_try || Number(order.duration_days) !== plan.duration_days) {
+        return json({ success: false, error: 'Sipariş durumu veya tutarı eşleşmiyor.' }, 409)
+      }
       const expectedPriceId = planCode === 'month'
         ? 'pri_01m81yayae4ex556q74z32zwnj'
         : 'pri_01m81y7amgews1qk8ebsc7a4v1'
@@ -1028,15 +1035,9 @@ export async function onRequest({ request, env, params }) {
       if (!items.some(item => item?.price?.id === expectedPriceId && Number(item?.quantity || 0) === 1)) {
         return json({ success: false, error: 'Ödeme ürün kimliği sipariş planıyla eşleşmiyor.' }, 400)
       }
-      if (String(transaction.currency_code || '').toUpperCase() !== 'TRY') {
-        return json({ success: false, error: 'Ödeme para birimi TRY değil.' }, 400)
-      }
-      const order = await env.DB.prepare('SELECT * FROM vip_orders WHERE id=? AND user_id=? LIMIT 1').bind(orderId, userId).first()
-      if (!order) return json({ success: false, error: 'VIP siparişi bulunamadı.' }, 404)
-      if (order.status === 'approved' || order.status === 'paid') return json({ success: true, duplicate: true })
-      if (order.status !== 'pending' || order.plan_code !== planCode ||
-          Number(order.amount_try) !== plan.amount_try || Number(order.duration_days) !== plan.duration_days) {
-        return json({ success: false, error: 'Sipariş durumu veya tutarı eşleşmiyor.' }, 409)
+      if (String(transaction.currency_code || '').toUpperCase() !== 'TRY' ||
+          String(transaction.status || '').toLowerCase() !== 'completed') {
+        return json({ success: false, error: 'Ödeme tamamlanmış veya TRY para biriminde değil.' }, 400)
       }
       const now = new Date().toISOString()
       const member = await env.DB.prepare('SELECT id, name, email, status, vip_expires_at FROM users WHERE id=? LIMIT 1').bind(userId).first()
@@ -1057,8 +1058,9 @@ export async function onRequest({ request, env, params }) {
       await env.DB.prepare(
         "UPDATE users SET group_name='VIP', vip_plan=?, vip_expires_at=?, vip_access_status='active', vip_updated_at=? WHERE id=?"
       ).bind(plan.code, expiresAt, now, userId).run()
-      const appleSync = await syncMemberAppleAccess(env, userId, 'paddle_payment_completed')
-      await sendMemberNotice(env, member.email, 'Mehmet IPA VIP üyeliğin etkinleştirildi', 'Ödemen alındı, VIP aktif!', plan.name + ' paketin etkinleştirildi. Bitiş tarihi: ' + new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }))
+      let appleSync = { ok: false, error: 'Apple eşitlemesi henüz tamamlanmadı.' }
+      try { appleSync = await syncMemberAppleAccess(env, userId, 'paddle_payment_completed') } catch (error) { console.error('[Paddle] Apple access sync failed', error) }
+      await sendMemberNotice(env, member.email, 'Mehmet IPA VIP üyeliğin etkinleştirildi', 'Ödemen alındı, VIP aktif!', plan.name + ' paketin etkinleştirildi. Bitiş tarihi: ' + new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })).catch(() => {})
       console.log('[Paddle] VIP activated', { orderId, transactionId, userId, appleSyncOk: appleSync.ok })
       return json({ success: true, activated: true })
     }

@@ -1319,7 +1319,6 @@ export async function onRequest({ request, env, params }) {
     }
 
     if (path === '/api/auth/register' && method === 'POST') {
-      return json({ success: false, error: 'Yeni üye kayıtları geçici olarak durdurulmuştur. Yakında sizinleyiz!' }, 403)
       if (!(await rateLimit(env, request, 'register', 5, 30))) return json({ success: false, error: 'Çok fazla kayıt denemesi. Bir süre sonra tekrar dene.' }, 429)
       const body = await readBody(request)
       const name = String(body.name || '').trim().slice(0, 80)

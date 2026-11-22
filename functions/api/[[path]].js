@@ -478,7 +478,7 @@ async function getAppleAdHocProfileResources(env, context) {
   ])
   const bundle = (bundleResponse.data || []).find(item =>
     String(item.attributes?.identifier || '') === context.profile.bundleIdentifier &&
-    String(item.attributes?.platform || '').toUpperCase() === 'IOS'
+    ['IOS', 'UNIVERSAL'].includes(String(item.attributes?.platform || '').toUpperCase())
   )
   if (!bundle) {
     const identifiers = (bundleResponse.data || []).map(item =>

@@ -1389,7 +1389,9 @@ export async function onRequest({ request, env, params }) {
         await env.DB.prepare(
           "INSERT INTO vip_orders (id,user_id,plan_code,plan_name,amount_try,duration_days,status,created_at) VALUES (?,?,?,?,?,?,'pending',?)"
         ).bind(id, session.sub, plan.code, plan.name, plan.amount_try, plan.duration_days, createdAt).run()
-        return json({ success: true, order: { id, ...plan, status: 'pending', created_at: createdAt }, message: 'VIP talebin oluşturuldu. Ödeme bağlantısı henüz etkinleştirilmedi; yönetici onayı bekleniyor.' }, 201)
+        const purchaser = await env.DB.prepare('SELECT email FROM users WHERE id=? LIMIT 1').bind(session.sub).first()
+        const mailNotice = await sendMemberNotice(env, purchaser?.email, 'Mehmet IPA VIP talebin alındı', 'VIP talebin alındı!', `${plan.name} paketi için talebin oluşturuldu. Yönetici incelemesinden sonra sonucunu e-posta ile bildireceğiz.`)
+        return json({ success: true, email_notification: mailNotice, order: { id, ...plan, status: 'pending', created_at: createdAt }, message: 'VIP talebin oluşturuldu. Ödeme bağlantısı henüz etkinleştirilmedi; yönetici onayı bekleniyor.' }, 201)
       }
 
       if (path === '/api/admin/vip-orders' && method === 'GET') {

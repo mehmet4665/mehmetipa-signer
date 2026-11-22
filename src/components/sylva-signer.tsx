@@ -66,7 +66,7 @@ import { cn } from '@/lib/utils'
 import { PrivacySummary, SigningGuideAndFaq } from '@/components/seo-content'
 
 type SignState = 'idle' | 'signing' | 'done' | 'error'
-export type SylvaRoute = 'app' | 'privacy' | 'legal'
+export type SylvaRoute = 'app' | 'privacy' | 'legal' | 'refund'
 
 type ProgressState = {
   value: number
@@ -125,6 +125,7 @@ function routeFromLocation(): SylvaRoute {
   const pathname = window.location.pathname.replace(/\/+$/, '')
   if (pathname === '/privacy' || window.location.hash === '#privacy') return 'privacy'
   if (pathname === '/legal' || window.location.hash === '#legal') return 'legal'
+  if (pathname === '/refund' || pathname === '/refund-policy' || window.location.hash === '#refund') return 'refund'
   return 'app'
 }
 
@@ -760,98 +761,21 @@ function WelcomeDialog({ onClose }: { onClose: () => void }) {
 }
 
 function LegalFooter() {
-  const sylvaIosRelease = useLatestSylvaIosRelease()
-
   return (
     <footer className="mt-12 border-t border-border pt-6 text-center text-xs text-muted-foreground">
       <div className="mx-auto flex max-w-3xl flex-col items-center gap-4">
-        <p className="italic leading-5">
-          Mehmet IPA, IPA dosyalarınızı doğrudan tarayıcınızda imzalamanızı sağlar. Sertifikanız, profiliniz 
-          ve imzalama işlemleriniz cihazınızda yerel olarak işlenir. Geçici kurulum sırasında yalnızca onayınızla 
-          imzalanmış IPA dosyası yüklenir.
+        <p className="max-w-2xl italic leading-5">
+          Mehmet IPA processes VIP signing jobs on private server infrastructure. Uploaded IPA files are
+          sent to the signing service; signed outputs are kept temporarily for download and installation.
+          Mehmet IPA is an independent service and is not affiliated with Apple.
         </p>
-
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border-y border-border/70 py-3 text-foreground/70">
-          <span className="inline-flex items-center gap-1 whitespace-nowrap">
-            Powered by
-            <a
-              className="font-medium text-sky-300 transition-colors hover:text-sky-200 hover:underline"
-              href="https://github.com/zhlynn/zsign"
-              target="_blank"
-              rel="noreferrer"
-            >
-              zsign
-            </a>
-            <span>(WASM port)</span>
-          </span>
-          <span className="inline-flex items-center gap-1 whitespace-nowrap">
-            <span className="mr-2 font-semibold text-foreground/60" aria-hidden="true">
-              |
-            </span>
-            Temporary hosting by
-            <a
-              className="font-medium text-sky-300 transition-colors hover:text-sky-200 hover:underline"
-              href="https://litterbox.catbox.moe/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Litterbox
-            </a>
-          </span>
-        </div>
-
-        <div className="w-full max-w-md rounded-2xl border border-border bg-card/60 px-4 py-3 text-center">
-  <p className="text-sm font-medium text-foreground">Mehmet IPA</p>
-  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-    Sign iOS IPA files directly in your browser with Mehmet IPA.
-  </p>
-  <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-    <a
-      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground"
-      href="https://github.com/mehmet4665/mehmetipa-signer"
-      target="_blank"
-      rel="noreferrer"
-    >
-      <GithubIcon size={14} />
-      GitHub
-    </a>
-    <a
-      className="inline-flex items-center gap-..."
-      href="https://github.com/mehmet4665/mehmetipa-signer/releases/download/latest/Mehmet-IPA-iOS.ipa"
-      target="_blank"
-      rel="noreferrer"
-    >
-      <Download size={14} />
-       Download IPA
-    </a>
-  </div>
-</div>
-
-        <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-          <a className="transition-colors hover:text-red-500" href="/privacy/">
-            Privacy Policy
-          </a>
-          <a className="transition-colors hover:text-blue-500" href="/legal/">
-            Legal
-          </a>
-          <a
-            className="transition-colors hover:text-emerald-500"
-            href="https://github.com/AntonP29/SylvaSigner/blob/master/LICENSE"
-            target="_blank"
-            rel="noreferrer"
-          >
-            MIT License
-          </a>
-          <a
-            className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
-            href="https://github.com/AntonP29"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <GithubIcon size={14} />
-            AntonP29
-          </a>
+        <nav aria-label="Legal" className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+          <a className="transition-colors hover:text-blue-500" href="/legal/">Terms of Service</a>
+          <a className="transition-colors hover:text-red-500" href="/privacy/">Privacy Policy</a>
+          <a className="transition-colors hover:text-emerald-500" href="/refund/">Refund Policy</a>
+          <a className="transition-colors hover:text-foreground" href="https://github.com/mehmet4665/mehmetipa-signer/blob/master/THIRD_PARTY_NOTICES.md" target="_blank" rel="noreferrer">Third-party notices</a>
         </nav>
+        <p>© 2026 Mehmet IPA · Türkiye</p>
       </div>
     </footer>
   )
@@ -875,29 +799,19 @@ function isAppleMobileBrowser() {
 
 function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
   const isPrivacy = route === 'privacy'
+  const isRefund = route === 'refund'
+  const pageTitle = isPrivacy ? 'Privacy Policy' : isRefund ? 'Refund Policy' : 'Terms of Service'
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-3xl flex-col px-5 py-8 md:px-8 md:py-12">
       <header className="flex items-center justify-between gap-4">
         <a href="/" className="flex items-center gap-3.5">
           <div className="relative size-12 shrink-0 overflow-hidden rounded-2xl shadow-sm md:size-14">
-            <img
-              src="/icon-dark.PNG"
-              alt="Mehmet IPA logo"
-              className="size-full scale-[1.18] object-cover dark:hidden"
-            />
-            <img
-              src="/icon-dark.PNG"
-              alt=""
-              aria-hidden
-              className="hidden size-full scale-[1.18] object-cover dark:block"
-            />
+            <img src="/icon-dark.PNG" alt="Mehmet IPA logo" className="size-full object-cover" />
           </div>
           <div>
-            <span className="block text-balance text-xl font-semibold tracking-tight md:text-2xl">
-              Mehmet IPA
-            </span>
-            <p className="text-sm text-muted-foreground">Fully local IPA signing</p>
+            <span className="block text-balance text-xl font-semibold tracking-tight md:text-2xl">Mehmet IPA</span>
+            <p className="text-sm text-muted-foreground">iOS IPA signing service</p>
           </div>
         </a>
         <ThemeToggle />
@@ -909,108 +823,137 @@ function InfoPage({ route }: { route: Exclude<SylvaRoute, 'app'> }) {
         <div className="relative z-10">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
             <span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,.8)]" />
-            PRIVATE SIGNING WORKSPACE
+            MEHMET IPA / LEGAL INFORMATION
           </div>
-          <p className="mb-2 text-xs font-bold uppercase tracking-[.22em] text-violet-200/80">MEHMET IPA / SIGNING STUDIO</p>
-          <h2 className="max-w-2xl text-3xl font-black tracking-tight text-white sm:text-4xl">Uygulamanı özgürce imzala.</h2>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300 sm:text-base">IPA dosyanı, sertifikanı ve provisioning profile dosyanı ekle. İmzalama işlemini tarayıcında başlat.</p>
-          <div className="mt-6 grid max-w-2xl grid-cols-3 gap-2 sm:gap-3">
-            <div className="signer-step"><span>01</span><strong>IPA dosyası</strong></div>
-            <div className="signer-step"><span>02</span><strong>Sertifika</strong></div>
-            <div className="signer-step"><span>03</span><strong>İmzala</strong></div>
-          </div>
+          <h1 className="max-w-2xl text-3xl font-black tracking-tight text-white sm:text-4xl">{pageTitle}</h1>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300 sm:text-base">
+            Applies to the Mehmet IPA website, user accounts, VIP access requests and IPA signing service.
+          </p>
+          <p className="mt-2 text-xs text-slate-400">Last updated: <time dateTime="2026-11-22">November 22, 2026</time></p>
         </div>
       </section>
-      <Separator className="my-7 opacity-40" />
 
       <section className="rounded-2xl border border-border bg-card p-6 md:p-8">
-        <div className="mb-6 flex items-center gap-3">
-          <AnimateIcon animateOnHover>
-            {isPrivacy ? (
-              <Lock size={28} className="text-muted-foreground transition-colors hover:text-blue-500" />
-            ) : (
-              <ClipboardList
-                size={28}
-                className="text-muted-foreground transition-colors hover:text-emerald-500"
-              />
-            )}
-          </AnimateIcon>
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              {isPrivacy ? 'Data and file handling' : 'Terms and attribution'}
-            </p>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {isPrivacy ? 'Privacy Policy' : 'Legal Notice'}
-            </h1>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Last updated <time dateTime="2026-09-18">September 18, 2026</time>
-            </p>
+        {isPrivacy ? (
+          <div className="space-y-7 text-sm leading-7 text-muted-foreground">
+            <section>
+              <h2 className="text-base font-semibold text-foreground">1. Who operates the service</h2>
+              <p className="mt-2">Mehmet IPA is an independently operated online service based in Türkiye. It is not operated by, affiliated with, sponsored by or endorsed by Apple Inc. This policy explains the information handled when you visit the website, create an account, register a device, request VIP access or use the signing service.</p>
+              <p className="mt-2">Mehmet IPA, Türkiye'den işletilen bağımsız bir çevrim içi hizmettir. Apple Inc. ile bağlantılı, onun tarafından desteklenen veya onaylanan bir hizmet değildir. Bu politika; siteyi ziyaret ettiğinizde, hesap açtığınızda, cihaz kaydettiğinizde, VIP talebi oluşturduğunuzda veya imzalama hizmetini kullandığınızda işlenen bilgileri açıklar.</p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-semibold text-foreground">2. Information we process</h2>
+              <p className="mt-2">Depending on the features you use, the service may process your name, username, email address, password verifier, account and email-verification status, device UDID and approval status, VIP plan and expiry details, VIP order status, signing job identifiers, the uploaded IPA filename, app bundle identifier and version, and support or security records. Passwords are stored as PBKDF2-SHA-256 password hashes, not as readable plain text.</p>
+              <p className="mt-2">Kullandığınız özelliklere göre adınız, kullanıcı adınız, e-posta adresiniz, parola doğrulama özeti, hesap ve e-posta doğrulama durumu, cihaz UDID bilgisi ve onay durumu, VIP paketi ve bitiş tarihi, VIP sipariş durumu, imzalama işlem kimliği, yüklenen IPA dosyasının adı, uygulama paket kimliği ve sürümü ile destek/güvenlik kayıtları işlenebilir. Parolalar okunabilir düz metin olarak değil, PBKDF2-SHA-256 özeti olarak saklanır.</p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-semibold text-foreground">3. IPA files, certificates and signing</h2>
+              <p className="mt-2">The VIP signing workflow is server-based. When you start a signing job, the IPA file you select is uploaded over HTTPS to the Mehmet IPA API and forwarded to a private signing service. The service combines it with the platform's signing certificate and the device-specific provisioning profile. The certificate, profile and certificate password are stored in encrypted form in the service's private storage and are decrypted for the signing operation. Do not upload an IPA or other material unless you are authorised to use it.</p>
+              <p className="mt-2">VIP imzalama akışı sunucu üzerinden çalışır. İmzalama işlemini başlattığınızda seçtiğiniz IPA dosyası HTTPS üzerinden Mehmet IPA API'sine yüklenir ve özel imzalama hizmetine aktarılır. Dosya, platformun imzalama sertifikası ve cihaza özel provisioning profile ile birlikte işlenir. Sertifika, profil ve sertifika parolası hizmetin özel depolamasında şifreli biçimde tutulur ve imzalama sırasında çözülür. Kullanma ve işleme yetkiniz olmayan dosyaları yüklemeyin.</p>
+              <p className="mt-2">The signed IPA is placed in private temporary storage so you can download it or install it on your registered device. The download and installation link is designed to expire after one hour. Signing progress records are stored temporarily for troubleshooting and are configured with a six-hour expiry. The service records the IPA filename and signing status in its operational database; it does not need to store your original IPA as a permanent user library.</p>
+              <p className="mt-2">İmzalanmış IPA, indirmeniz veya kayıtlı cihazınıza kurmanız için özel geçici depoya yazılır. İndirme ve kurulum bağlantısı bir saat sonra sona erecek şekilde tasarlanmıştır. İmzalama ilerleme kayıtları hata ayıklama amacıyla geçici tutulur ve altı saatlik sona erme süresine ayarlanır. Hizmet, IPA dosya adını ve imzalama durumunu operasyon veritabanına kaydeder; orijinal IPA dosyanızı kalıcı bir kullanıcı dosya arşivinde tutması amaçlanmamıştır.</p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-semibold text-foreground">4. Why we use information</h2>
+              <p className="mt-2">Information is used to create and secure accounts, verify email addresses, register and approve devices, check VIP eligibility, process VIP requests, perform signing jobs, provide downloads, prevent abuse, enforce service limits, troubleshoot errors and respond to lawful requests.</p>
+              <p className="mt-2">Bilgiler; hesap oluşturma ve güvenliğini sağlama, e-posta doğrulama, cihaz kaydetme ve onaylama, VIP uygunluğunu kontrol etme, VIP taleplerini işleme, imzalama, indirme sağlama, kötüye kullanımı önleme, hizmet sınırlarını uygulama, hataları giderme ve hukuka uygun taleplere yanıt verme amaçlarıyla kullanılır.</p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-semibold text-foreground">5. Service providers and international processing</h2>
+              <p className="mt-2">The service uses third-party infrastructure to operate. This includes Cloudflare for website hosting, API execution, database and private object storage; Google Firebase for email/account verification; Vercel Analytics and Speed Insights for website usage and performance measurement; and Apple Developer services for device and provisioning-profile operations. These providers may process technical data such as IP address, browser details and request metadata as part of delivering and securing their services. Data may be processed in countries other than Türkiye, subject to the providers' systems and applicable law.</p>
+              <p className="mt-2">Hizmetin çalışması için Cloudflare (site barındırma, API, veritabanı ve özel dosya depolama), Google Firebase (e-posta/hesap doğrulama), Vercel Analytics ve Speed Insights (site kullanım ve performans ölçümü) ve cihaz/provisioning işlemleri için Apple Developer hizmetleri gibi sağlayıcılar kullanılır. Bu sağlayıcılar hizmetlerini sunmak ve güvenliğini sağlamak amacıyla IP adresi, tarayıcı bilgileri ve istek üstverileri gibi teknik bilgileri işleyebilir. Veriler, sağlayıcıların altyapısına ve yürürlükteki hukuka bağlı olarak Türkiye dışındaki ülkelerde işlenebilir.</p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-semibold text-foreground">6. Browser storage</h2>
+              <p className="mt-2">The website may use browser local storage or session storage for login/session state, preferences and theme settings. The separate browser signer may use IndexedDB for certificate-cache features when you choose to save signing material. You can clear website data and browser-stored signing material through your browser settings and the controls provided in the signer interface.</p>
+              <p className="mt-2">Site; oturum açma durumu, tercihler ve tema ayarları için tarayıcının local storage veya session storage alanlarını kullanabilir. Ayrı tarayıcı imzalayıcısı, imzalama materyalini kaydetmeyi seçtiğinizde sertifika önbelleği için IndexedDB kullanabilir. Site verilerini ve tarayıcıda tutulan imzalama materyalini tarayıcı ayarlarından ve imzalayıcı arayüzündeki kontrollerden silebilirsiniz.</p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-semibold text-foreground">7. Security and retention</h2>
+              <p className="mt-2">Reasonable technical and organisational measures are used to protect account records, signing materials and temporary files. No internet service can guarantee absolute security. Account, device, VIP and operational records are kept for as long as needed to operate the service, resolve disputes, prevent abuse and meet applicable legal obligations. Temporary signed files and progress records use expiry controls described above.</p>
+              <p className="mt-2">Hesap kayıtlarını, imzalama materyalini ve geçici dosyaları korumak için makul teknik ve idari önlemler uygulanır; hiçbir internet hizmeti mutlak güvenlik garantisi veremez. Hesap, cihaz, VIP ve operasyon kayıtları hizmeti yürütmek, uyuşmazlıkları çözmek, kötüye kullanımı önlemek ve yasal yükümlülükleri yerine getirmek için gerekli olduğu sürece tutulur. Geçici imzalı dosyalar ve ilerleme kayıtları yukarıda açıklanan sona erme kontrollerine tabidir.</p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-semibold text-foreground">8. Your requests</h2>
+              <p className="mt-2">You may request access to, correction of or deletion of personal information, subject to identity checks and records that must be retained by law or for security and dispute-resolution purposes. Account and device removal requests may affect your ability to use VIP signing. The public support email must be confirmed by the service operator before this page is submitted for payment-provider review.</p>
+              <p className="mt-2">Kimlik doğrulaması ve kanunen ya da güvenlik/uyuşmazlık çözümü için tutulması gereken kayıtlar saklı kalmak üzere kişisel verilerinize erişim, düzeltme veya silme talebinde bulunabilirsiniz. Hesap veya cihazın silinmesi VIP imzalama erişiminizi etkileyebilir. Bu sayfanın ödeme sağlayıcısına sunulmasından önce herkese açık destek e-postasının hizmet işletmecisi tarafından doğrulanması gerekir.</p>
+            </section>
           </div>
-        </div>
+        ) : isRefund ? (
+          <div className="space-y-7 text-sm leading-7 text-muted-foreground">
+            <section>
+              <h2 className="text-base font-semibold text-foreground">1. Current payment status</h2>
+              <p className="mt-2">At the time of this policy update, automatic card checkout is not active on the Mehmet IPA website. A VIP plan request is not itself a payment, does not create an automatic recurring charge and does not activate paid VIP access until it is reviewed and approved.</p>
+              <p className="mt-2">Bu politika güncellenirken Mehmet IPA sitesinde otomatik kartla ödeme sistemi aktif değildir. VIP paket talebi tek başına ödeme sayılmaz, otomatik yenilenen bir ücret oluşturmaz ve incelenip onaylanmadan ücretli VIP erişimini etkinleştirmez.</p>
+            </section>
+            <section>
+              <h2 className="text-base font-semibold text-foreground">2. Refund requests</h2>
+              <p className="mt-2">If a payment is accepted in the future, refund requests will be reviewed individually under the terms presented at checkout and the mandatory consumer-protection laws applicable to the buyer and transaction. Nothing in this policy removes any non-waivable statutory cancellation, withdrawal or refund right.</p>
+              <p className="mt-2">Gelecekte ödeme kabul edilmeye başlanırsa iade talepleri, ödeme ekranında sunulan koşullar ve alıcıya/işleme uygulanacak emredici tüketici mevzuatı kapsamında ayrı ayrı incelenir. Bu politika, kanunen vazgeçilemeyen iptal, cayma veya iade haklarını ortadan kaldırmaz.</p>
+            </section>
+            <section>
+              <h2 className="text-base font-semibold text-foreground">3. How to request a refund</h2>
+              <p className="mt-2">Include the account username, VIP order reference, transaction date and payment receipt when submitting a request through the support channel shown with the relevant transaction. Do not send full card numbers, security codes or passwords. If a refund is approved, it will normally be initiated to the original payment method through the payment provider.</p>
+              <p className="mt-2">İade talebinde, ilgili işlemle birlikte sunulacak destek kanalı üzerinden kullanıcı adınızı, VIP sipariş referansınızı, işlem tarihini ve ödeme dekontunu iletin. Kart numaranızın tamamını, güvenlik kodunu veya parolanızı göndermeyin. İade onaylanırsa normal olarak ödeme sağlayıcısı aracılığıyla ilk ödeme yöntemine gönderilir.</p>
+            </section>
+            <section>
+              <h2 className="text-base font-semibold text-foreground">4. Access after a refund</h2>
+              <p className="mt-2">Where a refund is issued for a VIP order, the related paid access may be cancelled or adjusted to reflect the refunded transaction, subject to applicable law.</p>
+              <p className="mt-2">VIP siparişi için iade yapılması hâlinde, yürürlükteki hukuk saklı kalmak üzere, ilgili ücretli erişim iade edilen işlemi yansıtacak şekilde iptal edilebilir veya düzenlenebilir.</p>
+            </section>
+          </div>
+        ) : (
+          <div className="space-y-7 text-sm leading-7 text-muted-foreground">
+            <section>
+              <h2 className="text-base font-semibold text-foreground">1. About Mehmet IPA</h2>
+              <p className="mt-2">Mehmet IPA provides user accounts, device registration and a VIP-gated iOS IPA signing workflow. The service is independent and is not affiliated with, sponsored by or endorsed by Apple Inc. Apple, iOS and related marks belong to their respective owners.</p>
+              <p className="mt-2">Mehmet IPA; kullanıcı hesabı, cihaz kaydı ve VIP erişimiyle kullanılan iOS IPA imzalama hizmeti sunar. Hizmet bağımsızdır; Apple Inc. ile bağlantılı, sponsorlu veya onun tarafından onaylanmış değildir. Apple, iOS ve ilgili markalar sahiplerine aittir.</p>
+            </section>
+            <section>
+              <h2 className="text-base font-semibold text-foreground">2. Plans and access periods</h2>
+              <p className="mt-2">The website currently displays two VIP request options: 1 Month (30 days, TRY 450) and 3 Months (90 days, TRY 800). These are fixed-duration access requests, not automatic recurring subscriptions. The final amount and currency, if and when checkout is enabled, will be shown before payment. Prices may change for future orders; an existing confirmed order will be handled according to the terms shown when it was placed.</p>
+              <p className="mt-2">Sitede şu anda iki VIP talep seçeneği gösterilir: 1 Ay (30 gün, 450 TL) ve 3 Ay (90 gün, 800 TL). Bunlar sabit süreli erişim talepleridir; otomatik yenilenen abonelik değildir. Ödeme sistemi açılırsa son tutar ve para birimi ödeme öncesinde gösterilir. Gelecekteki siparişler için fiyat değişebilir; onaylanmış mevcut sipariş, verildiği sırada gösterilen koşullara göre yürütülür.</p>
+            </section>
+            <section>
+              <h2 className="text-base font-semibold text-foreground">3. Requests and activation</h2>
+              <p className="mt-2">At present, submitting a VIP request creates a pending request for administrator review. The website does not yet collect an automatic card payment for that request. A request is not a payment receipt or a promise of activation. Paid VIP access is activated only after the applicable payment has been verified and the request has been approved.</p>
+              <p className="mt-2">Şu anda VIP talebi gönderildiğinde yönetici incelemesi için bekleyen bir kayıt oluşturulur. Site bu talep için henüz otomatik kart ödemesi almaz. Talep, ödeme dekontu veya erişim açılacağına dair taahhüt değildir. Ücretli VIP erişimi, ilgili ödeme doğrulandıktan ve talep onaylandıktan sonra açılır.</p>
+            </section>
+            <section>
+              <h2 className="text-base font-semibold text-foreground">4. Acceptable use and user responsibilities</h2>
+              <p className="mt-2">You must own or have permission to use every IPA file, app asset, signing certificate and provisioning profile you submit. You must comply with applicable law, developer-program rules, intellectual-property rights and the terms that apply to the relevant software. Do not submit pirated, stolen, malicious or unauthorised applications; do not use the service to distribute malware, infringe rights, evade lawful security controls or misuse another person's certificate or device identifier.</p>
+              <p className="mt-2">Yüklediğiniz her IPA dosyası, uygulama varlığı, imzalama sertifikası ve provisioning profile üzerinde hak sahibi olmalı veya kullanma iznine sahip olmalısınız. Yürürlükteki mevzuata, geliştirici programı kurallarına, fikrî mülkiyet haklarına ve ilgili yazılım koşullarına uymalısınız. Korsan, çalıntı, zararlı veya izinsiz uygulamalar yüklemeyin; hizmeti zararlı yazılım dağıtmak, hak ihlal etmek, hukuka uygun güvenlik kontrollerini aşmak ya da başkasının sertifikasını/cihaz kimliğini kötüye kullanmak için kullanmayın.</p>
+            </section>
+            <section>
+              <h2 className="text-base font-semibold text-foreground">5. Signing and installation limitations</h2>
+              <p className="mt-2">Signing success does not guarantee that Apple will continue to trust or permit installation of an application. Certificates, provisioning profiles and device registrations can expire, be revoked, be disabled or become incompatible. Installation and app behaviour depend on Apple services, the device, the app and the applicable profile. No uninterrupted availability or compatibility is guaranteed.</p>
+              <p className="mt-2">İmzalama işleminin başarılı olması, Apple'ın uygulamaya güvenmeye veya yüklenmesine izin vermeye devam edeceği garantisini vermez. Sertifikalar, provisioning profile dosyaları ve cihaz kayıtları sona erebilir, iptal edilebilir, devre dışı kalabilir veya uyumsuz hâle gelebilir. Kurulum ve uygulamanın çalışması Apple hizmetlerine, cihaza, uygulamaya ve ilgili profile bağlıdır. Kesintisiz erişim veya uyumluluk garantisi verilmez.</p>
+            </section>
+            <section>
+              <h2 className="text-base font-semibold text-foreground">6. Suspension and service changes</h2>
+              <p className="mt-2">We may restrict or suspend accounts, devices or signing access when needed to protect the service, users, signing credentials or third parties, or where misuse or unlawful activity is reasonably suspected. We may update or discontinue features. Mandatory legal rights remain unaffected.</p>
+              <p className="mt-2">Hizmeti, kullanıcıları, imzalama kimlik bilgilerini veya üçüncü kişileri korumak ya da kötüye kullanım veya hukuka aykırı faaliyetten makul olarak şüphelenildiğinde hesap, cihaz veya imzalama erişimi sınırlandırılabilir. Özellikler güncellenebilir veya durdurulabilir. Emredici yasal haklar saklıdır.</p>
+            </section>
+            <section>
+              <h2 className="text-base font-semibold text-foreground">7. Third-party software</h2>
+              <p className="mt-2">Mehmet IPA uses open-source and third-party components. Their notices and licence terms remain applicable and are listed in the project's third-party notices and licence files. Third-party names and marks are used only to identify the relevant software or services.</p>
+              <p className="mt-2">Mehmet IPA açık kaynaklı ve üçüncü taraf bileşenler kullanır. Bu bileşenlerin bildirimleri ve lisans koşulları geçerliliğini korur; proje içindeki üçüncü taraf bildirimleri ve lisans dosyalarında listelenir. Üçüncü taraf adları ve markaları yalnızca ilgili yazılımı veya hizmeti tanımlamak için kullanılır.</p>
+            </section>
+          </div>
+        )}
 
-        <div className="space-y-4 text-sm leading-7 text-muted-foreground">
-          {isPrivacy ? (
-            <>
-              <p>
-                Mehmet IPA is designed to sign IPA files locally in your browser. The app
-                does not require a signing server and does not intentionally upload your IPA,
-                P12/PFX certificate, provisioning profile, password, or dylibs. If you choose
-                 temporary installation after signing, only the signed IPA is uploaded so iOS can
-                 fetch it over HTTPS.
-               </p>
-              <p>
-                Temporary installation sends the app name, bundle ID, version, and temporary IPA
-                URL to Palera&apos;s manifest generator. If Palera is unavailable, the same
-                manifest metadata is sent to the Sylva Worker as a backup. Certificates, profiles,
-                passwords, and unsigned source files are not included.
-              </p>
-              <p>
-                Optional certificate caching stores selected signing material and password
-                data in this browser&apos;s IndexedDB storage on this device. You can clear
-                that cache from the signer interface.
-              </p>
-              <p>
-                If you use a hosted copy, your browser still downloads the application code
-                from that host. Use a build and domain you trust.
-              </p>
-            </>
-          ) : (
-            <>
-              <p>
-                Mehmet IPA is provided as a browser-based signing tool for lawful workflows
-                using certificates, provisioning profiles, and app files you are authorized to
-                use.
-              </p>
-              <p>
-                You are responsible for complying with Apple developer terms, software
-                licenses, distribution rules, and all applicable laws. This project does not
-                provide Apple certificates, provisioning profiles, entitlements, or third-party
-                app assets.
-              </p>
-              <p>
-                This project is made by AntonP29 and published for local, privacy-preserving
-                IPA signing research and utility.
-              </p>
-              <p>
-                Sylva Signer&apos;s original code is available under the MIT License. zsign,
-                OpenSSL, Inter, JavaScript packages, and other third-party components remain
-                under their own licenses and notices documented in the repository. Sylva
-                Signer is independent and is not affiliated with or endorsed by Apple,
-                Litterbox, Catbox, Palera, or the upstream zsign maintainers.
-              </p>
-            </>
-          )}
+        <div className="mt-8 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+          <p className="font-semibold text-foreground">Contact / İletişim</p>
+          <p className="mt-1">A public support email address must be added here before payment-provider verification. For now, please retain your account username and any VIP request reference for support.</p>
+          <p className="mt-1">Ödeme sağlayıcısı doğrulamasından önce buraya herkese açık bir destek e-posta adresi eklenmelidir. Şimdilik destek talebiniz için hesap kullanıcı adınızı ve VIP talep referansınızı saklayın.</p>
         </div>
-
-        <a
-          href="https://github.com/AntonP29"
-          target="_blank"
-          rel="noreferrer"
-          className="mt-7 inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <GithubIcon size={16} />
-          Visit AntonP29 on GitHub
-        </a>
       </section>
 
       <LegalFooter />

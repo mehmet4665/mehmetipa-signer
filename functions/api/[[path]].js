@@ -1820,7 +1820,7 @@ export async function onRequest({ request, env, params }) {
         if (queueState.status !== 'active') {
           return json({ success: false, error: 'Sıra henüz sana gelmedi. Yükleme başlamadı.', queue: queueState }, 409)
         }
-        const key = 'temp-ipas/' + jobId
+        const key = 'temp-ipas/' + jobId + '.ipa'
         const sessionKey = 'upload-sessions/' + jobId + '.json'
         const oldSession = await env.CERTS.get(sessionKey)
         if (oldSession) {

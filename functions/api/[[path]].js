@@ -1753,9 +1753,18 @@ export async function onRequest({ request, env, params }) {
           (trialIsActive ? "AND udid = ? " : "") + "ORDER BY created_at DESC LIMIT 1"
         ).bind(...(trialIsActive ? [session.sub, activeTrial.device_udid] : [session.sub])).first()
         if (!approvedDevice) return json({ success: false, error: 'IPA imzalamak için onaylı cihaz kaydı gerekiyor.' }, 403)
-        const queued = await signerJson(env, '/queue/enqueue', 'POST', {
-          job_id: jobId, user_id: session.sub, file_name: fileName, file_size: fileSize,
-        })
+        let queued
+        try {
+          queued = await signerJson(env, '/queue/enqueue', 'POST', {
+            job_id: jobId, user_id: session.sub, file_name: fileName, file_size: fileSize,
+          })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'İmza kuyruğuna eklenemedi.'
+          const status = message.includes('zaten bekleyen') ? 409
+            : message.includes('kuyruğu şu anda dolu') ? 429
+            : 503
+          return json({ success: false, error: message }, status)
+        }
         return json({
           success: true,
           job_id: jobId,

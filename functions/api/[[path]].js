@@ -2578,6 +2578,7 @@ export async function onRequest({ request, env, params }) {
         let releaseStatus = 'failed'
         let releaseError = ''
         let shouldRelease = false
+        let queueHeartbeatTimer = null
         const progressLogs = []
         const writeProgress = async (stage, percent, label, log) => {
           if (!jobId) return
@@ -2604,6 +2605,12 @@ export async function onRequest({ request, env, params }) {
             return json({ success: false, error: 'İmza sıran henüz gelmedi. Dosyan silinmedi; sıranın gelmesini bekle.', queue: queueTicket }, 409)
           }
           shouldRelease = true
+          const queueHeartbeatUrl = '/queue/status?job_id=' + encodeURIComponent(jobId) + '&user_id=' + encodeURIComponent(session.sub)
+          queueHeartbeatTimer = setInterval(() => {
+            void signerJson(env, queueHeartbeatUrl).catch(error => {
+              console.warn('[Mehmet IPA queue heartbeat]', error instanceof Error ? error.message : 'heartbeat failed')
+            })
+          }, 30_000)
 
           const member = await env.DB.prepare(
             'SELECT username, group_name, status, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id = ? LIMIT 1'
@@ -2827,6 +2834,7 @@ export async function onRequest({ request, env, params }) {
           await writeProgress(5, 100, 'İmzalama başarısız', 'HATA · ' + releaseError)
           return json({ success: false, error: releaseError }, 502)
         } finally {
+          if (queueHeartbeatTimer) clearInterval(queueHeartbeatTimer)
           if (shouldRelease && jobId) {
             // The source IPA and upload session are always removed after the signing attempt.
             await env.CERTS.delete('temp-ipas/' + jobId + '.ipa').catch(() => {})

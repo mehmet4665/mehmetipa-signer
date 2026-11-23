@@ -1312,7 +1312,7 @@ export async function onRequest({ request, env, params }) {
       if (artifact === 'manifest.plist') {
         const origin = new URL(request.url).origin
         const appUrl = origin + '/api/install/' + token + '/app.ipa'
-        const iconUrl = origin + '/icon-light-192.png'
+        const iconUrl = origin + '/icon-dark-192.PNG?v=20261123-mehmetipa'
         const esc = (value) => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
         const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

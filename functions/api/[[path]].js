@@ -1930,10 +1930,13 @@ export async function onRequest({ request, env, params }) {
         }
         let completed
         try {
-          completed = await env.CERTS.resumeMultipartUpload(uploadSession.uploadKey, uploadSession.uploadId).complete(parts)
-          if (completed.size !== Number(uploadSession.fileSize) ||
-              completed.customMetadata?.ownerId !== session.sub ||
-              completed.customMetadata?.jobId !== jobId) {
+          await env.CERTS.resumeMultipartUpload(uploadSession.uploadKey, uploadSession.uploadId).complete(parts)
+          // Verify the finalized object with HEAD. The multipart completion response is
+          // not used as the sole source of truth for custom metadata.
+          const verified = await env.CERTS.head(uploadSession.uploadKey)
+          if (!verified || verified.size !== Number(uploadSession.fileSize) ||
+              verified.customMetadata?.ownerId !== session.sub ||
+              verified.customMetadata?.jobId !== jobId) {
             await env.CERTS.delete(uploadSession.uploadKey).catch(() => {})
             return json({ success: false, error: 'Birleştirilen IPA dosyası doğrulanamadı.' }, 422)
           }

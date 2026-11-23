@@ -1489,7 +1489,7 @@ export async function onRequest({ request, env, params }) {
       if (!owner || owner.status !== 'active' || owner.vip_access_status === 'blocked') {
         return json({ success: false, error: 'Kaynak sahibi artık etkin değil.' }, 403)
       }
-      const object = await env.CERTS.get('temp-ipas/' + sourceToken.job_id)
+      const object = await env.CERTS.get('temp-ipas/' + sourceToken.job_id + '.ipa')
       if (!object) return json({ success: false, error: 'Geçici IPA bulunamadı veya silinmiş.' }, 404)
       const metadata = object.customMetadata || {}
       if (metadata.ownerId !== sourceToken.sub ||
@@ -1798,7 +1798,7 @@ export async function onRequest({ request, env, params }) {
           if (uploadSession.uploadKey) await env.CERTS.delete(uploadSession.uploadKey).catch(() => {})
           await env.CERTS.delete(sessionKey).catch(() => {})
         }
-        await env.CERTS.delete('temp-ipas/' + jobId).catch(() => {})
+        await env.CERTS.delete('temp-ipas/' + jobId + '.ipa').catch(() => {})
         const released = await signerJson(env, '/queue/release', 'POST', {
           job_id: jobId, user_id: session.sub, status: 'cancelled', error: 'Üye işlemi iptal etti.',
         })
@@ -1832,6 +1832,10 @@ export async function onRequest({ request, env, params }) {
           if (previous?.uploadKey) await env.CERTS.delete(previous.uploadKey).catch(() => {})
           await env.CERTS.delete(sessionKey).catch(() => {})
         }
+        const SINGLE_UPLOAD_LIMIT = 20 * 1024 * 1024
+        if (fileSize <= SINGLE_UPLOAD_LIMIT) {
+          return json({ success: true, job_id: jobId, upload_mode: 'single', single_upload_limit: SINGLE_UPLOAD_LIMIT })
+        }
         const partSize = 10 * 1024 * 1024
         const expectedParts = Math.ceil(fileSize / partSize)
         if (expectedParts < 1 || expectedParts > 10000) return json({ success: false, error: 'Parça sayısı sınırı aşıldı.' }, 413)
@@ -1860,7 +1864,51 @@ export async function onRequest({ request, env, params }) {
           await env.CERTS.delete(sessionKey).catch(() => {})
           throw error
         }
-        return json({ success: true, job_id: jobId, chunk_size: partSize, total_parts: expectedParts })
+        return json({ success: true, job_id: jobId, upload_mode: 'multipart', chunk_size: partSize, total_parts: expectedParts })
+      }
+
+      if (path === '/api/signing/upload/single' && method === 'POST') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici hesabı imza yüklemesi yapamaz.' }, 403)
+        let form
+        try { form = await request.formData() } catch { return json({ success: false, error: 'IPA dosyası okunamadı.' }, 400) }
+        const jobId = String(form.get('job_id') || '')
+        const fileName = String(form.get('file_name') || '').trim().slice(0, 180)
+        const file = form.get('file')
+        const SINGLE_UPLOAD_LIMIT = 20 * 1024 * 1024
+        if (!/^[0-9a-f-]{36}$/i.test(jobId) || !fileName.toLowerCase().endsWith('.ipa') ||
+            !(file instanceof Blob) || file.size < 1 || file.size > SINGLE_UPLOAD_LIMIT) {
+          return json({ success: false, error: 'Tek parça yükleme için geçersiz IPA. Sınır 20 MB.' }, 400)
+        }
+        const queueState = await signerJson(env,
+          '/queue/status?job_id=' + encodeURIComponent(jobId) + '&user_id=' + encodeURIComponent(session.sub))
+        if (queueState.status !== 'active' || queueState.file_name !== fileName || Number(queueState.file_size) !== file.size) {
+          return json({ success: false, error: 'İmza sırası veya IPA dosya bilgileri eşleşmiyor.' }, 409)
+        }
+        const key = 'temp-ipas/' + jobId + '.ipa'
+        const expiresAt = Date.now() + 30 * 60 * 1000
+        await env.CERTS.put(key, file.stream(), {
+          httpMetadata: { contentType: 'application/octet-stream' },
+          customMetadata: {
+            ownerId: session.sub, jobId, fileName, fileSize: String(file.size),
+            expiresAt: String(expiresAt),
+          },
+        })
+        const verified = await env.CERTS.head(key)
+        if (!verified || verified.size !== file.size ||
+            verified.customMetadata?.ownerId !== session.sub ||
+            verified.customMetadata?.jobId !== jobId) {
+          await env.CERTS.delete(key).catch(() => {})
+          return json({ success: false, error: 'Tek parça IPA yüklemesi doğrulanamadı.' }, 422)
+        }
+        try {
+          await signerJson(env, '/queue/attach-upload', 'POST', {
+            job_id: jobId, user_id: session.sub, upload_key: key, upload_id: 'direct',
+          })
+        } catch (error) {
+          await env.CERTS.delete(key).catch(() => {})
+          throw error
+        }
+        return json({ success: true, job_id: jobId, file_size: verified.size, message: 'IPA güvenli depoya yüklendi.' })
       }
 
       if (path === '/api/signing/upload/part' && method === 'POST') {
@@ -1928,12 +1976,12 @@ export async function onRequest({ request, env, params }) {
         if (parts.some(part => !part.etag || part.etag.length > 256)) {
           return json({ success: false, error: 'Yükleme parça doğrulaması başarısız.' }, 400)
         }
-        let completed
+        let verified
         try {
           await env.CERTS.resumeMultipartUpload(uploadSession.uploadKey, uploadSession.uploadId).complete(parts)
           // Verify the finalized object with HEAD. The multipart completion response is
           // not used as the sole source of truth for custom metadata.
-          const verified = await env.CERTS.head(uploadSession.uploadKey)
+          verified = await env.CERTS.head(uploadSession.uploadKey)
           if (!verified || verified.size !== Number(uploadSession.fileSize) ||
               verified.customMetadata?.ownerId !== session.sub ||
               verified.customMetadata?.jobId !== jobId) {
@@ -1944,7 +1992,7 @@ export async function onRequest({ request, env, params }) {
           return json({ success: false, error: error instanceof Error ? error.message : 'IPA parçaları birleştirilemedi.' }, 502)
         }
         await env.CERTS.delete(sessionKey).catch(() => {})
-        return json({ success: true, job_id: jobId, file_size: completed.size, message: 'IPA güvenli depoya yüklendi.' })
+        return json({ success: true, job_id: jobId, file_size: verified.size, message: 'IPA güvenli depoya yüklendi.' })
       }
 
       // Per-user signing progress feed. Job IDs are unguessable UUIDs and records live in the private R2 bucket.
@@ -2632,7 +2680,7 @@ export async function onRequest({ request, env, params }) {
             throw new Error('VIP sertifikasının süresi dolmuş.')
           }
 
-          const uploadKey = 'temp-ipas/' + jobId
+          const uploadKey = 'temp-ipas/' + jobId + '.ipa'
           const ipaObject = await env.CERTS.get(uploadKey)
           if (!ipaObject) throw new Error('Yüklenen geçici IPA bulunamadı. Yeniden yükle.')
           const metadata = ipaObject.customMetadata || {}
@@ -2781,7 +2829,7 @@ export async function onRequest({ request, env, params }) {
         } finally {
           if (shouldRelease && jobId) {
             // The source IPA and upload session are always removed after the signing attempt.
-            await env.CERTS.delete('temp-ipas/' + jobId).catch(() => {})
+            await env.CERTS.delete('temp-ipas/' + jobId + '.ipa').catch(() => {})
             await env.CERTS.delete('upload-sessions/' + jobId + '.json').catch(() => {})
             try {
               await signerJson(env, '/queue/release', 'POST', {

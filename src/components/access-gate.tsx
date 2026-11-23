@@ -361,8 +361,8 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
     xhr.upload.onprogress=e=>{
       if(e.lengthComputable){
         const partProgress=(partNumber-1)+(e.loaded/e.total);
-        const pct=Math.min(50,18+Math.round(partProgress/Math.ceil(ipaFile.size/(10*1024*1024))*32));
-        setProgress(p=>({...p,stage:2,percent:Math.max(p.percent,pct),label:t('IPA güvenli parçalara yükleniyor','Uploading IPA in secure chunks')+' · '+partNumber+'/'+Math.ceil(ipaFile.size/(10*1024*1024))}));
+        const pct=Math.min(50,18+Math.round(partProgress/totalParts*32));
+        setProgress(p=>({...p,stage:2,percent:Math.max(p.percent,pct),label:t('IPA güvenli parçalara yükleniyor','Uploading IPA in secure chunks')+' · '+partNumber+'/'+totalParts}));
       }
     };
     xhr.onload=()=>{
@@ -442,7 +442,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
         if(!uploaded)throw lastError instanceof Error?lastError:new Error(t('IPA parçası yüklenemedi.','IPA chunk upload failed.'));
         return {partNumber,etag:uploaded.etag};
       };
-      // Larger IPAs use parallel 10 MB parts; smaller files upload directly.
+      // IPAs above the safe direct-upload ceiling use parallel 25 MiB parts.
       for(let first=1;first<=totalParts;first+=3){
         const batch=Array.from({length:Math.min(3,totalParts-first+1)},(_,i)=>first+i);
         const uploadedBatch=await Promise.all(batch.map(uploadOnePart));

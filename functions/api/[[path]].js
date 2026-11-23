@@ -1832,11 +1832,11 @@ export async function onRequest({ request, env, params }) {
           if (previous?.uploadKey) await env.CERTS.delete(previous.uploadKey).catch(() => {})
           await env.CERTS.delete(sessionKey).catch(() => {})
         }
-        const SINGLE_UPLOAD_LIMIT = 20 * 1024 * 1024
+        const SINGLE_UPLOAD_LIMIT = 95 * 1024 * 1024
         if (fileSize <= SINGLE_UPLOAD_LIMIT) {
           return json({ success: true, job_id: jobId, upload_mode: 'single', single_upload_limit: SINGLE_UPLOAD_LIMIT })
         }
-        const partSize = 10 * 1024 * 1024
+        const partSize = 25 * 1024 * 1024
         const expectedParts = Math.ceil(fileSize / partSize)
         if (expectedParts < 1 || expectedParts > 10000) return json({ success: false, error: 'Parça sayısı sınırı aşıldı.' }, 413)
         const expiresAt = Date.now() + 30 * 60 * 1000
@@ -1874,7 +1874,7 @@ export async function onRequest({ request, env, params }) {
         const jobId = String(form.get('job_id') || '')
         const fileName = String(form.get('file_name') || '').trim().slice(0, 180)
         const file = form.get('file')
-        const SINGLE_UPLOAD_LIMIT = 20 * 1024 * 1024
+        const SINGLE_UPLOAD_LIMIT = 95 * 1024 * 1024
         if (!/^[0-9a-f-]{36}$/i.test(jobId) || !fileName.toLowerCase().endsWith('.ipa') ||
             !(file instanceof Blob) || file.size < 1 || file.size > SINGLE_UPLOAD_LIMIT) {
           return json({ success: false, error: 'Tek parça yükleme için geçersiz IPA. Sınır 20 MB.' }, 400)

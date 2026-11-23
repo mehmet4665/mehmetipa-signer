@@ -385,6 +385,17 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
       body:JSON.stringify({job_id:jobId,file_name:ipaFile.name,file_size:ipaFile.size})
     });
     queueCreated=true;
+    const handleSigningPageHide=()=>{
+      if(!queueCreated||signRequestStarted||signingSucceeded)return;
+      void fetch(API_BASE+'/api/signing/queue/'+jobId+'/cancel',{
+        method:'POST',
+        headers:{authorization:'Bearer '+token,'content-type':'application/json'},
+        body:'{}',
+        keepalive:true,
+        cache:'no-store'
+      }).catch(()=>{});
+    };
+    window.addEventListener('pagehide',handleSigningPageHide);
     let queue=queued;
     while(queue.status==='queued'){
       const position=Number(queue.queue_position||1);
@@ -497,6 +508,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
   }finally{
     if(progressPollTimer)window.clearInterval(progressPollTimer);
     if(queueHeartbeatTimer)window.clearInterval(queueHeartbeatTimer);
+    window.removeEventListener('pagehide',handleSigningPageHide);
     setIsSigning(false);
   }
  }

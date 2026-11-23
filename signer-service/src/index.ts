@@ -9,7 +9,7 @@ interface Env {
 const PORT = 8080;
 const INACTIVITY_TIMEOUT_MS = 30 * 1000;
 const MAX_CONCURRENT_SIGNINGS = 10;
-const ACTIVE_LEASE_MS = 60 * 60 * 1000;
+const ACTIVE_LEASE_MS = 2 * 60 * 1000;
 const QUEUED_LEASE_MS = 15 * 60 * 1000;
 const MAX_QUEUE_DEPTH = 100;
 const QUEUE_NAME = "global-signing-queue";
@@ -74,6 +74,13 @@ export class SigningQueue extends DurableObject<Env> {
       "started_at INTEGER, finished_at INTEGER, file_name TEXT NOT NULL, " +
       "file_size INTEGER NOT NULL, upload_key TEXT, upload_id TEXT, error TEXT)",
     );
+    try { this.ctx.storage.sql.exec("ALTER TABLE signing_jobs ADD COLUMN heartbeat_at INTEGER"); } catch {}
+    // Give pre-deployment active jobs a short grace period; live clients renew below.
+    const migrationNow = Date.now();
+    this.ctx.storage.sql.exec(
+      "UPDATE signing_jobs SET heartbeat_at = ?, lease_until = MIN(COALESCE(lease_until, ?), ?) WHERE status = 'active' AND heartbeat_at IS NULL",
+      migrationNow, migrationNow + ACTIVE_LEASE_MS, migrationNow + ACTIVE_LEASE_MS,
+    );
     this.ctx.storage.sql.exec(
       "CREATE INDEX IF NOT EXISTS signing_jobs_order_idx ON signing_jobs(status, created_at, job_id)",
     );
@@ -103,7 +110,8 @@ export class SigningQueue extends DurableObject<Env> {
     );
     for (const item of queued) {
       this.ctx.storage.sql.exec(
-        "UPDATE signing_jobs SET status = 'active', started_at = ?, lease_until = ?, expires_at = NULL WHERE job_id = ? AND status = 'queued'",
+        "UPDATE signing_jobs SET status = 'active', started_at = ?, heartbeat_at = ?, lease_until = ?, expires_at = NULL WHERE job_id = ? AND status = 'queued'",
+        now,
         now,
         now + ACTIVE_LEASE_MS,
         item.job_id,
@@ -211,8 +219,8 @@ export class SigningQueue extends DurableObject<Env> {
       if (!job || job.user_id !== userId) return json({ success: false, error: "Queue ticket not found." }, 404);
       if (job.status === "active") {
         this.ctx.storage.sql.exec(
-          "UPDATE signing_jobs SET lease_until = ? WHERE job_id = ? AND status = 'active'",
-          now + ACTIVE_LEASE_MS, jobId,
+          "UPDATE signing_jobs SET heartbeat_at = ?, lease_until = ? WHERE job_id = ? AND status = 'active'",
+          now, now + ACTIVE_LEASE_MS, jobId,
         );
       } else if (job.status === "queued") {
         this.ctx.storage.sql.exec(
@@ -260,7 +268,7 @@ export class SigningQueue extends DurableObject<Env> {
         return json({ success: true, status: job.status });
       }
       this.ctx.storage.sql.exec(
-        "UPDATE signing_jobs SET status = ?, finished_at = ?, lease_until = NULL, expires_at = NULL, upload_id = NULL, upload_key = NULL, error = ? WHERE job_id = ?",
+        "UPDATE signing_jobs SET status = ?, finished_at = ?, heartbeat_at = NULL, lease_until = NULL, expires_at = NULL, upload_id = NULL, upload_key = NULL, error = ? WHERE job_id = ?",
         status, now, String(body.error || "").slice(0, 500), jobId,
       );
       this.promoteQueued(now);
@@ -300,7 +308,7 @@ export class SigningQueue extends DurableObject<Env> {
       if (job.upload_key) await this.env.CERTS.delete(job.upload_key).catch(() => {});
       await this.env.CERTS.delete("upload-sessions/" + job.job_id + ".json").catch(() => {});
       this.ctx.storage.sql.exec(
-        "UPDATE signing_jobs SET status = 'expired', finished_at = ?, lease_until = NULL, expires_at = NULL, upload_id = NULL, upload_key = NULL, error = 'Queue lease expired' WHERE job_id = ? AND status IN ('active', 'queued')",
+        "UPDATE signing_jobs SET status = 'expired', finished_at = ?, heartbeat_at = NULL, lease_until = NULL, expires_at = NULL, upload_id = NULL, upload_key = NULL, error = 'Queue lease expired' WHERE job_id = ? AND status IN ('active', 'queued')",
         now, job.job_id,
       );
     }

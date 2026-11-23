@@ -1020,7 +1020,7 @@ async function verifyPaddleSignature(rawBody, signatureHeader, secret) {
   })
 }
 
-export async function onRequest({ request, env, params }) {
+async function handleRequest({ request, env, params }) {
   try {
     if (request.method.toUpperCase() === 'OPTIONS') return new Response(null, { status: 204, headers: {
       'access-control-allow-origin': '*',
@@ -2853,23 +2853,7 @@ export async function onRequest({ request, env, params }) {
           const expiresAt = Date.now() + 5 * 60 * 1000
           const fileName = ipaName.replace(/\.ipa$/i, '') + '-signed.ipa'
 
-          // Backup cleanup only touches the signed-installs namespace.
-          try {
-            let cursor
-            do {
-              const page = await env.CERTS.list({ prefix: 'signed-installs/', cursor, limit: 1000, include: ['customMetadata'] })
-              const now = Date.now()
-              const expired = (page.objects || []).filter(item =>
-                item.key !== installKey &&
-                Number(item.customMetadata?.expiresAt || 0) > 0 &&
-                Number(item.customMetadata.expiresAt) <= now
-              )
-              await Promise.all(expired.map(item => env.CERTS.delete(item.key).catch(() => {})))
-              cursor = page.truncated ? page.cursor : undefined
-            } while (cursor)
-          } catch (cleanupError) {
-            console.warn('[Mehmet IPA cleanup]', cleanupError instanceof Error ? cleanupError.message : 'cleanup failed')
-          }
+          // Expired signed IPA files are removed by the SigningQueue alarm; avoid a full R2 list on every signing request.
 
           await env.CERTS.put(installKey, signed.body, {
             httpMetadata: { contentType: 'application/octet-stream' },
@@ -3005,4 +2989,63 @@ export async function onRequest({ request, env, params }) {
     const detail = error instanceof Error ? error.message.slice(0, 180) : 'Bilinmeyen sunucu hatası'
     return json({ success: false, error: 'Sunucu hatası: ' + detail }, 500)
   }
+}
+
+
+// Keep the VIP signing HTTP connection alive while Zsign and R2 finish.
+// XHR can parse the final JSON normally: leading JSON whitespace is valid.
+export async function onRequest(context) {
+  const request = context.request;
+  const params = context.params || {};
+  const routePath = `/api/${Array.isArray(params.path) ? params.path.join('/') : params.path || ''}`.replace(/\\/$/, '');
+  if (request.method.toUpperCase() !== 'POST' || routePath !== '/api/signing/vip') {
+    return handleRequest(context);
+  }
+
+  let heartbeatTimer;
+  let cancelled = false;
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const send = (value) => {
+        if (cancelled) return;
+        try { controller.enqueue(encoder.encode(value)); }
+        catch { cancelled = true; if (heartbeatTimer) clearInterval(heartbeatTimer); }
+      };
+
+      // 1 KiB of JSON whitespace every 12 seconds prevents idle mobile/proxy timeouts.
+      heartbeatTimer = setInterval(() => send(' '.repeat(1024)), 12_000);
+
+      void (async () => {
+        try {
+          const response = await handleRequest(context);
+          const body = await response.text();
+          if (heartbeatTimer) clearInterval(heartbeatTimer);
+          send(body);
+          if (!cancelled) controller.close();
+        } catch (error) {
+          if (heartbeatTimer) clearInterval(heartbeatTimer);
+          const detail = error instanceof Error ? error.message : 'Signing request failed.';
+          send(JSON.stringify({ success: false, error: detail }));
+          if (!cancelled) controller.close();
+        }
+      })();
+    },
+    cancel() {
+      cancelled = true;
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store, no-cache, no-transform',
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+      'access-control-allow-headers': 'Content-Type, Authorization',
+      'x-accel-buffering': 'no',
+    },
+  });
 }

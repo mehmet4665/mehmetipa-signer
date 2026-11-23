@@ -161,6 +161,31 @@ export class SigningQueue extends DurableObject<Env> {
     };
   }
 
+  // Reconcile jobs left behind by older Worker versions or a closed browser.
+  // Live uploads/signing renew heartbeat_at from the client and the server.
+  private async expireStaleJobs(now = Date.now()): Promise<void> {
+    const cutoff = now - ACTIVE_LEASE_MS;
+    const stale = this.rows<QueueJob>(
+      "SELECT * FROM signing_jobs WHERE " +
+      "(status = 'active' AND (lease_until <= ? OR " +
+      "(heartbeat_at IS NULL AND COALESCE(started_at, created_at) <= ?) OR " +
+      "(heartbeat_at IS NOT NULL AND heartbeat_at <= ?))) OR " +
+      "(status = 'queued' AND expires_at <= ?)",
+      now, cutoff, cutoff, now,
+    );
+    for (const job of stale) {
+      if (job.upload_id && job.upload_key && job.upload_id !== "direct") {
+        try { await this.env.CERTS.resumeMultipartUpload(job.upload_key, job.upload_id).abort(); } catch {}
+      }
+      if (job.upload_key) await this.env.CERTS.delete(job.upload_key).catch(() => {});
+      await this.env.CERTS.delete("upload-sessions/" + job.job_id + ".json").catch(() => {});
+      this.ctx.storage.sql.exec(
+        "UPDATE signing_jobs SET status = 'expired', finished_at = ?, heartbeat_at = NULL, lease_until = NULL, expires_at = NULL, upload_id = NULL, upload_key = NULL, error = 'Queue heartbeat expired' WHERE job_id = ? AND status IN ('active', 'queued')",
+        now, job.job_id,
+      );
+    }
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const action = url.pathname.replace(/^\/+|\/+$/g, "");
@@ -177,6 +202,7 @@ export class SigningQueue extends DurableObject<Env> {
           !fileName.toLowerCase().endsWith(".ipa")) {
         return json({ success: false, error: "Invalid signing queue request." }, 400);
       }
+      await this.expireStaleJobs(now);
       const existing = this.getJob(jobId);
       if (existing) {
         if (existing.user_id !== userId) return json({ success: false, error: "Queue ticket owner mismatch." }, 403);
@@ -297,21 +323,7 @@ export class SigningQueue extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     const now = Date.now();
-    const stale = this.rows<QueueJob>(
-      "SELECT * FROM signing_jobs WHERE (status = 'active' AND lease_until <= ?) OR (status = 'queued' AND expires_at <= ?)",
-      now, now,
-    );
-    for (const job of stale) {
-      if (job.upload_id && job.upload_key && job.upload_id !== "direct") {
-        try { await this.env.CERTS.resumeMultipartUpload(job.upload_key, job.upload_id).abort(); } catch {}
-      }
-      if (job.upload_key) await this.env.CERTS.delete(job.upload_key).catch(() => {});
-      await this.env.CERTS.delete("upload-sessions/" + job.job_id + ".json").catch(() => {});
-      this.ctx.storage.sql.exec(
-        "UPDATE signing_jobs SET status = 'expired', finished_at = ?, heartbeat_at = NULL, lease_until = NULL, expires_at = NULL, upload_id = NULL, upload_key = NULL, error = 'Queue lease expired' WHERE job_id = ? AND status IN ('active', 'queued')",
-        now, job.job_id,
-      );
-    }
+    await this.expireStaleJobs(now);
 
     const due = this.rows<{ object_key: string }>(
       "SELECT object_key FROM signing_artifacts WHERE expires_at <= ?",

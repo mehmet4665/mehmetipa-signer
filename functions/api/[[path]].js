@@ -1305,7 +1305,7 @@ export async function onRequest({ request, env, params }) {
         : await env.CERTS.get(key)
       if (!object) return json({ success: false, error: 'Install link expired or not found.' }, 404)
       const metadata = object.customMetadata || {}
-      if (!metadata.expiresAt || Date.now() > Number(metadata.expiresAt)) {
+      if (!metadata.expiresAt || Date.now() >= Number(metadata.expiresAt)) {
         await env.CERTS.delete(key).catch(() => {})
         return json({ success: false, error: 'Install link expired. Sign the IPA again.' }, 410)
       }
@@ -2701,7 +2701,7 @@ export async function onRequest({ request, env, params }) {
             throw new Error('İmzalı uygulamanın Bundle ID bilgisi geçersiz.')
           }
           const signedSize = Number(signed.headers.get('content-length') || 0)
-          if (signedSize > 500 * 1024 * 1024) throw new Error('İmzalı IPA dosyası 500 MB sınırını aşıyor.')
+          if (signedSize > 550 * 1024 * 1024) throw new Error('İmzalı IPA çıktısı güvenli 550 MB sınırını aşıyor.')
           if (signedSize > 0 && signedSize < 1024) throw new Error('İmzalı IPA çıktısı geçersiz.')
 
           const installToken = randomToken()

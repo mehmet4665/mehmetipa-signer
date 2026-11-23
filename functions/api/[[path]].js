@@ -2997,7 +2997,8 @@ async function handleRequest({ request, env, params }) {
 export async function onRequest(context) {
   const request = context.request;
   const params = context.params || {};
-  const routePath = `/api/${Array.isArray(params.path) ? params.path.join('/') : params.path || ''}`.replace(/\\/$/, '');
+  const routePathRaw = `/api/${Array.isArray(params.path) ? params.path.join('/') : params.path || ''}`;
+  const routePath = routePathRaw.endsWith('/') ? routePathRaw.slice(0, -1) : routePathRaw;
   if (request.method.toUpperCase() !== 'POST' || routePath !== '/api/signing/vip') {
     return handleRequest(context);
   }

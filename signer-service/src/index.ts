@@ -9,7 +9,7 @@ interface Env {
 const PORT = 8080;
 const INACTIVITY_TIMEOUT_MS = 30 * 1000;
 const MAX_CONCURRENT_SIGNINGS = 10;
-const ACTIVE_LEASE_MS = 30 * 60 * 1000;
+const ACTIVE_LEASE_MS = 60 * 60 * 1000;
 const QUEUED_LEASE_MS = 15 * 60 * 1000;
 const MAX_QUEUE_DEPTH = 100;
 const QUEUE_NAME = "global-signing-queue";
@@ -132,8 +132,8 @@ export class SigningQueue extends DurableObject<Env> {
     )[0]?.count || 0);
     const position = job.status === "queued"
       ? Number(this.rows<{ count: number }>(
-          "SELECT COUNT(*) AS count FROM signing_jobs WHERE status = 'queued' AND (created_at < ? OR (created_at = ? AND job_id <= ?))",
-          job.created_at, job.created_at, job.job_id,
+          "SELECT COUNT(*) AS count FROM signing_jobs WHERE status = 'queued' AND expires_at > ? AND (created_at < ? OR (created_at = ? AND job_id <= ?))",
+          now, job.created_at, job.created_at, job.job_id,
         )[0]?.count || 0)
       : 0;
     return {
@@ -174,15 +174,17 @@ export class SigningQueue extends DurableObject<Env> {
         return json(this.statusFor(jobId, userId, now));
       }
       const userJob = this.rows<{ job_id: string; status: string }>(
-        "SELECT job_id, status FROM signing_jobs WHERE user_id = ? AND status IN ('queued', 'active') AND (lease_until IS NULL OR lease_until > ?) ORDER BY created_at ASC LIMIT 1",
+        "SELECT job_id, status FROM signing_jobs WHERE user_id = ? AND ((status = 'active' AND lease_until > ?) OR (status = 'queued' AND expires_at > ?)) ORDER BY created_at ASC LIMIT 1",
         userId,
+        now,
         now,
       )[0];
       if (userJob) {
         return json({ success: false, error: "Bu üyelik için zaten bekleyen veya çalışan bir imza işlemi var.", existing_job_id: userJob.job_id, status: userJob.status }, 409);
       }
       const count = Number(this.rows<{ count: number }>(
-        "SELECT COUNT(*) AS count FROM signing_jobs WHERE status IN ('queued', 'active') AND (lease_until IS NULL OR lease_until > ?)",
+        "SELECT COUNT(*) AS count FROM signing_jobs WHERE (status = 'active' AND lease_until > ?) OR (status = 'queued' AND expires_at > ?)",
+        now,
         now,
       )[0]?.count || 0);
       if (count >= MAX_QUEUE_DEPTH) {

@@ -2644,6 +2644,8 @@ async function handleRequest({ request, env, params }) {
         let queueHeartbeatTimer = null
         let signingCancelPollTimer = null
         let signingAbortController = null
+        let containerStartedAt = 0
+        let containerDurationMs = 0
         const progressLogs = []
         const writeProgress = async (stage, percent, label, log) => {
           if (!jobId) return
@@ -2816,6 +2818,7 @@ async function handleRequest({ request, env, params }) {
 
           await writeProgress(4, 64, 'Zsign motoru başlatılıyor', '04/05 · Bu iş için ayrılmış özel Container başlatılıyor.')
           signingAbortController = new AbortController()
+          containerStartedAt = Date.now()
           signingCancelPollTimer = setInterval(() => {
             void signerJson(env, '/queue/status?job_id=' + encodeURIComponent(jobId) + '&user_id=' + encodeURIComponent(session.sub))
               .then(state => {
@@ -2837,8 +2840,9 @@ async function handleRequest({ request, env, params }) {
             throw new Error(signingError || 'IPA imzalanamadı.')
           }
           if (!signed.body) throw new Error('İmzalı IPA çıktısı boş.')
+          containerDurationMs = Date.now() - containerStartedAt
 
-          await writeProgress(5, 88, 'İmza doğrulaması yapılıyor', '05/05 · İmzalı IPA çıktısı alındı; Bundle ID ve sürüm bilgileri doğrulanıyor.')
+          await writeProgress(5, 88, 'İmza doğrulaması yapılıyor', '05/05 · Zsign Container süresi: ' + (containerDurationMs / 1000).toFixed(1) + ' sn; Bundle ID ve sürüm bilgileri doğrulanıyor.')
           const bundleId = signed.headers.get('x-app-bundle-id') || ''
           const appVersion = signed.headers.get('x-app-version') || '1.0'
           if (!bundleId || !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(bundleId)) {
@@ -2855,6 +2859,7 @@ async function handleRequest({ request, env, params }) {
 
           // Expired signed IPA files are removed by the SigningQueue alarm; avoid a full R2 list on every signing request.
 
+          const outputStoreStartedAt = Date.now()
           await env.CERTS.put(installKey, signed.body, {
             httpMetadata: { contentType: 'application/octet-stream' },
             customMetadata: {
@@ -2862,6 +2867,7 @@ async function handleRequest({ request, env, params }) {
               expiresAt: String(expiresAt), username: member.username,
             },
           })
+          await writeProgress(5, 95, 'İmzalı IPA güvenli kasaya kaydedildi', '05/05 · R2 çıktı kaydı süresi: ' + ((Date.now() - outputStoreStartedAt) / 1000).toFixed(1) + ' sn.')
           try {
             await signerJson(env, '/queue/artifact', 'POST', {
               object_key: installKey, expires_at: expiresAt,

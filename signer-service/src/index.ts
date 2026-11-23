@@ -10,6 +10,7 @@ const PORT = 8080;
 const INACTIVITY_TIMEOUT_MS = 30 * 1000;
 const MAX_CONCURRENT_SIGNINGS = 10;
 const ACTIVE_LEASE_MS = 2 * 60 * 1000;
+const MAX_SIGNING_RUNTIME_MS = 15 * 60 * 1000;
 const QUEUED_LEASE_MS = 15 * 60 * 1000;
 const MAX_QUEUE_DEPTH = 100;
 const QUEUE_NAME = "global-signing-queue";
@@ -169,9 +170,10 @@ export class SigningQueue extends DurableObject<Env> {
       "SELECT * FROM signing_jobs WHERE " +
       "(status = 'active' AND (lease_until <= ? OR " +
       "(heartbeat_at IS NULL AND COALESCE(started_at, created_at) <= ?) OR " +
-      "(heartbeat_at IS NOT NULL AND heartbeat_at <= ?))) OR " +
+      "(heartbeat_at IS NOT NULL AND heartbeat_at <= ?) OR " +
+      "COALESCE(started_at, created_at) <= ?)) OR " +
       "(status = 'queued' AND expires_at <= ?)",
-      now, cutoff, cutoff, now,
+      now, cutoff, cutoff, now - MAX_SIGNING_RUNTIME_MS, now,
     );
     for (const job of stale) {
       if (job.upload_id && job.upload_key && job.upload_id !== "direct") {

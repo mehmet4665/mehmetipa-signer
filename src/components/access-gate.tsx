@@ -298,7 +298,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
   setIsSigning(true);setFailedStage(0);setMessage('');setSignedUrl(null);setInstallUrl(null);
   startedAt.current=Date.now();setElapsed(0);
   const jobId=crypto.randomUUID();
-  let queueCreated=false,signRequestStarted=false,signingSucceeded=false;
+  let queueCreated=false,signRequestStarted=false,signingSucceeded=false,handleSigningPageHide:(()=>void)|null=null;
   let progressPollTimer:number|undefined,queueHeartbeatTimer:number|undefined,serverLogKey='';
   const delay=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
   const queueStatus=async()=>{
@@ -385,7 +385,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
       body:JSON.stringify({job_id:jobId,file_name:ipaFile.name,file_size:ipaFile.size})
     });
     queueCreated=true;
-    const handleSigningPageHide=()=>{
+    handleSigningPageHide=()=>{
       if(!queueCreated||signRequestStarted||signingSucceeded)return;
       void fetch(API_BASE+'/api/signing/queue/'+jobId+'/cancel',{
         method:'POST',
@@ -508,7 +508,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
   }finally{
     if(progressPollTimer)window.clearInterval(progressPollTimer);
     if(queueHeartbeatTimer)window.clearInterval(queueHeartbeatTimer);
-    window.removeEventListener('pagehide',handleSigningPageHide);
+    if(handleSigningPageHide)window.removeEventListener('pagehide',handleSigningPageHide);
     setIsSigning(false);
   }
  }

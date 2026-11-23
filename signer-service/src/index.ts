@@ -390,10 +390,71 @@ export default {
       return env.QUEUE.getByName(QUEUE_NAME).fetch(new Request("https://queue.internal" + queuePath, request));
     }
     if (url.pathname !== "/sign" || request.method !== "POST") return json({ error: "Not found" }, 404);
-    const jobId = request.headers.get("x-signing-job-id") || "";
+    const suppliedJobId = request.headers.get("x-signing-job-id") || "";
+    const legacyRequest = !suppliedJobId;
+    const jobId = suppliedJobId || crypto.randomUUID();
     if (!isUuid(jobId)) return json({ error: "Invalid signing job identifier." }, 400);
     const contentLength = Number(request.headers.get("content-length") || 0);
-    if (contentLength > 40 * 1024 * 1024) return json({ error: "Signing materials exceed the 40 MB limit." }, 413);
-    return env.SIGNER.getByName("vip-signing-" + jobId).fetch(request);
+
+    if (!legacyRequest) {
+      if (contentLength > 40 * 1024 * 1024) return json({ error: "Signing materials exceed the 40 MB limit." }, 413);
+      return env.SIGNER.getByName("vip-signing-" + jobId).fetch(request);
+    }
+
+    // Backward compatibility during the Pages rollout: route old single-request
+    // IPA forms through the same global ten-slot gate, even before the new UI ships.
+    if (contentLength > 105 * 1024 * 1024) return json({ error: "Legacy single-request IPA exceeds the 100 MB compatibility limit." }, 413);
+    const queue = env.QUEUE.getByName(QUEUE_NAME);
+    const legacyUserId = "legacy:" + jobId;
+    const fileSize = Math.max(1, Math.min(contentLength || 1, 500 * 1024 * 1024));
+    const enqueueResponse = await queue.fetch(new Request("https://queue.internal/enqueue", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        job_id: jobId, user_id: legacyUserId, file_name: "legacy.ipa", file_size: fileSize,
+      }),
+    }));
+    const enqueued = await enqueueResponse.json().catch(() => ({})) as Record<string, unknown>;
+    if (!enqueueResponse.ok || enqueued.success !== true) {
+      return json({ error: String(enqueued.error || "Signing queue is full.") }, enqueueResponse.status || 429);
+    }
+
+    let state = enqueued;
+    const waitStarted = Date.now();
+    while (state.status === "queued" && Date.now() - waitStarted < QUEUED_LEASE_MS - 5000) {
+      await scheduler.wait(1000);
+      const statusResponse = await queue.fetch(new Request(
+        "https://queue.internal/status?job_id=" + encodeURIComponent(jobId) + "&user_id=" + encodeURIComponent(legacyUserId),
+      ));
+      state = await statusResponse.json().catch(() => ({})) as Record<string, unknown>;
+      if (!statusResponse.ok || state.success !== true) {
+        return json({ error: String(state.error || "Signing queue ticket expired.") }, statusResponse.status || 409);
+      }
+    }
+    if (state.status !== "active") {
+      await queue.fetch(new Request("https://queue.internal/release", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ job_id: jobId, user_id: legacyUserId, status: "failed", error: "Legacy queue wait timed out." }),
+      }));
+      return json({ error: "Signing queue wait timed out. Please try again." }, 429);
+    }
+
+    let status = "complete";
+    let response: Response;
+    try {
+      response = await env.SIGNER.getByName("vip-signing-" + jobId).fetch(request);
+      if (!response.ok) status = "failed";
+    } catch (error) {
+      status = "failed";
+      throw error;
+    } finally {
+      await queue.fetch(new Request("https://queue.internal/release", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ job_id: jobId, user_id: legacyUserId, status }),
+      })).catch(() => {});
+    }
+    return response;
   },
 } satisfies ExportedHandler<Env>;

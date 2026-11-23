@@ -1886,7 +1886,7 @@ export async function onRequest({ request, env, params }) {
         }
         const key = 'temp-ipas/' + jobId + '.ipa'
         const expiresAt = Date.now() + 30 * 60 * 1000
-        await env.CERTS.put(key, file.stream(), {
+        await env.CERTS.put(key, file, {
           httpMetadata: { contentType: 'application/octet-stream' },
           customMetadata: {
             ownerId: session.sub, jobId, fileName, fileSize: String(file.size),

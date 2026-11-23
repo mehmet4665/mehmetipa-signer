@@ -49,13 +49,16 @@ export class SigningSourceHandler extends WorkerEntrypoint<Env> {
     if (request.method !== "GET" || url.hostname !== SOURCE_HOST || url.pathname !== "/source") {
       return new Response("Not found", { status: 404 });
     }
-    const token = url.searchParams.get("token") || "";
-    if (!token || token.length > 2048) return new Response("Not found", { status: 404 });
+    const authorization = request.headers.get("authorization") || "";
+    if (!/^Bearer\s+\S{20,2048}$/i.test(authorization)) return new Response("Not found", { status: 404 });
     const target = new URL(SOURCE_PAGES_URL);
-    target.searchParams.set("token", token);
     return fetch(target, {
       method: "GET",
-      headers: { "cache-control": "no-store", "x-mehmetipa-source": "container" },
+      headers: {
+        "cache-control": "no-store",
+        "x-mehmetipa-source": "container",
+        authorization,
+      },
       redirect: "manual",
     });
   }

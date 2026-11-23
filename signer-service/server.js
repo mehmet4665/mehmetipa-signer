@@ -18,37 +18,46 @@ const SOURCE_URL = "http://ipa-source.internal/source";
 
 const upload = multer({
   dest: tmpdir(),
-  limits: { fileSize: MAX_SIGNING_MATERIAL_BYTES, files: 2, fields: 12, parts: 16 },
+  limits: { fileSize: MAX_IPA_BYTES, files: 3, fields: 12, parts: 16 },
 });
 
 app.get("/health", (_req, res) => res.status(200).json({ ok: true, engine: "zsign" }));
 
 app.post("/sign", upload.fields([
+  { name: "ipa", maxCount: 1 },
   { name: "p12", maxCount: 1 },
   { name: "mobileprovision", maxCount: 1 },
 ]), async (req, res) => {
   let workDir;
   const uploaded = Object.values(req.files || {}).flat();
   try {
+    const ipa = req.files?.ipa?.[0];
     const p12 = req.files?.p12?.[0];
     const profile = req.files?.mobileprovision?.[0];
     const password = String(req.body?.p12_password || "");
     const jobId = String(req.body?.job_id || "");
     const sourceToken = String(req.body?.ipa_source_token || "");
-    const originalName = String(req.body?.ipa_name || "");
-    const expectedSize = Number(req.body?.ipa_size || 0);
+    let originalName = String(req.body?.ipa_name || "");
+    let expectedSize = Number(req.body?.ipa_size || 0);
 
-    if (!p12 || !profile || !password || !sourceToken || !jobId || !originalName) {
-      return res.status(400).json({ error: "IPA source token, IPA metadata, P12, provisioning profile and password are required." });
+    if (!p12 || !profile || !password || (!ipa && (!sourceToken || !jobId || !originalName))) {
+      return res.status(400).json({ error: "IPA source, P12, provisioning profile and password are required." });
     }
-    if (!/^[0-9a-f-]{36}$/i.test(jobId) || sourceToken.length > 2048 ||
-        !originalName.toLowerCase().endsWith(".ipa") ||
-        !Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > MAX_IPA_BYTES) {
-      return res.status(400).json({ error: "Invalid IPA signing metadata." });
-    }
-    if (!p12.originalname.toLowerCase().endsWith(".p12") ||
+    if (p12.size > MAX_SIGNING_MATERIAL_BYTES || profile.size > MAX_SIGNING_MATERIAL_BYTES ||
+        !p12.originalname.toLowerCase().endsWith(".p12") ||
         !profile.originalname.toLowerCase().endsWith(".mobileprovision")) {
-      return res.status(400).json({ error: "Unsupported signing file type." });
+      return res.status(413).json({ error: "P12 or provisioning profile exceeds the 30 MB materials limit or has an unsupported type." });
+    }
+
+    if (ipa) {
+      originalName = ipa.originalname;
+      expectedSize = ipa.size;
+    } else if (!/^[0-9a-f-]{36}$/i.test(jobId) || sourceToken.length > 2048) {
+      return res.status(400).json({ error: "Invalid IPA source token." });
+    }
+    if (!originalName.toLowerCase().endsWith(".ipa") ||
+        !Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > MAX_IPA_BYTES) {
+      return res.status(400).json({ error: "Invalid IPA metadata. The maximum IPA size is 500 MB." });
     }
 
     workDir = await mkdtemp(path.join(tmpdir(), "mehmetipa-sign-"));
@@ -62,49 +71,53 @@ app.post("/sign", upload.fields([
       rename(profile.path, profilePath),
     ]);
 
-    // Fetch the original IPA through a tightly scoped Cloudflare outbound handler.
-    // The Container has no general Internet access; only this internal hostname is allowed.
-    const sourceUrl = new URL(SOURCE_URL);
-    sourceUrl.searchParams.set("token", sourceToken);
-    const sourceResponse = await fetch(sourceUrl, {
-      method: "GET",
-      headers: { "cache-control": "no-store" },
-      signal: AbortSignal.timeout(20 * 60 * 1000),
-    });
-    if (!sourceResponse.ok || !sourceResponse.body) {
-      await sourceResponse.body?.cancel().catch(() => {});
-      return res.status(sourceResponse.status || 502).json({ error: "Original IPA could not be fetched from private temporary storage." });
-    }
+    if (ipa) {
+      // Backward compatibility for the previous single-request IPA upload.
+      await rename(ipa.path, inputPath);
+    } else {
+      // Fetch the original IPA through the scoped Cloudflare outbound handler.
+      const sourceUrl = new URL(SOURCE_URL);
+      sourceUrl.searchParams.set("token", sourceToken);
+      const sourceResponse = await fetch(sourceUrl, {
+        method: "GET",
+        headers: { "cache-control": "no-store" },
+        signal: AbortSignal.timeout(20 * 60 * 1000),
+      });
+      if (!sourceResponse.ok || !sourceResponse.body) {
+        await sourceResponse.body?.cancel().catch(() => {});
+        return res.status(sourceResponse.status || 502).json({ error: "Original IPA could not be fetched from private temporary storage." });
+      }
 
-    const advertisedSize = Number(sourceResponse.headers.get("content-length") || 0);
-    if (advertisedSize && advertisedSize !== expectedSize) {
-      await sourceResponse.body.cancel().catch(() => {});
-      return res.status(422).json({ error: "Original IPA size did not match the upload record." });
-    }
+      const advertisedSize = Number(sourceResponse.headers.get("content-length") || 0);
+      if (advertisedSize && advertisedSize !== expectedSize) {
+        await sourceResponse.body.cancel().catch(() => {});
+        return res.status(422).json({ error: "Original IPA size did not match the upload record." });
+      }
 
-    let receivedBytes = 0;
-    const sizeGuard = new Transform({
-      transform(chunk, _encoding, callback) {
-        receivedBytes += chunk.length;
-        if (receivedBytes > MAX_IPA_BYTES || receivedBytes > expectedSize) {
-          callback(new Error("IPA source exceeded its declared 500 MB maximum size."));
-          return;
-        }
-        callback(null, chunk);
-      },
-    });
-    try {
-      await pipeline(
-        Readable.fromWeb(sourceResponse.body),
-        sizeGuard,
-        createWriteStream(inputPath, { flags: "wx" }),
-      );
-    } catch (error) {
-      await sourceResponse.body?.cancel().catch(() => {});
-      throw error;
-    }
-    if (receivedBytes !== expectedSize) {
-      throw new Error("IPA download was incomplete; received byte count did not match the upload.");
+      let receivedBytes = 0;
+      const sizeGuard = new Transform({
+        transform(chunk, _encoding, callback) {
+          receivedBytes += chunk.length;
+          if (receivedBytes > MAX_IPA_BYTES || receivedBytes > expectedSize) {
+            callback(new Error("IPA source exceeded its declared 500 MB maximum size."));
+            return;
+          }
+          callback(null, chunk);
+        },
+      });
+      try {
+        await pipeline(
+          Readable.fromWeb(sourceResponse.body),
+          sizeGuard,
+          createWriteStream(inputPath, { flags: "wx" }),
+        );
+      } catch (error) {
+        await sourceResponse.body?.cancel().catch(() => {});
+        throw error;
+      }
+      if (receivedBytes !== expectedSize) {
+        throw new Error("IPA download was incomplete; received byte count did not match the upload.");
+      }
     }
 
     const safeBase = path.basename(originalName).replace(/\.ipa$/i, "").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "app";
@@ -132,7 +145,7 @@ app.post("/sign", upload.fields([
     }
 
     const outputStat = await stat(outputPath).catch(() => null);
-    if (!outputStat?.isFile() || outputStat.size < 1024 || outputStat.size > MAX_IPA_BYTES) {
+    if (!outputStat?.isFile() || outputStat.size < 1024 || outputStat.size > 550 * 1024 * 1024) {
       return res.status(500).json({ error: "Signing completed without a valid IPA output within the 500 MB limit." });
     }
 

@@ -19,11 +19,16 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "SIGNER", "class_name": "SigningContainer" }
+      { "name": "SIGNER", "class_name": "SigningContainer" },
+      { "name": "QUEUE", "class_name": "SigningQueue" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SigningContainer"] }
+    { "tag": "v1", "new_sqlite_classes": ["SigningContainer"] },
+    { "tag": "v2", "new_sqlite_classes": ["SigningQueue"] }
+  ],
+  "r2_buckets": [
+    { "binding": "CERTS", "bucket_name": "mehmetipa-vault-2026" }
   ],
   "observability": { "enabled": true }
 }

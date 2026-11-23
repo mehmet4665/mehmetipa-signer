@@ -10,6 +10,7 @@
     {
       "class_name": "SigningContainer",
       "scheduling_policy": "durable_object",
+      "max_instances": 10,
       "images": {
         "base": {
           "dockerfile": "./Dockerfile"

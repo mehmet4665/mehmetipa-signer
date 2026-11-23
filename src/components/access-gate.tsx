@@ -348,7 +348,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
     xhr.ontimeout=()=>reject(new Error(t('Doğrudan yükleme zaman aşımına uğradı.','Direct upload timed out.')));
     xhr.send(fd);
   });
-  const uploadPart=(partNumber:number,chunk:Blob)=>new Promise<{etag:string}>((resolve,reject)=>{
+  const uploadPart=(partNumber:number,chunk:Blob,totalParts:number)=>new Promise<{etag:string}>((resolve,reject)=>{
     const fd=new FormData();
     fd.append('job_id',jobId);
     fd.append('part_number',String(partNumber));
@@ -422,7 +422,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
       await uploadSingle(ipaFile);
       addLog('> R2_SINGLE_UPLOAD: VERIFIED');
     }else{
-      const chunkSize=Number(uploadInit.chunk_size||10*1024*1024);
+      const chunkSize=Number(uploadInit.chunk_size||25*1024*1024);
       const totalParts=Number(uploadInit.total_parts||Math.ceil(ipaFile.size/chunkSize));
       const parts:{partNumber:number;etag:string}[]=[];
       const uploadOnePart=async(partNumber:number)=>{
@@ -433,7 +433,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
         let lastError:unknown;
         for(let attempt=1;attempt<=3&&!uploaded;attempt++){
           try{
-            uploaded=await uploadPart(partNumber,chunk);
+            uploaded=await uploadPart(partNumber,chunk,totalParts);
           }catch(error){
             lastError=error;
             if(attempt<3)await delay(700*attempt);

@@ -322,6 +322,32 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
       }
     }catch{}
   };
+  const uploadSingle=(file:File)=>new Promise<void>((resolve,reject)=>{
+    const fd=new FormData();
+    fd.append('job_id',jobId);
+    fd.append('file_name',file.name);
+    fd.append('file',file,file.name);
+    const xhr=new XMLHttpRequest();
+    xhr.open('POST',API_BASE+'/api/signing/upload/single');
+    xhr.setRequestHeader('Authorization','Bearer '+token);
+    xhr.responseType='text';
+    xhr.timeout=5*60*1000;
+    xhr.upload.onprogress=e=>{
+      if(e.lengthComputable){
+        const pct=Math.min(50,18+Math.round((e.loaded/e.total)*32));
+        setProgress(p=>({...p,stage:2,percent:Math.max(p.percent,pct),label:t('IPA tek parça yükleniyor','Uploading IPA as one file')}));
+      }
+    };
+    xhr.onload=()=>{
+      let d:any={};
+      try{d=JSON.parse(xhr.responseText||'{}')}catch{reject(new Error(t('Yükleme yanıtı okunamadı.','Upload response could not be read.')));return}
+      if(xhr.status<200||xhr.status>=300||!d.success){reject(new Error(d.error||('HTTP '+xhr.status)));return}
+      resolve();
+    };
+    xhr.onerror=()=>reject(new Error(t('Doğrudan yüklemede ağ bağlantısı kesildi.','Network connection failed during direct upload.')));
+    xhr.ontimeout=()=>reject(new Error(t('Doğrudan yükleme zaman aşımına uğradı.','Direct upload timed out.')));
+    xhr.send(fd);
+  });
   const uploadPart=(partNumber:number,chunk:Blob)=>new Promise<{etag:string}>((resolve,reject)=>{
     const fd=new FormData();
     fd.append('job_id',jobId);
@@ -380,40 +406,47 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
       method:'POST',
       body:JSON.stringify({job_id:jobId,file_name:ipaFile.name,file_size:ipaFile.size})
     });
-    const chunkSize=Number(uploadInit.chunk_size||10*1024*1024);
-    const totalParts=Number(uploadInit.total_parts||Math.ceil(ipaFile.size/chunkSize));
-    const parts:{partNumber:number;etag:string}[]=[];
-    const uploadOnePart=async(partNumber:number)=>{
-      const start=(partNumber-1)*chunkSize;
-      const end=Math.min(ipaFile.size,start+chunkSize);
-      const chunk=ipaFile.slice(start,end);
-      let uploaded:{etag:string}|undefined;
-      let lastError:unknown;
-      for(let attempt=1;attempt<=3&&!uploaded;attempt++){
-        try{
-          uploaded=await uploadPart(partNumber,chunk);
-        }catch(error){
-          lastError=error;
-          if(attempt<3)await delay(700*attempt);
+    if(uploadInit.upload_mode==='single'){
+      addLog('> UPLOAD_MODE: SINGLE · '+(ipaFile.size/1048576).toFixed(2)+' MB');
+      await uploadSingle(ipaFile);
+      addLog('> R2_SINGLE_UPLOAD: VERIFIED');
+    }else{
+      const chunkSize=Number(uploadInit.chunk_size||10*1024*1024);
+      const totalParts=Number(uploadInit.total_parts||Math.ceil(ipaFile.size/chunkSize));
+      const parts:{partNumber:number;etag:string}[]=[];
+      const uploadOnePart=async(partNumber:number)=>{
+        const start=(partNumber-1)*chunkSize;
+        const end=Math.min(ipaFile.size,start+chunkSize);
+        const chunk=ipaFile.slice(start,end);
+        let uploaded:{etag:string}|undefined;
+        let lastError:unknown;
+        for(let attempt=1;attempt<=3&&!uploaded;attempt++){
+          try{
+            uploaded=await uploadPart(partNumber,chunk);
+          }catch(error){
+            lastError=error;
+            if(attempt<3)await delay(700*attempt);
+          }
         }
+        if(!uploaded)throw lastError instanceof Error?lastError:new Error(t('IPA parçası yüklenemedi.','IPA chunk upload failed.'));
+        return {partNumber,etag:uploaded.etag};
+      };
+      // Larger IPAs use parallel 10 MB parts; smaller files upload directly.
+      for(let first=1;first<=totalParts;first+=3){
+        const batch=Array.from({length:Math.min(3,totalParts-first+1)},(_,i)=>first+i);
+        const uploadedBatch=await Promise.all(batch.map(uploadOnePart));
+        parts.push(...uploadedBatch);
+        await queueStatus().catch(()=>{});
       }
-      if(!uploaded)throw lastError instanceof Error?lastError:new Error(t('IPA parçası yüklenemedi.','IPA chunk upload failed.'));
-      return {partNumber,etag:uploaded.etag};
-    };
-    // Upload up to three 10 MB parts concurrently to reduce round-trip waiting on mobile.
-    for(let first=1;first<=totalParts;first+=3){
-      const batch=Array.from({length:Math.min(3,totalParts-first+1)},(_,i)=>first+i);
-      const uploadedBatch=await Promise.all(batch.map(uploadOnePart));
-      parts.push(...uploadedBatch);
-      await queueStatus().catch(()=>{});
+      parts.sort((a,b)=>a.partNumber-b.partNumber);
+      setProgress(p=>({...p,stage:2,percent:52,label:t('IPA parçaları birleştiriliyor','Completing multipart IPA upload')}));
+      await api('/api/signing/upload/complete',token,{
+        method:'POST',
+        body:JSON.stringify({job_id:jobId,parts})
+      });
+      addLog('> R2_MULTIPART: '+totalParts+' PARTS COMPLETED · '+(ipaFile.size/1048576).toFixed(2)+' MB');
     }
-    parts.sort((a,b)=>a.partNumber-b.partNumber);
-    setProgress(p=>({...p,stage:2,percent:52,label:t('IPA parçaları birleştiriliyor','Completing multipart IPA upload')}));
-    await api('/api/signing/upload/complete',token,{
-      method:'POST',
-      body:JSON.stringify({job_id:jobId,parts})
-    });
-    addLog('> R2_MULTIPART: '+totalParts+' PARTS COMPLETED · '+(ipaFile.size/1048576).toFixed(2)+' MB');
+    setProgress(p=>({...p,stage:2,percent:52,label:t('IPA yüklemesi doğrulandı','IPA upload verified')}));
     setProgress(p=>({...p,stage:3,percent:56,label:t('Sertifika ve cihaz profili doğrulanıyor','Validating certificate and device profile')}));
     progressPollTimer=window.setInterval(poll,900);
     await poll();

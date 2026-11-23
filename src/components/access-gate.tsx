@@ -277,6 +277,7 @@ async function inspectIpaArchive(file:File){
 }
 function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;token:string;onHome:()=>void;onLogout:()=>void}){
  const [ipaFile,setIpaFile]=React.useState<File|null>(null),[message,setMessage]=React.useState(''),[messageType,setMessageType]=React.useState<'info'|'success'|'error'>('info'),[isSigning,setIsSigning]=React.useState(false)
+ const [showQueueCleanup,setShowQueueCleanup]=React.useState(false),[isQueueCleanup,setIsQueueCleanup]=React.useState(false)
  const [progress,setProgress]=React.useState<SigningProgress>({stage:0,percent:0,label:'IPA dosyası bekleniyor',logs:[]}),[failedStage,setFailedStage]=React.useState(0)
  const [signedUrl,setSignedUrl]=React.useState<string|null>(null),[installUrl,setInstallUrl]=React.useState<string|null>(null),[signedFileName,setSignedFileName]=React.useState('')
  const [archiveInfo,setArchiveInfo]=React.useState<{entryCount:number;appPath:string}|null>(null),[elapsed,setElapsed]=React.useState(0),[showTerminal,setShowTerminal]=React.useState(true)
@@ -498,6 +499,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
     setFailedStage(progress.stage||4);
     setMessage(d);
     setMessageType('error');
+    if(d.includes('zaten bekleyen veya çalışan bir imza işlemi var'))setShowQueueCleanup(true);
     addLog('> PIPELINE: FAILED · '+d);
     setProgress(p=>({...p,label:t('İşlem hata verdi','Pipeline failed'),logs:[...localLogs.current,...p.logs].slice(-80)}));
     if(queueCreated&&!signRequestStarted)await cancelQueue();
@@ -511,6 +513,21 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
     if(handleSigningPageHide)window.removeEventListener('pagehide',handleSigningPageHide);
     setIsSigning(false);
   }
+ }
+ const cleanupOldSigning=async()=>{
+  if(isQueueCleanup||!token)return;
+  setIsQueueCleanup(true);
+  try{
+   const result=await api<any>('/api/signing/queue/recover',token,{method:'POST',body:JSON.stringify({})});
+   setShowQueueCleanup(false);
+   setMessage(result.cleared>0?t('Eski imza işlemi ve geçici dosyaları temizlendi. Şimdi IPA dosyanı yeniden seçip imzalayabilirsin.','The old signing job and temporary files were cleared. Select your IPA again and retry.'):t('Temizlenecek eski bir imza işlemi bulunamadı. Sayfayı yenileyip tekrar dene.','No old signing job was found. Refresh the page and try again.'));
+   setMessageType(result.cleared>0?'success':'info');
+   addLog('> QUEUE_RECOVERY: '+String(result.cleared||0)+' eski işlem temizlendi');
+   setIpaFile(null);if(fileInput.current)fileInput.current.value='';reset();
+  }catch(e){
+   const d=e instanceof Error?e.message:t('Eski işlem temizlenemedi.','Could not clear the old job.');
+   setMessage(d);setMessageType('error');
+  }finally{setIsQueueCleanup(false)}
  }
  const steps=[
   {title:t('IPA dosyası kontrolü','IPA file validation'),desc:t('Uzantı · boyut · ZIP imzası · 500 MB','Extension · size · ZIP signature · 500 MB'),code:'FILE_GATE / SIZE_CHECK'},
@@ -536,6 +553,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
  <section className="mt-4 overflow-hidden rounded-3xl border border-emerald-300/15 bg-[#080e19]"><button type="button" onClick={()=>setShowTerminal(v=>!v)} className="flex w-full items-center justify-between border-b border-white/10 px-4 py-3 text-left"><div><div className="text-[10px] font-bold uppercase tracking-[.22em] text-emerald-300">LIVE TERMINAL</div><div className="mt-1 text-xs text-slate-400">{t('Teknik kayıtlar · gizli anahtarlar gösterilmez','Technical logs · secrets are hidden')}</div></div><span className="font-mono text-emerald-300">{showTerminal?'−':'+'}</span></button>{showTerminal&&<div className="max-h-64 overflow-y-auto p-4 font-mono text-[10px] leading-5">{(progress.logs.length?progress.logs:[{text:'> MEHMET_IPA_ENGINE :: READY'},{text:'> WAITING_FOR_IPA_FILE'}]).map((line,i)=><div key={i} className="break-all text-emerald-300/90"><span className="mr-2 text-slate-600">{line.at||'SYS'}</span>{line.text}</div>)}{isSigning&&<div className="animate-pulse text-cyan-300">▌ {t('İşlem devam ediyor...','Processing...')}</div>}</div>}</section>
  <section className="mt-4 rounded-2xl border border-white/10 bg-white/[.035] p-4"><div className="text-sm font-semibold"><span className="text-emerald-300">🔒</span> {t('Sertifika koruması aktif','Certificate protection active')}</div><p className="mt-1 text-xs leading-5 text-slate-400">{t('P12 parolası ve özel anahtar terminalde gösterilmez. Sertifika yalnızca sunucudaki özel imzalama motorunda kullanılır.','The P12 password and private key are never shown in logs. Credentials stay on the private signing engine.')}</p></section>
  {message&&<div role="status" className={'mt-4 whitespace-pre-wrap rounded-xl border p-3 text-sm '+(messageType==='success'?'border-emerald-300/20 bg-emerald-300/[.07] text-emerald-100':messageType==='error'?'border-red-300/25 bg-red-300/[.07] text-red-100':'border-cyan-300/20 bg-cyan-300/[.07] text-cyan-100')}>{message}</div>}
+ {showQueueCleanup&&<section className="mt-3 rounded-2xl border border-amber-300/30 bg-amber-400/[.07] p-4"><div className="font-bold text-amber-100">{t('Eski imza işlemi takılı kalmış','A previous signing job is stuck')}</div><p className="mt-1 text-xs leading-5 text-slate-300">{t('Önceki yükleme yarıda kalmış olabilir. Eski kuyruk kaydını ve ona ait geçici IPA dosyalarını temizleyebilirsin. Devam eden imzalama varsa bu işlem onu da iptal eder.','A previous upload may have been interrupted. You can clear its queue record and temporary IPA files. If signing is still running, this will cancel it too.')}</p><button type="button" disabled={isQueueCleanup} onClick={cleanupOldSigning} className="mt-3 flex min-h-12 w-full items-center justify-center rounded-xl bg-amber-300 px-4 py-3 font-bold text-slate-950 disabled:opacity-50">{isQueueCleanup?t('Eski işlem temizleniyor…','Clearing old job…'):t('Eski işlemi temizle','Clear old signing job')}</button></section>}
  <button type="button" disabled={!ipaFile||isSigning} onClick={startSigning} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-500 px-5 py-4 font-bold shadow-xl disabled:opacity-40">{isSigning?t('İmzalanıyor...','Signing...'):t('İmzalamayı başlat','Start signing')} <span>{isSigning?'⏳':'→'}</span></button>
  {installUrl&&<a href={installUrl} className="mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl border border-emerald-300/40 bg-emerald-400/15 px-5 py-4 font-bold text-emerald-100">✓ {t('Bu iPhone’a yükle','Install on this iPhone')}</a>}
  {signedUrl&&<a href={signedUrl} download={signedFileName} className="mt-3 flex min-h-12 w-full items-center justify-center rounded-2xl border border-white/15 bg-white/[.04] px-5 py-3 font-semibold">↓ {t('İmzalanmış IPA’yı indir','Download signed IPA')}</a>}

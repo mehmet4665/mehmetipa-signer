@@ -282,30 +282,6 @@ export class SigningQueue extends DurableObject<Env> {
       return json({ success: true });
     }
 
-    if (action === "recover" && request.method === "POST") {
-      const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-      const userId = String(body.user_id || "");
-      if (!userId || userId.length > 128) return json({ success: false, error: "Invalid member." }, 400);
-      const jobs = this.rows<QueueJob>(
-        "SELECT * FROM signing_jobs WHERE user_id = ? AND status IN ('active', 'queued') ORDER BY created_at ASC",
-        userId,
-      );
-      for (const job of jobs) {
-        if (job.upload_id && job.upload_key && job.upload_id !== "direct") {
-          try { await this.env.CERTS.resumeMultipartUpload(job.upload_key, job.upload_id).abort(); } catch {}
-        }
-        if (job.upload_key) await this.env.CERTS.delete(job.upload_key).catch(() => {});
-        await this.env.CERTS.delete("upload-sessions/" + job.job_id + ".json").catch(() => {});
-        this.ctx.storage.sql.exec(
-          "UPDATE signing_jobs SET status = 'cancelled', finished_at = ?, heartbeat_at = NULL, lease_until = NULL, expires_at = NULL, upload_id = NULL, upload_key = NULL, error = 'Member manually cleared abandoned signing job' WHERE job_id = ? AND user_id = ? AND status IN ('active', 'queued')",
-          now, job.job_id, userId,
-        );
-      }
-      this.promoteQueued(now);
-      await this.scheduleNextAlarm();
-      return json({ success: true, cleared: jobs.length, job_ids: jobs.map(job => job.job_id) });
-    }
-
     if (action === "release" && request.method === "POST") {
       const body = await request.json().catch(() => ({})) as Record<string, unknown>;
       const jobId = String(body.job_id || "");

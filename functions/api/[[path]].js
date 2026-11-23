@@ -1786,14 +1786,64 @@ export async function onRequest({ request, env, params }) {
 
       if (path === '/api/signing/queue/recover' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici hesabı üye imza kuyruğunu temizleyemez.' }, 403)
-        const recovered = await signerJson(env, '/queue/recover', 'POST', { user_id: session.sub })
-        const jobIds = Array.isArray(recovered.job_ids) ? recovered.job_ids.map(String) : []
-        await Promise.all(jobIds.flatMap(jobId => [
-          env.CERTS.delete('temp-ipas/' + jobId + '.ipa').catch(() => {}),
-          env.CERTS.delete('upload-sessions/' + jobId + '.json').catch(() => {}),
-          env.CERTS.delete('signing-progress/' + jobId + '.json').catch(() => {}),
-        ]))
-        return json({ success: true, cleared: Number(recovered.cleared || 0) })
+        if (!env.CERTS) return json({ success: false, error: 'Geçici dosya kasası bağlı değil.' }, 503)
+        const jobIds = new Set()
+        const sessions = []
+        let cleared = 0
+        let cursor
+        do {
+          const page = await env.CERTS.list({ prefix: 'upload-sessions/', cursor, limit: 1000 })
+          for (const item of page.objects || []) {
+            const object = await env.CERTS.get(item.key)
+            if (!object) continue
+            const data = await object.json().catch(() => null)
+            if (data?.ownerId === session.sub && /^[0-9a-f-]{36}$/i.test(String(data.jobId || ''))) {
+              jobIds.add(String(data.jobId))
+              sessions.push({ jobId: String(data.jobId), data })
+            }
+          }
+          cursor = page.truncated ? page.cursor : undefined
+        } while (cursor)
+        cursor = undefined
+        do {
+          const page = await env.CERTS.list({ prefix: 'temp-ipas/', cursor, limit: 1000, include: ['customMetadata'] })
+          for (const item of page.objects || []) {
+            const jobId = String(item.key).replace(/^temp-ipas\//, '').replace(/\.ipa$/i, '')
+            if (item.customMetadata?.ownerId === session.sub && /^[0-9a-f-]{36}$/i.test(jobId)) jobIds.add(jobId)
+          }
+          cursor = page.truncated ? page.cursor : undefined
+        } while (cursor)
+        cursor = undefined
+        do {
+          const page = await env.CERTS.list({ prefix: 'signing-progress/', cursor, limit: 1000 })
+          for (const item of page.objects || []) {
+            const jobId = String(item.key).replace(/^signing-progress\//, '').replace(/\.json$/i, '')
+            if (!/^[0-9a-f-]{36}$/i.test(jobId)) continue
+            const object = await env.CERTS.get(item.key)
+            const state = object ? await object.json().catch(() => null) : null
+            if (state?.user_id === session.sub) jobIds.add(jobId)
+          }
+          cursor = page.truncated ? page.cursor : undefined
+        } while (cursor)
+        for (const { jobId, data } of sessions) {
+          if (data.uploadId && data.uploadKey) {
+            try { await env.CERTS.resumeMultipartUpload(data.uploadKey, data.uploadId).abort() } catch {}
+          }
+        }
+        for (const jobId of jobIds) {
+          try {
+            await signerJson(env, '/queue/release', 'POST', {
+              job_id: jobId, user_id: session.sub, status: 'cancelled', error: 'Üye eski imza işlemini temizledi.',
+            })
+          } catch {}
+          await Promise.all([
+            env.CERTS.delete('temp-ipas/' + jobId + '.ipa').catch(() => {}),
+            env.CERTS.delete('upload-sessions/' + jobId + '.json').catch(() => {}),
+            env.CERTS.delete('signing-progress/' + jobId + '.json').catch(() => {}),
+          ])
+          cleared++
+        }
+        return json({ success: true, cleared })
       }
 
       const signingCancelMatch = path.match(/^\/api\/signing\/queue\/([0-9a-f-]{36})\/cancel$/i)

@@ -76,11 +76,12 @@ app.post("/sign", upload.fields([
       await rename(ipa.path, inputPath);
     } else {
       // Fetch the original IPA through the scoped Cloudflare outbound handler.
-      const sourceUrl = new URL(SOURCE_URL);
-      sourceUrl.searchParams.set("token", sourceToken);
-      const sourceResponse = await fetch(sourceUrl, {
+      const sourceResponse = await fetch(SOURCE_URL, {
         method: "GET",
-        headers: { "cache-control": "no-store" },
+        headers: {
+          "cache-control": "no-store",
+          authorization: "Bearer " + sourceToken,
+        },
         signal: AbortSignal.timeout(20 * 60 * 1000),
       });
       if (!sourceResponse.ok || !sourceResponse.body) {

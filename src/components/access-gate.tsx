@@ -287,32 +287,181 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
  React.useEffect(()=>{if(!isSigning)return;const timer=window.setInterval(()=>{if(startedAt.current)setElapsed(Math.floor((Date.now()-startedAt.current)/1000))},1000);return()=>window.clearInterval(timer)},[isSigning])
  const chooseFile=async(file?:File)=>{setMessage('');setMessageType('info');reset();if(!file){setIpaFile(null);return}
   if(!file.name.toLowerCase().endsWith('.ipa')){setIpaFile(null);setMessage(t('Yalnızca .ipa dosyası seç.','Only .ipa files are accepted.'));setMessageType('error');return}
-  if(file.size>100*1024*1024){setIpaFile(null);setMessage(t('Dosya 100 MB sınırını aşıyor.','File exceeds the 100 MB limit.'));setMessageType('error');return}
-  setProgress({stage:1,percent:3,label:t('Dosya türü ve boyutu kontrol ediliyor','Checking file type and size'),logs:[]});addLog('> FILE_GATE: .ipa uzantısı doğrulandı');addLog('> SIZE_CHECK: '+(file.size/1048576).toFixed(2)+' MB / 100 MB')
+  if(file.size>500*1024*1024){setIpaFile(null);setMessage(t('Dosya 500 MB sınırını aşıyor.','File exceeds the 500 MB limit.'));setMessageType('error');return}
+  setProgress({stage:1,percent:3,label:t('Dosya türü ve boyutu kontrol ediliyor','Checking file type and size'),logs:[]});addLog('> FILE_GATE: .ipa uzantısı doğrulandı');addLog('> SIZE_CHECK: '+(file.size/1048576).toFixed(2)+' MB / 500 MB')
   try{const info=await inspectIpaArchive(file);setArchiveInfo(info);setIpaFile(file);addLog('> ZIP_SIGNATURE: PASS');addLog('> CENTRAL_DIRECTORY: '+info.entryCount+' kayıt');addLog('> APP_BUNDLE: '+info.appPath);addLog('> INFO_PLIST: bulundu · Bundle ID/sürüm sunucuda doğrulanacak');setProgress({stage:2,percent:10,label:t('IPA arşivi ve Payload yapısı doğrulandı','IPA archive and Payload validated'),logs:[...localLogs.current]})}
   catch(e){setIpaFile(null);setFailedStage(2);const d=e instanceof Error?e.message:'IPA analizi başarısız';setMessage(d);setMessageType('error');addLog('> IPA_INSPECTION: FAILED · '+d);setProgress(p=>({...p,label:t('IPA kontrolü başarısız','IPA validation failed'),logs:[...localLogs.current]}))}
  }
- const startSigning=async()=>{if(!ipaFile||isSigning)return;if(!token){setMessage(t('Tekrar giriş yap.','Sign in again.'));setMessageType('error');return}
-  setIsSigning(true);setFailedStage(0);setMessage('');setSignedUrl(null);setInstallUrl(null);startedAt.current=Date.now();setElapsed(0)
-  const jobId=crypto.randomUUID();setProgress({stage:2,percent:12,label:t('Güvenli yükleme başlatılıyor','Starting secure upload'),logs:[...localLogs.current]});addLog('> JOB_ID: '+jobId);addLog('> SECURE_UPLOAD: bağlantı kuruluyor')
-  let pollTimer:number|undefined,serverLogKey=''
-  const poll=async()=>{try{const r=await fetch(API_BASE+'/api/signing/progress/'+jobId,{headers:{authorization:'Bearer '+token},cache:'no-store'});if(!r.ok)return;const d=await r.json() as SigningProgress;const key=JSON.stringify(d.logs||[]);if(key!==serverLogKey){serverLogKey=key;const lines=(d.logs||[]).map(x=>({at:x.at?new Date(x.at).toLocaleTimeString(getAppLocale(),{hour12:false}):'',text:x.text}));setProgress(p=>({...p,stage:Math.max(p.stage,d.stage||0),percent:Math.max(p.percent,d.percent||0),label:d.label||p.label,logs:[...localLogs.current,...lines].slice(-80)}))}else setProgress(p=>({...p,stage:Math.max(p.stage,d.stage||0),percent:Math.max(p.percent,d.percent||0),label:d.label||p.label}))}catch{}}
-  pollTimer=window.setInterval(poll,900)
+ const startSigning=async()=>{
+  if(!ipaFile||isSigning)return;
+  if(!token){setMessage(t('Tekrar giriş yap.','Sign in again.'));setMessageType('error');return}
+  setIsSigning(true);setFailedStage(0);setMessage('');setSignedUrl(null);setInstallUrl(null);
+  startedAt.current=Date.now();setElapsed(0);
+  const jobId=crypto.randomUUID();
+  let queueCreated=false,signRequestStarted=false,signingSucceeded=false;
+  let progressPollTimer:number|undefined,queueHeartbeatTimer:number|undefined,serverLogKey='';
+  const delay=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
+  const queueStatus=async()=>{
+    return await api<any>('/api/signing/queue/'+jobId,token,{method:'GET'});
+  };
+  const cancelQueue=async()=>{
+    try{await api('/api/signing/queue/'+jobId+'/cancel',token,{method:'POST',body:JSON.stringify({})})}catch{}
+  };
+  const poll=async()=>{
+    try{
+      const r=await fetch(API_BASE+'/api/signing/progress/'+jobId,{headers:{authorization:'Bearer '+token},cache:'no-store'});
+      if(!r.ok)return;
+      const d=await r.json() as SigningProgress;
+      const key=JSON.stringify(d.logs||[]);
+      if(key!==serverLogKey){
+        serverLogKey=key;
+        const lines=(d.logs||[]).map(x=>({at:x.at?new Date(x.at).toLocaleTimeString(getAppLocale(),{hour12:false}):'',text:x.text}));
+        setProgress(p=>({...p,stage:Math.max(p.stage,d.stage||0),percent:Math.max(p.percent,d.percent||0),label:d.label||p.label,logs:[...localLogs.current,...lines].slice(-80)}));
+      }else{
+        setProgress(p=>({...p,stage:Math.max(p.stage,d.stage||0),percent:Math.max(p.percent,d.percent||0),label:d.label||p.label}));
+      }
+    }catch{}
+  };
+  const uploadPart=(partNumber:number,chunk:Blob)=>new Promise<{etag:string}>((resolve,reject)=>{
+    const fd=new FormData();
+    fd.append('job_id',jobId);
+    fd.append('part_number',String(partNumber));
+    fd.append('chunk',chunk,'part-'+partNumber+'.bin');
+    const xhr=new XMLHttpRequest();
+    xhr.open('POST',API_BASE+'/api/signing/upload/part');
+    xhr.setRequestHeader('Authorization','Bearer '+token);
+    xhr.responseType='text';
+    xhr.timeout=5*60*1000;
+    xhr.upload.onprogress=e=>{
+      if(e.lengthComputable){
+        const partProgress=(partNumber-1)+(e.loaded/e.total);
+        const pct=Math.min(50,18+Math.round(partProgress/Math.ceil(ipaFile.size/(10*1024*1024))*32));
+        setProgress(p=>({...p,stage:2,percent:Math.max(p.percent,pct),label:t('IPA güvenli parçalara yükleniyor','Uploading IPA in secure chunks')+' · '+partNumber+'/'+Math.ceil(ipaFile.size/(10*1024*1024))}));
+      }
+    };
+    xhr.onload=()=>{
+      let d:any={};
+      try{d=JSON.parse(xhr.responseText||'{}')}catch{reject(new Error(t('Yükleme yanıtı okunamadı.','Upload response could not be read.')));return}
+      if(xhr.status<200||xhr.status>=300){reject(new Error(d.error||('HTTP '+xhr.status)));return}
+      if(!d.etag){reject(new Error(t('Yükleme parçası doğrulanamadı.','Uploaded part could not be verified.')));return}
+      resolve({etag:String(d.etag)});
+    };
+    xhr.onerror=()=>reject(new Error(t('Parçalı yüklemede ağ bağlantısı kesildi.','Network connection failed during chunk upload.')));
+    xhr.ontimeout=()=>reject(new Error(t('Parçalı yükleme zaman aşımına uğradı.','Chunk upload timed out.')));
+    xhr.send(fd);
+  });
   try{
-   const fd=new FormData();fd.append('ipa',ipaFile,ipaFile.name);fd.append('job_id',jobId)
-   const result=await new Promise<{success?:boolean;install_url?:string;download_url?:string;file_name?:string;error?:string;diagnostic?:string}>((resolve,reject)=>{
-    const xhr=new XMLHttpRequest();xhr.open('POST',API_BASE+'/api/signing/vip');xhr.setRequestHeader('Authorization','Bearer '+token);xhr.responseType='text'
-    xhr.upload.onprogress=e=>{if(e.lengthComputable){const pct=Math.min(40,12+Math.round(e.loaded/e.total*28));setProgress(p=>({...p,stage:2,percent:Math.max(p.percent,pct),label:t('IPA sunucuya yükleniyor','Uploading IPA to server')}))}}
-    xhr.onload=()=>{let d:any={};try{d=JSON.parse(xhr.responseText||'{}')}catch{reject(new Error(t('Sunucu yanıtı okunamadı.','Server response could not be read.')));return}if(xhr.status<200||xhr.status>=300){reject(new Error([d.error||('HTTP '+xhr.status),d.diagnostic].filter(Boolean).join(' · ')));return}resolve(d)}
-    xhr.onerror=()=>reject(new Error(t('Ağ bağlantısı kesildi.','Network connection failed.')));xhr.ontimeout=()=>reject(new Error(t('İstek zaman aşımına uğradı.','Request timed out.')));xhr.timeout=1200000;xhr.send(fd)
-   })
-   await poll();if(!result.success||!result.install_url||!result.download_url)throw new Error(result.error||t('Kurulum bağlantısı alınamadı.','Install link missing.'))
-   setSignedUrl(result.download_url);setInstallUrl(result.install_url);setSignedFileName(result.file_name||ipaFile.name.replace(/\.ipa$/i,'-signed.ipa'));setProgress(p=>({...p,stage:5,percent:100,label:t('İmzalama tamamlandı · IPA hazır','Signing complete · IPA ready')}));addLog('> RESULT: SIGNATURE_VERIFIED');addLog('> STORAGE: PRIVATE_R2_WRITE_OK');addLog('> OTA_MANIFEST: READY');setProgress(p=>({...p,logs:[...localLogs.current,...p.logs.filter(x=>!localLogs.current.some(y=>y.text===x.text))].slice(-80)}));setMessage(t('IPA başarıyla imzalandı. Kurulum veya indirme bağlantısını kullan.','IPA signed successfully. Use install or download.'));setMessageType('success')
-  }catch(e){const d=e instanceof Error?e.message:'İmzalama başarısız';setFailedStage(progress.stage||4);setMessage(d);setMessageType('error');addLog('> PIPELINE: FAILED · '+d);setProgress(p=>({...p,label:t('İşlem hata verdi','Pipeline failed'),logs:[...localLogs.current,...p.logs].slice(-80)}))}
-  finally{if(pollTimer)window.clearInterval(pollTimer);setIsSigning(false)}
+    setProgress({stage:2,percent:12,label:t('İmza sırası kontrol ediliyor','Checking the signing queue'),logs:[...localLogs.current]});
+    addLog('> JOB_ID: '+jobId);
+    addLog('> QUEUE_GATE: maximum 10 concurrent signing jobs');
+    const queued=await api<any>('/api/signing/queue',token,{
+      method:'POST',
+      body:JSON.stringify({job_id:jobId,file_name:ipaFile.name,file_size:ipaFile.size})
+    });
+    queueCreated=true;
+    let queue=queued;
+    while(queue.status==='queued'){
+      const position=Number(queue.queue_position||1);
+      const etaMinutes=Math.max(1,Math.ceil(Number(queue.estimated_wait_seconds||300)/60));
+      setProgress(p=>({...p,stage:2,percent:12,label:t('Sıradasın','You are in the queue')+' · '+position+'. '+t('sıra','in line')+' · '+t('tahmini','estimated')+' '+etaMinutes+' '+t('dk','min')}));
+      await delay(5000);
+      queue=await queueStatus();
+      if(['expired','failed','cancelled'].includes(String(queue.status))){
+        throw new Error(t('İmza sırası süresi doldu veya iptal edildi. Yeniden dene.','Your queue ticket expired or was cancelled. Please retry.'));
+      }
+    }
+    if(queue.status!=='active'){
+      throw new Error(queue.error||t('İmza sırası başlatılamadı.','Signing queue could not be started.'));
+    }
+    addLog('> QUEUE_SLOT: ACTIVE · '+(queue.active_count||1)+'/10');
+    setProgress(p=>({...p,stage:2,percent:15,label:t('Sıran geldi · güvenli yükleme hazırlanıyor','Your turn · preparing secure upload')}));
+    queueHeartbeatTimer=window.setInterval(()=>{void queueStatus().catch(()=>{})},10000);
+    const uploadInit=await api<any>('/api/signing/upload/init',token,{
+      method:'POST',
+      body:JSON.stringify({job_id:jobId,file_name:ipaFile.name,file_size:ipaFile.size})
+    });
+    const chunkSize=Number(uploadInit.chunk_size||10*1024*1024);
+    const totalParts=Number(uploadInit.total_parts||Math.ceil(ipaFile.size/chunkSize));
+    const parts:{partNumber:number;etag:string}[]=[];
+    for(let partNumber=1;partNumber<=totalParts;partNumber++){
+      const start=(partNumber-1)*chunkSize;
+      const end=Math.min(ipaFile.size,start+chunkSize);
+      const chunk=ipaFile.slice(start,end);
+      let uploaded:{etag:string}|undefined;
+      let lastError:unknown;
+      for(let attempt=1;attempt<=3&&!uploaded;attempt++){
+        try{
+          uploaded=await uploadPart(partNumber,chunk);
+        }catch(error){
+          lastError=error;
+          if(attempt<3)await delay(1200*attempt);
+        }
+      }
+      if(!uploaded)throw lastError instanceof Error?lastError:new Error(t('IPA parçası yüklenemedi.','IPA chunk upload failed.'));
+      parts.push({partNumber,etag:uploaded.etag});
+      if(partNumber%3===0)await queueStatus().catch(()=>{});
+    }
+    setProgress(p=>({...p,stage:2,percent:52,label:t('IPA parçaları birleştiriliyor','Completing multipart IPA upload')}));
+    await api('/api/signing/upload/complete',token,{
+      method:'POST',
+      body:JSON.stringify({job_id:jobId,parts})
+    });
+    addLog('> R2_MULTIPART: '+totalParts+' PARTS COMPLETED · '+(ipaFile.size/1048576).toFixed(2)+' MB');
+    setProgress(p=>({...p,stage:3,percent:56,label:t('Sertifika ve cihaz profili doğrulanıyor','Validating certificate and device profile')}));
+    progressPollTimer=window.setInterval(poll,900);
+    await poll();
+    signRequestStarted=true;
+    setProgress(p=>({...p,stage:4,percent:64,label:t('IPA Zsign ile imzalanıyor','Signing IPA with Zsign')}));
+    const result=await new Promise<{success?:boolean;install_url?:string;download_url?:string;file_name?:string;error?:string}>((resolve,reject)=>{
+      const xhr=new XMLHttpRequest();
+      xhr.open('POST',API_BASE+'/api/signing/vip');
+      xhr.setRequestHeader('Authorization','Bearer '+token);
+      xhr.setRequestHeader('Content-Type','application/json');
+      xhr.responseType='text';
+      xhr.timeout=20*60*1000;
+      xhr.onload=()=>{
+        let d:any={};
+        try{d=JSON.parse(xhr.responseText||'{}')}catch{reject(new Error(t('Sunucu yanıtı okunamadı.','Server response could not be read.')));return}
+        if(xhr.status<200||xhr.status>=300){reject(new Error(d.error||('HTTP '+xhr.status)));return}
+        resolve(d);
+      };
+      xhr.onerror=()=>reject(new Error(t('İmzalama sırasında ağ bağlantısı kesildi.','Network connection failed during signing.')));
+      xhr.ontimeout=()=>reject(new Error(t('İmzalama isteği zaman aşımına uğradı.','Signing request timed out.')));
+      xhr.send(JSON.stringify({job_id:jobId,file_name:ipaFile.name}));
+    });
+    await poll();
+    if(!result.success||!result.install_url||!result.download_url)throw new Error(result.error||t('Kurulum bağlantısı alınamadı.','Install link missing.'));
+    signingSucceeded=true;
+    setSignedUrl(result.download_url);
+    setInstallUrl(result.install_url);
+    setSignedFileName(result.file_name||ipaFile.name.replace(/\.ipa$/i,'-signed.ipa'));
+    setProgress(p=>({...p,stage:5,percent:100,label:t('İmzalama tamamlandı · IPA hazır','Signing complete · IPA ready')}));
+    addLog('> RESULT: SIGNATURE_VERIFIED');
+    addLog('> SOURCE_IPA: DELETED_AFTER_SIGNING');
+    addLog('> SIGNED_IPA: AUTO_DELETE_AFTER_5_MINUTES');
+    setProgress(p=>({...p,logs:[...localLogs.current,...p.logs.filter(x=>!localLogs.current.some(y=>y.text===x.text))].slice(-80)}));
+    setMessage(t('IPA başarıyla imzalandı. Kurulum ve indirme bağlantısı 5 dakika geçerlidir.','IPA signed successfully. Install and download links are valid for 5 minutes.'));
+    setMessageType('success');
+  }catch(e){
+    const d=e instanceof Error?e.message:'İmzalama başarısız';
+    setFailedStage(progress.stage||4);
+    setMessage(d);
+    setMessageType('error');
+    addLog('> PIPELINE: FAILED · '+d);
+    setProgress(p=>({...p,label:t('İşlem hata verdi','Pipeline failed'),logs:[...localLogs.current,...p.logs].slice(-80)}));
+    if(queueCreated&&!signRequestStarted)await cancelQueue();
+    if(queueCreated&&signRequestStarted&&!signingSucceeded){
+      // The server-side signing handler owns final R2 cleanup and queue release after it starts.
+      await queueStatus().catch(()=>{});
+    }
+  }finally{
+    if(progressPollTimer)window.clearInterval(progressPollTimer);
+    if(queueHeartbeatTimer)window.clearInterval(queueHeartbeatTimer);
+    setIsSigning(false);
+  }
  }
  const steps=[
-  {title:t('IPA dosyası kontrolü','IPA file validation'),desc:t('Uzantı · boyut · ZIP imzası · 100 MB','Extension · size · ZIP signature · 100 MB'),code:'FILE_GATE / SIZE_CHECK'},
+  {title:t('IPA dosyası kontrolü','IPA file validation'),desc:t('Uzantı · boyut · ZIP imzası · 500 MB','Extension · size · ZIP signature · 500 MB'),code:'FILE_GATE / SIZE_CHECK'},
   {title:t('IPA paket analizi','IPA package analysis'),desc:t('ZIP dizini · Payload · .app · Info.plist','ZIP directory · Payload · .app · Info.plist'),code:'ZIP_SCAN / APP_BUNDLE'},
   {title:t('Sertifika ve profil kontrolü','Certificate & profile'),desc:t('P12 · profil süresi · Bundle ID · UDID','P12 · profile expiry · Bundle ID · UDID'),code:'CERT_VALIDATE / PROFILE_MATCH'},
   {title:t('İmzalama motoru','Signing engine'),desc:t('Konteyner · Zsign · uygulama imzası','Container · Zsign · app signature'),code:'CONTAINER_BOOT / ZSIGN_EXEC'},
@@ -324,9 +473,9 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
  <header className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-violet-300/20 bg-[#11182c]/85 px-4 py-3 shadow-xl"><div className="flex items-center gap-3"><img src="/icon-dark-512.PNG" alt="Mehmet IPA" className="h-10 w-10 rounded-xl"/><div><div className="font-bold tracking-wide">MEHMET IPA</div><div className="text-[10px] uppercase tracking-[.22em] text-cyan-200">SIGNING ENGINE · v2</div></div></div><div className="flex items-center gap-2"><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-300">● ENGINE ONLINE</span><button onClick={onHome} className="rounded-xl border border-white/15 px-3 py-2 text-xs">{t('← Ana sayfa','← Home')}</button><button onClick={onLogout} className="rounded-xl border border-red-400/20 px-3 py-2 text-xs text-red-200">{t('Çıkış','Sign out')}</button></div></header>
  <section className="mt-7"><p className="text-[10px] font-bold uppercase tracking-[.25em] text-violet-200">PRIVATE IPA WORKFLOW / VIP ACCESS</p><h1 className="mt-2 text-3xl font-black sm:text-4xl">{t('Akıllı IPA imzalama','Smart IPA signing')}</h1><p className="mt-2 text-sm text-slate-400">{t('Dosyanı analiz et, güvenli şekilde imzala ve iPhone’una yükle.','Analyze, sign securely and install on your iPhone.')}</p></section>
  <section className="mt-6 rounded-3xl border border-violet-300/20 bg-[#11182c]/85 p-5 shadow-xl">
- <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-500/15 text-2xl">📦</div><div><h2 className="font-bold">{t('IPA dosyası','IPA package')}</h2><p className="text-xs text-slate-400">{t('Maksimum dosya boyutu 100 MB','Maximum file size 100 MB')}</p></div></div><span className="rounded-full border border-cyan-300/20 bg-cyan-300/[.07] px-3 py-1.5 text-[10px] font-bold text-cyan-100">.IPA / 100 MB</span></div>
+ <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-500/15 text-2xl">📦</div><div><h2 className="font-bold">{t('IPA dosyası','IPA package')}</h2><p className="text-xs text-slate-400">{t('Maksimum dosya boyutu 500 MB','Maximum file size 500 MB')}</p></div></div><span className="rounded-full border border-cyan-300/20 bg-cyan-300/[.07] px-3 py-1.5 text-[10px] font-bold text-cyan-100">.IPA / 500 MB</span></div>
  <input ref={fileInput} type="file" accept=".ipa,application/octet-stream" className="hidden" onChange={e=>chooseFile(e.target.files?.[0])}/>
- <button type="button" disabled={isSigning} onClick={()=>fileInput.current?.click()} className="mt-5 flex min-h-32 w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-violet-300/40 bg-violet-500/[.07] px-4 py-6 text-center disabled:opacity-50"><span className="text-3xl">{ipaFile?'📲':'⬆️'}</span><span className="font-bold">{ipaFile?t('Başka IPA seç','Choose another IPA'):t('Dosyalardan IPA seç','Select IPA from Files')}</span><span className="max-w-full break-all text-xs text-slate-400">{ipaFile?ipaFile.name:t('Yalnızca .ipa · En fazla 100 MB','Only .ipa · Up to 100 MB')}</span></button>
+ <button type="button" disabled={isSigning} onClick={()=>fileInput.current?.click()} className="mt-5 flex min-h-32 w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-violet-300/40 bg-violet-500/[.07] px-4 py-6 text-center disabled:opacity-50"><span className="text-3xl">{ipaFile?'📲':'⬆️'}</span><span className="font-bold">{ipaFile?t('Başka IPA seç','Choose another IPA'):t('Dosyalardan IPA seç','Select IPA from Files')}</span><span className="max-w-full break-all text-xs text-slate-400">{ipaFile?ipaFile.name:t('Yalnızca .ipa · En fazla 500 MB','Only .ipa · Up to 500 MB')}</span></button>
  {ipaFile&&<div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3"><div className="rounded-xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] uppercase text-slate-500">{t('Dosya boyutu','File size')}</div><div className="mt-1 text-sm font-bold">{(ipaFile.size/1048576).toFixed(2)} MB</div></div><div className="rounded-xl border border-white/10 bg-black/20 p-3"><div className="text-[9px] uppercase text-slate-500">{t('Arşiv kaydı','Archive entries')}</div><div className="mt-1 text-sm font-bold">{archiveInfo?.entryCount??'—'}</div></div><div className="col-span-2 rounded-xl border border-white/10 bg-black/20 p-3 sm:col-span-1"><div className="text-[9px] uppercase text-slate-500">{t('Uygulama paketi','App bundle')}</div><div className="mt-1 break-all text-xs font-semibold text-emerald-200">{archiveInfo?.appPath||'—'}</div></div></div>}
  {ipaFile&&<button type="button" disabled={isSigning} onClick={()=>{setIpaFile(null);if(fileInput.current)fileInput.current.value='';reset();setMessage('')}} className="mt-3 text-xs text-slate-400 underline">{t('Dosyayı kaldır','Remove file')}</button>}
  </section>

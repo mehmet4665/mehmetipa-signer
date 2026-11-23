@@ -1787,9 +1787,11 @@ export async function onRequest({ request, env, params }) {
       if (path === '/api/signing/queue/recover' && method === 'POST') {
         if (isAdmin) return json({ success: false, error: 'Yönetici hesabı üye imza kuyruğunu temizleyemez.' }, 403)
         if (!env.CERTS) return json({ success: false, error: 'Geçici dosya kasası bağlı değil.' }, 503)
-        const jobIds = new Set()
+        // Clear the authoritative Durable Object queue first. A job can be stuck
+        // before any R2 upload/session object exists, so R2-only discovery is insufficient.
+        const queueRecovery = await signerJson(env, '/queue/recover', 'POST', { user_id: session.sub })
+        const jobIds = new Set(Array.isArray(queueRecovery.job_ids) ? queueRecovery.job_ids : [])
         const sessions = []
-        let cleared = 0
         let cursor
         do {
           const page = await env.CERTS.list({ prefix: 'upload-sessions/', cursor, limit: 1000 })
@@ -1841,9 +1843,8 @@ export async function onRequest({ request, env, params }) {
             env.CERTS.delete('upload-sessions/' + jobId + '.json').catch(() => {}),
             env.CERTS.delete('signing-progress/' + jobId + '.json').catch(() => {}),
           ])
-          cleared++
         }
-        return json({ success: true, cleared })
+        return json({ success: true, cleared: jobIds.size, job_ids: [...jobIds] })
       }
 
       const signingCancelMatch = path.match(/^\/api\/signing\/queue\/([0-9a-f-]{36})\/cancel$/i)

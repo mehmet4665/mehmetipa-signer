@@ -410,7 +410,7 @@ export class SigningContainer extends DurableObject<Env> {
       await container.interceptOutboundHttp(SOURCE_HOST, this.ctx.exports.SigningSourceHandler);
       container.start({
         image,
-        instance: "standard-1",
+        instance: "standard-2",
         enableInternet: false,
         env: { PORT: String(PORT) },
       });

@@ -305,8 +305,12 @@ export class SigningQueue extends DurableObject<Env> {
       now,
     );
     for (const item of due) {
-      await this.env.CERTS.delete(item.object_key).catch(() => {});
-      this.ctx.storage.sql.exec("DELETE FROM signing_artifacts WHERE object_key = ?", item.object_key);
+      try {
+        await this.env.CERTS.delete(item.object_key);
+        this.ctx.storage.sql.exec("DELETE FROM signing_artifacts WHERE object_key = ?", item.object_key);
+      } catch (error) {
+        console.warn("Failed to delete expired signed IPA", item.object_key, error);
+      }
     }
 
     this.ctx.storage.sql.exec(

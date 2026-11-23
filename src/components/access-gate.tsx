@@ -383,7 +383,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
     const chunkSize=Number(uploadInit.chunk_size||10*1024*1024);
     const totalParts=Number(uploadInit.total_parts||Math.ceil(ipaFile.size/chunkSize));
     const parts:{partNumber:number;etag:string}[]=[];
-    for(let partNumber=1;partNumber<=totalParts;partNumber++){
+    const uploadOnePart=async(partNumber:number)=>{
       const start=(partNumber-1)*chunkSize;
       const end=Math.min(ipaFile.size,start+chunkSize);
       const chunk=ipaFile.slice(start,end);
@@ -394,13 +394,20 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
           uploaded=await uploadPart(partNumber,chunk);
         }catch(error){
           lastError=error;
-          if(attempt<3)await delay(1200*attempt);
+          if(attempt<3)await delay(700*attempt);
         }
       }
       if(!uploaded)throw lastError instanceof Error?lastError:new Error(t('IPA parçası yüklenemedi.','IPA chunk upload failed.'));
-      parts.push({partNumber,etag:uploaded.etag});
-      if(partNumber%3===0)await queueStatus().catch(()=>{});
+      return {partNumber,etag:uploaded.etag};
+    };
+    // Upload up to three 10 MB parts concurrently to reduce round-trip waiting on mobile.
+    for(let first=1;first<=totalParts;first+=3){
+      const batch=Array.from({length:Math.min(3,totalParts-first+1)},(_,i)=>first+i);
+      const uploadedBatch=await Promise.all(batch.map(uploadOnePart));
+      parts.push(...uploadedBatch);
+      await queueStatus().catch(()=>{});
     }
+    parts.sort((a,b)=>a.partNumber-b.partNumber);
     setProgress(p=>({...p,stage:2,percent:52,label:t('IPA parçaları birleştiriliyor','Completing multipart IPA upload')}));
     await api('/api/signing/upload/complete',token,{
       method:'POST',

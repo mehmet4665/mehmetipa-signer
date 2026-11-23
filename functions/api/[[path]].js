@@ -20,8 +20,9 @@ const randomId = () => crypto.randomUUID()
 async function hmacKey(secret) {
   return crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'])
 }
-async function issueToken(payload, secret) {
-  const body = b64url(encoder.encode(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 })))
+async function issueToken(payload, secret, ttlSeconds = 60 * 60 * 24 * 7) {
+  const ttl = Math.max(60, Math.min(Number(ttlSeconds) || 60 * 60 * 24 * 7, 60 * 60 * 24 * 7))
+  const body = b64url(encoder.encode(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + ttl })))
   const signature = await crypto.subtle.sign('HMAC', await hmacKey(secret), encoder.encode(body))
   return `${body}.${b64url(signature)}`
 }
@@ -34,6 +35,24 @@ async function readToken(token, secret) {
     const payload = JSON.parse(new TextDecoder().decode(fromB64url(body)))
     return payload.exp > Math.floor(Date.now() / 1000) ? payload : null
   } catch { return null }
+}
+
+async function signerJson(env, path, method = 'GET', body = undefined) {
+  if (!env.SIGNER_SERVICE || typeof env.SIGNER_SERVICE.fetch !== 'function') {
+    throw new Error('VIP imzalama motoru henüz bağlanmadı.')
+  }
+  const headers = new Headers()
+  if (body !== undefined) headers.set('content-type', 'application/json')
+  const response = await env.SIGNER_SERVICE.fetch(new Request('https://mehmetipa-signing.internal' + path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }))
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data.success === false) {
+    throw new Error(data.error || ('İmza servisi HTTP ' + response.status))
+  }
+  return data
 }
 
 async function hashPassword(password, saltBytes = crypto.getRandomValues(new Uint8Array(16))) {
@@ -1452,6 +1471,44 @@ export async function onRequest({ request, env, params }) {
       return json({ success: true, user: { ...cleanUser(row), role: 'member' } })
     }
 
+    // Private source stream for the signing Container. The short-lived HMAC token
+    // is issued only after an authenticated member has completed an R2 multipart upload.
+    if (path === '/api/signing/source' && method === 'GET') {
+      if (request.headers.get('x-mehmetipa-source') !== 'container') {
+        return json({ success: false, error: 'Kaynak dosyaya erişim reddedildi.' }, 403)
+      }
+      const sourceUrl = new URL(request.url)
+      const sourceToken = await readToken(sourceUrl.searchParams.get('token'), env.ADMIN_PASSWORD)
+      if (!sourceToken || sourceToken.purpose !== 'ipa-source' ||
+          !/^[0-9a-f-]{36}$/i.test(String(sourceToken.job_id || '')) ||
+          !sourceToken.sub || !Number.isSafeInteger(Number(sourceToken.size))) {
+        return json({ success: false, error: 'Kaynak erişim anahtarı geçersiz veya süresi dolmuş.' }, 403)
+      }
+      const owner = await env.DB.prepare("SELECT status, vip_access_status FROM users WHERE id = ? LIMIT 1").bind(sourceToken.sub).first()
+      if (!owner || owner.status !== 'active' || owner.vip_access_status === 'blocked') {
+        return json({ success: false, error: 'Kaynak sahibi artık etkin değil.' }, 403)
+      }
+      const object = await env.CERTS.get('temp-ipas/' + sourceToken.job_id)
+      if (!object) return json({ success: false, error: 'Geçici IPA bulunamadı veya silinmiş.' }, 404)
+      const metadata = object.customMetadata || {}
+      if (metadata.ownerId !== sourceToken.sub ||
+          metadata.jobId !== sourceToken.job_id ||
+          Number(metadata.fileSize) !== Number(sourceToken.size) ||
+          Number(metadata.expiresAt || 0) <= Date.now() ||
+          object.size !== Number(sourceToken.size) ||
+          object.size > 500 * 1024 * 1024) {
+        return json({ success: false, error: 'Geçici IPA doğrulaması başarısız.' }, 403)
+      }
+      return new Response(object.body, {
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': String(object.size),
+          'cache-control': 'private, no-store',
+          'x-content-type-options': 'nosniff',
+        },
+      })
+    }
+
     if (path.startsWith('/api/') && !path.startsWith('/api/auth/')) {
       const session = await readToken(bearer(request), env.ADMIN_PASSWORD)
       if (!session) return json({ success: false, error: 'Oturum açmanız gerekiyor.' }, 401)
@@ -1664,6 +1721,217 @@ export async function onRequest({ request, env, params }) {
         const appleSync = await syncMemberAppleAccess(env, target.id, 'vip_plan_granted')
         const mailNotice = await sendMemberNotice(env, target.email, 'Mehmet IPA VIP üyeliğin etkinleştirildi', 'VIP üyeliğin aktif!', `${plan.name} paketin hesabına tanımlandı. Yeni bitiş tarihi: ${new Date(expiresAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`)
         return json({ success: true, expires_at: expiresAt, apple_device_sync: appleSync, email_notification: mailNotice })
+      }
+
+      // Global signing queue: ten jobs can upload/sign concurrently; subsequent jobs wait FIFO.
+      if (path === '/api/signing/queue' && method === 'POST') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici hesabı VIP üye imzası başlatamaz.' }, 403)
+        const body = await readBody(request)
+        const jobId = String(body.job_id || '')
+        const fileName = String(body.file_name || '').trim().slice(0, 180)
+        const fileSize = Number(body.file_size || 0)
+        if (!/^[0-9a-f-]{36}$/i.test(jobId) || !fileName.toLowerCase().endsWith('.ipa') ||
+            !Number.isSafeInteger(fileSize) || fileSize < 1 || fileSize > 500 * 1024 * 1024) {
+          return json({ success: false, error: 'IPA adı veya dosya boyutu geçersiz. Üst sınır 500 MB.' }, 400)
+        }
+        const member = await env.DB.prepare(
+          'SELECT username, group_name, status, vip_plan, vip_expires_at, vip_access_status FROM users WHERE id = ? LIMIT 1'
+        ).bind(session.sub).first()
+        if (!member || member.status !== 'active' || member.vip_access_status === 'blocked') {
+          return json({ success: false, error: 'Hesabın devre dışı. IPA imzalama erişimi kapalı.' }, 403)
+        }
+        const activeTrial = !isActiveVip(member)
+          ? await env.DB.prepare('SELECT device_udid, expires_at FROM trial_access WHERE user_id = ? LIMIT 1').bind(session.sub).first()
+          : null
+        const trialIsActive = !!activeTrial && new Date(activeTrial.expires_at).getTime() > Date.now()
+        if (!isActiveVip(member) && !trialIsActive) {
+          return json({ success: false, error: 'Aktif VIP üyeliği veya süresi dolmamış 1 saatlik deneme hakkı gerekiyor.' }, 403)
+        }
+        const approvedDevice = await env.DB.prepare(
+          "SELECT id FROM devices WHERE user_id = ? AND status = 'approved' " +
+          (trialIsActive ? "AND udid = ? " : "") + "ORDER BY created_at DESC LIMIT 1"
+        ).bind(...(trialIsActive ? [session.sub, activeTrial.device_udid] : [session.sub])).first()
+        if (!approvedDevice) return json({ success: false, error: 'IPA imzalamak için onaylı cihaz kaydı gerekiyor.' }, 403)
+        const queued = await signerJson(env, '/queue/enqueue', 'POST', {
+          job_id: jobId, user_id: session.sub, file_name: fileName, file_size: fileSize,
+        })
+        return json({
+          success: true,
+          job_id: jobId,
+          status: queued.status,
+          queue_position: queued.queue_position,
+          active_count: queued.active_count,
+          max_concurrent: queued.max_concurrent,
+          estimated_wait_seconds: queued.estimated_wait_seconds,
+          message: queued.status === 'queued' ? 'İmza sırası oluşturuldu. Sıran gelince otomatik başlayacak.' : 'İmza sıran geldi. Dosyanı güvenli şekilde yükleyebilirsin.',
+        }, 202)
+      }
+
+      const signingQueueMatch = path.match(/^\/api\/signing\/queue\/([0-9a-f-]{36})$/i)
+      if (signingQueueMatch && method === 'GET') {
+        const queueState = await signerJson(env,
+          '/queue/status?job_id=' + encodeURIComponent(signingQueueMatch[1]) + '&user_id=' + encodeURIComponent(session.sub))
+        return json(queueState)
+      }
+
+      const signingCancelMatch = path.match(/^\/api\/signing\/queue\/([0-9a-f-]{36})\/cancel$/i)
+      if (signingCancelMatch && method === 'POST') {
+        const jobId = signingCancelMatch[1]
+        const sessionKey = 'upload-sessions/' + jobId + '.json'
+        const sessionObject = await env.CERTS.get(sessionKey)
+        if (sessionObject) {
+          const uploadSession = await sessionObject.json().catch(() => null)
+          if (uploadSession?.ownerId !== session.sub) return json({ success: false, error: 'Bu yüklemeyi iptal etme yetkin yok.' }, 403)
+          if (uploadSession.uploadId && uploadSession.uploadKey) {
+            try { await env.CERTS.resumeMultipartUpload(uploadSession.uploadKey, uploadSession.uploadId).abort() } catch {}
+          }
+          if (uploadSession.uploadKey) await env.CERTS.delete(uploadSession.uploadKey).catch(() => {})
+          await env.CERTS.delete(sessionKey).catch(() => {})
+        }
+        await env.CERTS.delete('temp-ipas/' + jobId).catch(() => {})
+        const released = await signerJson(env, '/queue/release', 'POST', {
+          job_id: jobId, user_id: session.sub, status: 'cancelled', error: 'Üye işlemi iptal etti.',
+        })
+        return json({ success: true, status: released.status || 'cancelled' })
+      }
+
+      if (path === '/api/signing/upload/init' && method === 'POST') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici hesabı imza yüklemesi başlatamaz.' }, 403)
+        const body = await readBody(request)
+        const jobId = String(body.job_id || '')
+        const fileName = String(body.file_name || '').trim().slice(0, 180)
+        const fileSize = Number(body.file_size || 0)
+        if (!/^[0-9a-f-]{36}$/i.test(jobId) || !fileName.toLowerCase().endsWith('.ipa') ||
+            !Number.isSafeInteger(fileSize) || fileSize < 1 || fileSize > 500 * 1024 * 1024) {
+          return json({ success: false, error: 'Dosya bilgileri geçersiz. Üst sınır 500 MB.' }, 400)
+        }
+        const queueState = await signerJson(env,
+          '/queue/status?job_id=' + encodeURIComponent(jobId) + '&user_id=' + encodeURIComponent(session.sub))
+        if (queueState.status !== 'active') {
+          return json({ success: false, error: 'Sıra henüz sana gelmedi. Yükleme başlamadı.', queue: queueState }, 409)
+        }
+        const key = 'temp-ipas/' + jobId
+        const sessionKey = 'upload-sessions/' + jobId + '.json'
+        const oldSession = await env.CERTS.get(sessionKey)
+        if (oldSession) {
+          const previous = await oldSession.json().catch(() => null)
+          if (previous?.ownerId !== session.sub) return json({ success: false, error: 'Yükleme oturumu sahibi uyuşmuyor.' }, 403)
+          if (previous?.uploadId && previous?.uploadKey) {
+            try { await env.CERTS.resumeMultipartUpload(previous.uploadKey, previous.uploadId).abort() } catch {}
+          }
+          if (previous?.uploadKey) await env.CERTS.delete(previous.uploadKey).catch(() => {})
+          await env.CERTS.delete(sessionKey).catch(() => {})
+        }
+        const partSize = 10 * 1024 * 1024
+        const expectedParts = Math.ceil(fileSize / partSize)
+        if (expectedParts < 1 || expectedParts > 10000) return json({ success: false, error: 'Parça sayısı sınırı aşıldı.' }, 413)
+        const expiresAt = Date.now() + 30 * 60 * 1000
+        const upload = await env.CERTS.createMultipartUpload(key, {
+          httpMetadata: { contentType: 'application/octet-stream' },
+          customMetadata: {
+            ownerId: session.sub, jobId, fileName, fileSize: String(fileSize),
+            expiresAt: String(expiresAt),
+          },
+        })
+        const uploadSession = {
+          ownerId: session.sub, jobId, fileName, fileSize, partSize, expectedParts,
+          uploadKey: key, uploadId: upload.uploadId, expiresAt,
+        }
+        try {
+          await env.CERTS.put(sessionKey, JSON.stringify(uploadSession), {
+            httpMetadata: { contentType: 'application/json; charset=utf-8' },
+            customMetadata: { ownerId: session.sub, jobId, expiresAt: String(expiresAt) },
+          })
+          await signerJson(env, '/queue/attach-upload', 'POST', {
+            job_id: jobId, user_id: session.sub, upload_key: key, upload_id: upload.uploadId,
+          })
+        } catch (error) {
+          try { await upload.abort() } catch {}
+          await env.CERTS.delete(sessionKey).catch(() => {})
+          throw error
+        }
+        return json({ success: true, job_id: jobId, chunk_size: partSize, total_parts: expectedParts })
+      }
+
+      if (path === '/api/signing/upload/part' && method === 'POST') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici hesabı imza yüklemesi yapamaz.' }, 403)
+        let form
+        try { form = await request.formData() } catch { return json({ success: false, error: 'Yükleme parçası okunamadı.' }, 400) }
+        const jobId = String(form.get('job_id') || '')
+        const partNumber = Number(form.get('part_number') || 0)
+        const chunk = form.get('chunk')
+        if (!/^[0-9a-f-]{36}$/i.test(jobId) || !(chunk instanceof Blob) ||
+            !Number.isInteger(partNumber) || partNumber < 1) {
+          return json({ success: false, error: 'Yükleme parçası bilgileri geçersiz.' }, 400)
+        }
+        const sessionObject = await env.CERTS.get('upload-sessions/' + jobId + '.json')
+        if (!sessionObject) return json({ success: false, error: 'Yükleme oturumu bulunamadı; yeniden başlat.' }, 404)
+        const uploadSession = await sessionObject.json()
+        if (uploadSession.ownerId !== session.sub || uploadSession.jobId !== jobId ||
+            Number(uploadSession.expiresAt) <= Date.now()) {
+          return json({ success: false, error: 'Yükleme oturumu geçersiz veya süresi dolmuş.' }, 403)
+        }
+        const queueState = await signerJson(env,
+          '/queue/status?job_id=' + encodeURIComponent(jobId) + '&user_id=' + encodeURIComponent(session.sub))
+        if (queueState.status !== 'active') return json({ success: false, error: 'İmza sırası etkin değil. Yükleme durduruldu.' }, 409)
+        const partSize = Number(uploadSession.partSize)
+        const expectedParts = Number(uploadSession.expectedParts)
+        if (partNumber > expectedParts) return json({ success: false, error: 'Parça numarası aralık dışında.' }, 400)
+        const expectedPartSize = partNumber < expectedParts
+          ? partSize
+          : Number(uploadSession.fileSize) - partSize * (expectedParts - 1)
+        if (chunk.size !== expectedPartSize) return json({ success: false, error: 'Yükleme parçası boyutu beklenen değerle eşleşmiyor.' }, 400)
+        const uploadedPart = await env.CERTS.resumeMultipartUpload(
+          uploadSession.uploadKey, uploadSession.uploadId
+        ).uploadPart(partNumber, chunk)
+        return json({ success: true, part_number: uploadedPart.partNumber, etag: uploadedPart.etag })
+      }
+
+      if (path === '/api/signing/upload/complete' && method === 'POST') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici hesabı imza yüklemesini tamamlayamaz.' }, 403)
+        const body = await readBody(request)
+        const jobId = String(body.job_id || '')
+        const suppliedParts = Array.isArray(body.parts) ? body.parts : []
+        if (!/^[0-9a-f-]{36}$/i.test(jobId)) return json({ success: false, error: 'İmza işlem kimliği geçersiz.' }, 400)
+        const sessionKey = 'upload-sessions/' + jobId + '.json'
+        const sessionObject = await env.CERTS.get(sessionKey)
+        if (!sessionObject) return json({ success: false, error: 'Yükleme oturumu bulunamadı.' }, 404)
+        const uploadSession = await sessionObject.json()
+        if (uploadSession.ownerId !== session.sub || uploadSession.jobId !== jobId ||
+            Number(uploadSession.expiresAt) <= Date.now()) {
+          return json({ success: false, error: 'Yükleme oturumu geçersiz veya süresi dolmuş.' }, 403)
+        }
+        const queueState = await signerJson(env,
+          '/queue/status?job_id=' + encodeURIComponent(jobId) + '&user_id=' + encodeURIComponent(session.sub))
+        if (queueState.status !== 'active') return json({ success: false, error: 'İmza sırası etkin değil.' }, 409)
+        const expectedParts = Number(uploadSession.expectedParts)
+        if (suppliedParts.length !== expectedParts) return json({ success: false, error: 'IPA dosyasının tüm parçaları yüklenmedi.' }, 400)
+        const partNumbers = suppliedParts.map(part => Number(part?.partNumber))
+        if (new Set(partNumbers).size !== expectedParts ||
+            partNumbers.some(number => !Number.isInteger(number) || number < 1 || number > expectedParts)) {
+          return json({ success: false, error: 'Yüklenen parçaların sıralaması geçersiz.' }, 400)
+        }
+        const parts = suppliedParts.map(part => ({
+          partNumber: Number(part.partNumber),
+          etag: String(part.etag || ''),
+        })).sort((a, b) => a.partNumber - b.partNumber)
+        if (parts.some(part => !part.etag || part.etag.length > 256)) {
+          return json({ success: false, error: 'Yükleme parça doğrulaması başarısız.' }, 400)
+        }
+        let completed
+        try {
+          completed = await env.CERTS.resumeMultipartUpload(uploadSession.uploadKey, uploadSession.uploadId).complete(parts)
+          if (completed.size !== Number(uploadSession.fileSize) ||
+              completed.customMetadata?.ownerId !== session.sub ||
+              completed.customMetadata?.jobId !== jobId) {
+            await env.CERTS.delete(uploadSession.uploadKey).catch(() => {})
+            return json({ success: false, error: 'Birleştirilen IPA dosyası doğrulanamadı.' }, 422)
+          }
+        } catch (error) {
+          return json({ success: false, error: error instanceof Error ? error.message : 'IPA parçaları birleştirilemedi.' }, 502)
+        }
+        await env.CERTS.delete(sessionKey).catch(() => {})
+        return json({ success: true, job_id: jobId, file_size: completed.size, message: 'IPA güvenli depoya yüklendi.' })
       }
 
       // Per-user signing progress feed. Job IDs are unguessable UUIDs and records live in the private R2 bucket.

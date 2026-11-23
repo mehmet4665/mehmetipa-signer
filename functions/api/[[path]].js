@@ -1477,8 +1477,9 @@ export async function onRequest({ request, env, params }) {
       if (request.headers.get('x-mehmetipa-source') !== 'container') {
         return json({ success: false, error: 'Kaynak dosyaya erişim reddedildi.' }, 403)
       }
-      const sourceUrl = new URL(request.url)
-      const sourceToken = await readToken(sourceUrl.searchParams.get('token'), env.ADMIN_PASSWORD)
+      const sourceAuthorization = request.headers.get('authorization') || ''
+      const sourceTokenValue = sourceAuthorization.replace(/^Bearer\s+/i, '')
+      const sourceToken = await readToken(sourceTokenValue, env.ADMIN_PASSWORD)
       if (!sourceToken || sourceToken.purpose !== 'ipa-source' ||
           !/^[0-9a-f-]{36}$/i.test(String(sourceToken.job_id || '')) ||
           !sourceToken.sub || !Number.isSafeInteger(Number(sourceToken.size))) {

@@ -69,10 +69,16 @@ export class SigningQueue extends DurableObject<Env> {
       "job_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, status TEXT NOT NULL, " +
       "created_at INTEGER NOT NULL, expires_at INTEGER, lease_until INTEGER, " +
       "started_at INTEGER, finished_at INTEGER, file_name TEXT NOT NULL, " +
-      "file_size INTEGER NOT NULL, upload_key TEXT, upload_id TEXT, error TEXT);" +
-      "CREATE INDEX IF NOT EXISTS signing_jobs_order_idx ON signing_jobs(status, created_at, job_id);" +
-      "CREATE TABLE IF NOT EXISTS signing_artifacts (object_key TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);" +
-      "CREATE INDEX IF NOT EXISTS signing_artifacts_expiry_idx ON signing_artifacts(expires_at);",
+      "file_size INTEGER NOT NULL, upload_key TEXT, upload_id TEXT, error TEXT)",
+    );
+    this.ctx.storage.sql.exec(
+      "CREATE INDEX IF NOT EXISTS signing_jobs_order_idx ON signing_jobs(status, created_at, job_id)",
+    );
+    this.ctx.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS signing_artifacts (object_key TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)",
+    );
+    this.ctx.storage.sql.exec(
+      "CREATE INDEX IF NOT EXISTS signing_artifacts_expiry_idx ON signing_artifacts(expires_at)",
     );
   }
 
@@ -166,6 +172,14 @@ export class SigningQueue extends DurableObject<Env> {
         this.promoteQueued(now);
         await this.scheduleNextAlarm();
         return json(this.statusFor(jobId, userId, now));
+      }
+      const userJob = this.rows<{ job_id: string; status: string }>(
+        "SELECT job_id, status FROM signing_jobs WHERE user_id = ? AND status IN ('queued', 'active') AND (lease_until IS NULL OR lease_until > ?) ORDER BY created_at ASC LIMIT 1",
+        userId,
+        now,
+      )[0];
+      if (userJob) {
+        return json({ success: false, error: "Bu üyelik için zaten bekleyen veya çalışan bir imza işlemi var.", existing_job_id: userJob.job_id, status: userJob.status }, 409);
       }
       const count = Number(this.rows<{ count: number }>(
         "SELECT COUNT(*) AS count FROM signing_jobs WHERE status IN ('queued', 'active') AND (lease_until IS NULL OR lease_until > ?)",

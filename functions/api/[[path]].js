@@ -1784,6 +1784,18 @@ export async function onRequest({ request, env, params }) {
         return json(queueState)
       }
 
+      if (path === '/api/signing/queue/recover' && method === 'POST') {
+        if (isAdmin) return json({ success: false, error: 'Yönetici hesabı üye imza kuyruğunu temizleyemez.' }, 403)
+        const recovered = await signerJson(env, '/queue/recover', 'POST', { user_id: session.sub })
+        const jobIds = Array.isArray(recovered.job_ids) ? recovered.job_ids.map(String) : []
+        await Promise.all(jobIds.flatMap(jobId => [
+          env.CERTS.delete('temp-ipas/' + jobId + '.ipa').catch(() => {}),
+          env.CERTS.delete('upload-sessions/' + jobId + '.json').catch(() => {}),
+          env.CERTS.delete('signing-progress/' + jobId + '.json').catch(() => {}),
+        ]))
+        return json({ success: true, cleared: Number(recovered.cleared || 0) })
+      }
+
       const signingCancelMatch = path.match(/^\/api\/signing\/queue\/([0-9a-f-]{36})\/cancel$/i)
       if (signingCancelMatch && method === 'POST') {
         const jobId = signingCancelMatch[1]
@@ -2579,6 +2591,8 @@ export async function onRequest({ request, env, params }) {
         let releaseError = ''
         let shouldRelease = false
         let queueHeartbeatTimer = null
+        let signingCancelPollTimer = null
+        let signingAbortController = null
         const progressLogs = []
         const writeProgress = async (stage, percent, label, log) => {
           if (!jobId) return
@@ -2750,10 +2764,21 @@ export async function onRequest({ request, env, params }) {
           signingForm.append('job_id', jobId)
 
           await writeProgress(4, 64, 'Zsign motoru başlatılıyor', '04/05 · Bu iş için ayrılmış özel Container başlatılıyor.')
+          signingAbortController = new AbortController()
+          signingCancelPollTimer = setInterval(() => {
+            void signerJson(env, '/queue/status?job_id=' + encodeURIComponent(jobId) + '&user_id=' + encodeURIComponent(session.sub))
+              .then(state => {
+                if (state.status !== 'active' && signingAbortController && !signingAbortController.signal.aborted) {
+                  signingAbortController.abort(new Error('Üye imza işlemini temizledi.'))
+                }
+              })
+              .catch(() => {})
+          }, 3000)
           const signed = await env.SIGNER_SERVICE.fetch(new Request('https://mehmetipa-signing.internal/sign', {
             method: 'POST',
             headers: { 'x-signing-job-id': jobId },
             body: signingForm,
+            signal: signingAbortController.signal,
           }))
           if (!signed.ok) {
             const detail = await signed.json().catch(() => ({}))
@@ -2835,6 +2860,7 @@ export async function onRequest({ request, env, params }) {
           return json({ success: false, error: releaseError }, 502)
         } finally {
           if (queueHeartbeatTimer) clearInterval(queueHeartbeatTimer)
+          if (signingCancelPollTimer) clearInterval(signingCancelPollTimer)
           if (shouldRelease && jobId) {
             // The source IPA and upload session are always removed after the signing attempt.
             await env.CERTS.delete('temp-ipas/' + jobId + '.ipa').catch(() => {})

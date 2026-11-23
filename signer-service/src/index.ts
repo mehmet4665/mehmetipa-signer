@@ -294,7 +294,7 @@ export class SigningQueue extends DurableObject<Env> {
       now, now,
     );
     for (const job of stale) {
-      if (job.upload_id && job.upload_key) {
+      if (job.upload_id && job.upload_key && job.upload_id !== "direct") {
         try { await this.env.CERTS.resumeMultipartUpload(job.upload_key, job.upload_id).abort(); } catch {}
       }
       if (job.upload_key) await this.env.CERTS.delete(job.upload_key).catch(() => {});

@@ -2897,7 +2897,7 @@ async function handleRequest({ request, env, params }) {
         } catch (error) {
           releaseError = error instanceof Error ? error.message : 'İmzalama işlemi başarısız.'
           if (logId) await env.DB.prepare("UPDATE signing_logs SET status = 'failed' WHERE id = ?").bind(logId).run().catch(() => {})
-          await writeProgress(5, 100, 'İmzalama başarısız', 'HATA · ' + releaseError)
+          await writeProgress(5, 99, 'İmzalama başarısız', 'HATA · ' + releaseError)
           return json({ success: false, error: releaseError }, 502)
         } finally {
           if (queueHeartbeatTimer) clearInterval(queueHeartbeatTimer)

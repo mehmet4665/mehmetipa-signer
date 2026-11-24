@@ -339,30 +339,23 @@ export async function createInstallUrls(
   ipaUrl: string,
   signal?: AbortSignal,
 ): Promise<TemporaryInstallResult> {
-  const paleraResult = buildPaleraInstallUrls(metadata, ipaUrl)
+  // Do not use a no-cors request to Palera here. Opaque responses cannot
+  // prove that a valid OTA plist was generated, which previously let a
+  // broken manifest URL appear "ready" and made the iOS install tap do nothing.
+  const result = buildSylvaInstallUrls(metadata, ipaUrl)
+  const { response, text } = await fetchWithDeadline(result.manifestUrl, {
+    cache: 'no-store',
+    headers: { Accept: 'application/xml,text/xml,application/x-plist' },
+    signal,
+  }, 15 * 1000)
 
-  try {
-    const { response } = await fetchWithDeadline(paleraResult.manifestUrl, {
-      cache: 'no-store',
-      mode: 'no-cors',
-      signal,
-    }, 15 * 1000)
-    if (response.type !== 'opaque' && !response.ok) {
-      throw new Error(`Palera manifest endpoint returned HTTP ${response.status}.`)
-    }
-    return paleraResult
-  } catch {
-    if (signal?.aborted) throw new UploadCancelledError('The upload was cancelled.')
-    const sylvaResult = buildSylvaInstallUrls(metadata, ipaUrl)
-    const { response } = await fetchWithDeadline(sylvaResult.manifestUrl, {
-      cache: 'no-store',
-      headers: { Accept: 'text/xml,application/xml' },
-      signal,
-    }, 15 * 1000)
-    const contentType = response.headers.get('Content-Type')?.toLowerCase() || ''
-    if (!response.ok || !contentType.includes('xml')) {
-      throw new Error(`Sylva manifest endpoint returned HTTP ${response.status}.`)
-    }
-    return sylvaResult
+  const contentType = response.headers.get('Content-Type')?.toLowerCase() || ''
+  const looksLikePlist = /<plist[\s>]/i.test(text) && /software-package/i.test(text)
+  if (!response.ok || !looksLikePlist || !(contentType.includes('xml') || contentType.includes('plist'))) {
+    throw new Error(
+      `The iPhone installation manifest is invalid (HTTP ${response.status}). The IPA upload may have succeeded, but iOS cannot install it yet.`,
+    )
   }
+
+  return result
 }

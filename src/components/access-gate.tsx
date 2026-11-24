@@ -280,11 +280,12 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
  const [showQueueCleanup,setShowQueueCleanup]=React.useState(false),[isQueueCleanup,setIsQueueCleanup]=React.useState(false)
  const [progress,setProgress]=React.useState<SigningProgress>({stage:0,percent:0,label:'IPA dosyası bekleniyor',logs:[]}),[failedStage,setFailedStage]=React.useState(0)
  const [signedUrl,setSignedUrl]=React.useState<string|null>(null),[installUrl,setInstallUrl]=React.useState<string|null>(null),[signedFileName,setSignedFileName]=React.useState('')
+ const [lastJobId,setLastJobId]=React.useState<string|null>(null),[isRepairing,setIsRepairing]=React.useState(false)
  const [archiveInfo,setArchiveInfo]=React.useState<{entryCount:number;appPath:string}|null>(null),[elapsed,setElapsed]=React.useState(0),[showTerminal,setShowTerminal]=React.useState(true)
  const english=useAppLanguage()==='en',fileInput=React.useRef<HTMLInputElement>(null),startedAt=React.useRef<number|null>(null),localLogs=React.useRef<{at:string;text:string}[]>([])
  const t=(tr:string,en:string)=>english?en:tr
  const addLog=(text:string)=>{const at=new Date().toLocaleTimeString(getAppLocale(),{hour12:false});localLogs.current=[...localLogs.current,{at,text}].slice(-60);setProgress(p=>({...p,logs:[...localLogs.current]}))}
- const reset=()=>{setSignedUrl(null);setInstallUrl(null);setSignedFileName('');setProgress({stage:0,percent:0,label:t('IPA dosyası bekleniyor','Waiting for IPA file'),logs:[]});setFailedStage(0);setArchiveInfo(null);setElapsed(0);localLogs.current=[];startedAt.current=null}
+ const reset=()=>{setSignedUrl(null);setInstallUrl(null);setSignedFileName('');setLastJobId(null);setProgress({stage:0,percent:0,label:t('IPA dosyası bekleniyor','Waiting for IPA file'),logs:[]});setFailedStage(0);setArchiveInfo(null);setElapsed(0);localLogs.current=[];startedAt.current=null}
  React.useEffect(()=>{if(!isSigning)return;const timer=window.setInterval(()=>{if(startedAt.current)setElapsed(Math.floor((Date.now()-startedAt.current)/1000))},1000);return()=>window.clearInterval(timer)},[isSigning])
  const chooseFile=async(file?:File)=>{setMessage('');setMessageType('info');reset();if(!file){setIpaFile(null);return}
   if(!file.name.toLowerCase().endsWith('.ipa')){setIpaFile(null);setMessage(t('Yalnızca .ipa dosyası seç.','Only .ipa files are accepted.'));setMessageType('error');return}
@@ -299,6 +300,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
   setIsSigning(true);setFailedStage(0);setMessage('');setSignedUrl(null);setInstallUrl(null);
   startedAt.current=Date.now();setElapsed(0);
   const jobId=crypto.randomUUID();
+  setLastJobId(jobId);
   let queueCreated=false,signRequestStarted=false,signingSucceeded=false,handleSigningPageHide:(()=>void)|null=null;
   let progressPollTimer:number|undefined,queueHeartbeatTimer:number|undefined,serverLogKey='';
   const delay=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
@@ -514,6 +516,69 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
     setIsSigning(false);
   }
  }
+ const repairSigning=async()=>{
+  if(isRepairing||isSigning)return;
+  if(!ipaFile||!token){setMessage(t('Kurtarma için IPA dosyasını yeniden seçmen gerekiyor.','Select the IPA again to recover this signing job.'));setMessageType('error');return;}
+  setIsRepairing(true);
+  setMessage(t('Önceki imza işleminin sunucudaki sonucunu kontrol ediyorum…','Checking the previous signing result on the server…'));
+  setMessageType('info');
+  const delay=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
+  const restoreResult=(state:any)=>{
+    const result=state?.result;
+    if(!result?.install_url||!result?.download_url||!result?.expires_at||Date.parse(result.expires_at)<=Date.now())return false;
+    setInstallUrl(String(result.install_url));
+    setSignedUrl(String(result.download_url));
+    setSignedFileName(String(result.file_name||ipaFile.name.replace(/\\.ipa$/i,'-signed.ipa')));
+    setProgress({stage:5,percent:100,label:t('İmzalama tamamlandı · IPA hazır','Signing complete · IPA ready'),logs:(state.logs||[]).map((line:any)=>({at:line.at?new Date(line.at).toLocaleTimeString(getAppLocale(),{hour12:false}):'',text:String(line.text||'')}))});
+    setMessage(t('Sunucuda imzalama zaten tamamlanmış. Aynı sonucu geri yükledim; yeniden imzalama yapılmadı.','The server had already completed signing. I restored the original result without signing twice.'));
+    setMessageType('success');
+    return true;
+  };
+  try{
+    if(lastJobId){
+      let snapshot:any=null;
+      try{snapshot=await api<any>('/api/signing/progress/'+lastJobId,token,{method:'GET'});}catch{}
+      if(restoreResult(snapshot))return;
+      let queue:any=null,queueReadable=true;
+      try{queue=await api<any>('/api/signing/queue/'+lastJobId,token,{method:'GET'});}catch{queueReadable=false;}
+      if(queueReadable&&queue&&['queued','active'].includes(String(queue.status))){
+        for(let attempt=0;attempt<15;attempt++){
+          setMessage(t('Önceki işlem hâlâ sunucuda çalışıyor. Çift imza oluşturmamak için sonucunu bekliyorum…','The previous job is still running. Waiting for its result to avoid duplicate signing…'));
+          await delay(2000);
+          try{snapshot=await api<any>('/api/signing/progress/'+lastJobId,token,{method:'GET'});}catch{}
+          if(restoreResult(snapshot))return;
+          try{queue=await api<any>('/api/signing/queue/'+lastJobId,token,{method:'GET'});}catch{queueReadable=false;break;}
+          if(!['queued','active'].includes(String(queue.status)))break;
+        }
+        if(queueReadable&&queue&&['queued','active'].includes(String(queue.status))){
+          setMessage(t('Önceki işlem sunucuda hâlâ sürüyor. Yeni imza başlatmadım; birkaç saniye sonra tekrar kontrol et.','The previous job is still active. I did not start a duplicate; check again shortly.'));
+          setMessageType('info');
+          return;
+        }
+      }
+      if(!queueReadable){
+        setMessage(t('Sunucu durumunu doğrulayamadım. Çift işlem oluşturmamak için yeniden imzalama başlatmadım. Bağlantı düzelince tekrar dene.','I could not verify the server state, so I did not start a duplicate signing job. Retry when the connection is stable.'));
+        setMessageType('error');
+        return;
+      }
+      const lastError=String(snapshot?.logs?.[snapshot.logs.length-1]?.text||message||'');
+      if(!/network|connection|forward|timeout|timed out|503|temporar|bağlantı|zaman aşım|geçici/i.test(lastError)){
+        setMessage(t('Bu hata otomatik tekrar imzalamayla çözülecek türde görünmüyor. Sertifika, UDID, profil veya IPA doğrulama hatasıysa önce o kaynağın düzeltilmesi gerekir. Kayıt: ','This does not look like a transient connection error. Certificate, UDID, profile, or IPA validation problems must be fixed at the source. Record: ')+lastError);
+        setMessageType('error');
+        return;
+      }
+    }
+    setIsRepairing(false);
+    setMessage(t('Önceki deneme tamamlanmamış. Aynı IPA yeni bir iş kimliğiyle güvenli şekilde yeniden yüklenecek…','The previous attempt did not complete. The same IPA will be uploaded again under a fresh job ID…'));
+    setMessageType('info');
+    await startSigning();
+  }catch(error){
+    setMessage(error instanceof Error?error.message:t('Kurtarma kontrolü başarısız.','Recovery check failed.'));
+    setMessageType('error');
+  }finally{
+    setIsRepairing(false);
+  }
+ };
  const cleanupOldSigning=async()=>{
   if(isQueueCleanup||!token)return;
   setIsQueueCleanup(true);
@@ -553,6 +618,7 @@ function MemberSigningPanel({username,token,onHome,onLogout}:{username:string;to
  <section className="mt-4 overflow-hidden rounded-3xl border border-emerald-300/15 bg-[#080e19]"><button type="button" onClick={()=>setShowTerminal(v=>!v)} className="flex w-full items-center justify-between border-b border-white/10 px-4 py-3 text-left"><div><div className="text-[10px] font-bold uppercase tracking-[.22em] text-emerald-300">LIVE TERMINAL</div><div className="mt-1 text-xs text-slate-400">{t('Teknik kayıtlar · gizli anahtarlar gösterilmez','Technical logs · secrets are hidden')}</div></div><span className="font-mono text-emerald-300">{showTerminal?'−':'+'}</span></button>{showTerminal&&<div className="max-h-64 overflow-y-auto p-4 font-mono text-[10px] leading-5">{(progress.logs.length?progress.logs:[{text:'> MEHMET_IPA_ENGINE :: READY'},{text:'> WAITING_FOR_IPA_FILE'}]).map((line,i)=><div key={i} className="break-all text-emerald-300/90"><span className="mr-2 text-slate-600">{line.at||'SYS'}</span>{line.text}</div>)}{isSigning&&<div className="animate-pulse text-cyan-300">▌ {t('İşlem devam ediyor...','Processing...')}</div>}</div>}</section>
  <section className="mt-4 rounded-2xl border border-white/10 bg-white/[.035] p-4"><div className="text-sm font-semibold"><span className="text-emerald-300">🔒</span> {t('Sertifika koruması aktif','Certificate protection active')}</div><p className="mt-1 text-xs leading-5 text-slate-400">{t('P12 parolası ve özel anahtar terminalde gösterilmez. Sertifika yalnızca sunucudaki özel imzalama motorunda kullanılır.','The P12 password and private key are never shown in logs. Credentials stay on the private signing engine.')}</p></section>
  {message&&<div role="status" className={'mt-4 whitespace-pre-wrap rounded-xl border p-3 text-sm '+(messageType==='success'?'border-emerald-300/20 bg-emerald-300/[.07] text-emerald-100':messageType==='error'?'border-red-300/25 bg-red-300/[.07] text-red-100':'border-cyan-300/20 bg-cyan-300/[.07] text-cyan-100')}>{message}</div>}
+ {messageType==='error'&&ipaFile&&!signedUrl&&!isSigning&&<button type="button" disabled={isRepairing} onClick={repairSigning} className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-amber-300/40 bg-amber-300/10 px-4 py-3 font-bold text-amber-100 disabled:opacity-50">{isRepairing?t('Hata kontrol ediliyor…','Checking and repairing…'):t('🛠 Hatayı düzelt','🛠 Fix this error')}</button>}
  {showQueueCleanup&&<section className="mt-3 rounded-2xl border border-amber-300/30 bg-amber-400/[.07] p-4"><div className="font-bold text-amber-100">{t('Eski imza işlemi takılı kalmış','A previous signing job is stuck')}</div><p className="mt-1 text-xs leading-5 text-slate-300">{t('Önceki yükleme yarıda kalmış olabilir. Eski kuyruk kaydını ve ona ait geçici IPA dosyalarını temizleyebilirsin. Devam eden imzalama varsa bu işlem onu da iptal eder.','A previous upload may have been interrupted. You can clear its queue record and temporary IPA files. If signing is still running, this will cancel it too.')}</p><button type="button" disabled={isQueueCleanup} onClick={cleanupOldSigning} className="mt-3 flex min-h-12 w-full items-center justify-center rounded-xl bg-amber-300 px-4 py-3 font-bold text-slate-950 disabled:opacity-50">{isQueueCleanup?t('Eski işlem temizleniyor…','Clearing old job…'):t('Eski işlemi temizle','Clear old signing job')}</button></section>}
  <section className="mt-4 rounded-3xl border border-cyan-300/15 bg-gradient-to-br from-cyan-400/[.07] to-violet-500/[.08] p-5"><div className="flex items-center justify-between gap-3"><div><div className="text-[10px] font-bold uppercase tracking-[.22em] text-cyan-100/70">PIPELINE STATUS</div><h2 className="mt-1 font-bold">{t('İmzalama ilerlemesi','Signing progress')}</h2></div><div className="text-right"><div className="text-3xl font-black tabular-nums text-cyan-100">{progress.percent}%</div><div className="text-[10px] text-slate-400">{isSigning?time:t('Hazır','Ready')}</div></div></div><div className="mt-4 h-3 overflow-hidden rounded-full border border-white/10 bg-black/40"><div className={'h-full rounded-full bg-gradient-to-r from-cyan-400 via-violet-400 to-emerald-400 transition-all duration-500 '+(isSigning&&progress.percent<100?'animate-pulse':'')} style={{width:progress.percent+'%'}}/></div><div className="mt-2 flex justify-between gap-2 text-xs"><span className="text-slate-300">{progress.label}</span><span className="font-mono text-cyan-200">{t('Aşama','Stage')} {progress.stage}/5</span></div></section>
  {!signedUrl&&<button type="button" disabled={!ipaFile||isSigning} onClick={startSigning} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-500 px-5 py-4 font-bold shadow-xl disabled:opacity-40">{isSigning?t('İmzalanıyor...','Signing...'):t('İmzalamayı başlat','Start signing')} <span>{isSigning?'⏳':'→'}</span></button>}

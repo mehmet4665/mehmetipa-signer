@@ -2892,7 +2892,7 @@ async function handleRequest({ request, env, params }) {
             expires_in_seconds: 300,
             download_url: downloadUrl,
             manifest_url: manifestUrl,
-            install_url: 'itms-services://?action=download-manifest&url=' + encodeURIComponent(manifestUrl),
+            install_url: 'itms-services://?action=download-manifest&url=' + manifestUrl,
           })
         } catch (error) {
           releaseError = error instanceof Error ? error.message : 'İmzalama işlemi başarısız.'

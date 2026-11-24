@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import { execFile } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdtemp, rm, stat, rename } from "node:fs/promises";
+import { mkdtemp, rm, stat, rename, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -21,6 +21,41 @@ const upload = multer({
   limits: { fileSize: MAX_IPA_BYTES, files: 3, fields: 12, parts: 16 },
 });
 
+// A forwarding retry can reach the same container after the original request
+// has already started or completed. Serialize by job ID and keep the signed
+// result briefly so a retry returns the same IPA rather than signing twice.
+const activeSigningJobs = new Map();
+const completedSigningJobs = new Map();
+const SIGNED_RESULT_TTL_MS = 10 * 60 * 1000;
+const SIGNED_RESULT_DIR = path.join(tmpdir(), "mehmetipa-signed-results");
+
+function sendSignedArtifact(res, artifact, cleanupDir) {
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader("Content-Length", String(artifact.size));
+  res.setHeader("Content-Disposition", "attachment; filename=\"" + artifact.fileName + "\"");
+  res.setHeader("X-App-Bundle-ID", artifact.bundleId);
+  res.setHeader("X-App-Version", artifact.version);
+  res.setHeader("X-Signing-Engine", "zsign");
+  res.sendFile(artifact.path, (error) => {
+    if (cleanupDir) void rm(cleanupDir, { recursive: true, force: true });
+    if (error && !res.headersSent) res.status(500).end();
+  });
+}
+
+async function removeUploadedFiles(files) {
+  await Promise.all(files.map(file => rm(file.path, { force: true }).catch(() => {})));
+}
+
+function pruneSignedArtifacts() {
+  const now = Date.now();
+  for (const [jobId, artifact] of completedSigningJobs) {
+    if (artifact.expiresAt <= now) {
+      completedSigningJobs.delete(jobId);
+      void rm(artifact.path, { force: true }).catch(() => {});
+    }
+  }
+}
+
 app.get("/health", (_req, res) => res.status(200).json({ ok: true, engine: "zsign" }));
 
 app.post("/sign", upload.fields([
@@ -30,12 +65,49 @@ app.post("/sign", upload.fields([
 ]), async (req, res) => {
   let workDir;
   const uploaded = Object.values(req.files || {}).flat();
+  const jobId = String(req.body?.job_id || req.get("x-signing-job-id") || "");
+  pruneSignedArtifacts();
+
+  if (/^[0-9a-f-]{36}$/i.test(jobId)) {
+    const cached = completedSigningJobs.get(jobId);
+    if (cached && cached.expiresAt > Date.now()) {
+      await removeUploadedFiles(uploaded);
+      return sendSignedArtifact(res, cached);
+    }
+
+    const pending = activeSigningJobs.get(jobId);
+    if (pending) {
+      await removeUploadedFiles(uploaded);
+      try {
+        const artifact = await pending;
+        return sendSignedArtifact(res, artifact);
+      } catch (error) {
+        return res.status(503).json({
+          error: "Önceki imzalama denemesi tamamlanmadı; aynı dosya güvenli şekilde yeniden denenebilir.",
+          code: "SIGNING_JOB_RETRY_REQUIRED",
+        });
+      }
+    }
+  }
+
+  let resolveActiveJob;
+  let rejectActiveJob;
+  let activeJobPromise;
+  let activeJobSettled = false;
+  if (/^[0-9a-f-]{36}$/i.test(jobId)) {
+    activeJobPromise = new Promise((resolve, reject) => {
+      resolveActiveJob = resolve;
+      rejectActiveJob = reject;
+    });
+    activeJobPromise.catch(() => {});
+    activeSigningJobs.set(jobId, activeJobPromise);
+  }
+
   try {
     const ipa = req.files?.ipa?.[0];
     const p12 = req.files?.p12?.[0];
     const profile = req.files?.mobileprovision?.[0];
     const password = String(req.body?.p12_password || "");
-    const jobId = String(req.body?.job_id || "");
     const sourceToken = String(req.body?.ipa_source_token || "");
     let originalName = String(req.body?.ipa_name || "");
     let expectedSize = Number(req.body?.ipa_size || 0);
@@ -178,27 +250,43 @@ app.post("/sign", upload.fields([
       return res.status(422).json({ error: "Signed IPA installation metadata could not be verified.", diagnostic: String(error?.message || error) });
     }
 
-    res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader("Content-Length", String(outputStat.size));
-    res.setHeader("Content-Disposition", "attachment; filename=\"" + downloadName + "\"");
-    res.setHeader("X-App-Bundle-ID", originalBundleId);
-    res.setHeader("X-App-Version", appVersion);
-    res.setHeader("X-Signing-Engine", "zsign");
+    await mkdir(SIGNED_RESULT_DIR, { recursive: true });
+    const cachedPath = path.join(SIGNED_RESULT_DIR, jobId + ".ipa");
+    await copyFile(outputPath, cachedPath);
+    const artifact = {
+      path: cachedPath,
+      size: outputStat.size,
+      fileName: downloadName,
+      bundleId: originalBundleId,
+      version: appVersion,
+      expiresAt: Date.now() + SIGNED_RESULT_TTL_MS,
+    };
+    completedSigningJobs.set(jobId, artifact);
+    if (resolveActiveJob && !activeJobSettled) {
+      activeJobSettled = true;
+      resolveActiveJob(artifact);
+    }
 
     const cleanupDir = workDir;
     workDir = undefined;
-    res.sendFile(outputPath, (error) => {
-      void rm(cleanupDir, { recursive: true, force: true });
-      if (error && !res.headersSent) res.status(500).end();
-    });
+    return sendSignedArtifact(res, artifact, cleanupDir);
   } catch (error) {
+    if (rejectActiveJob && !activeJobSettled) {
+      activeJobSettled = true;
+      rejectActiveJob(error);
+    }
     console.error("Signing request failed:", error?.message || "unknown error");
     if (!res.headersSent) res.status(500).json({ error: "Signing service failed." });
   } finally {
-    if (workDir) await rm(workDir, { recursive: true, force: true });
-    for (const file of uploaded) {
-      await rm(file.path, { force: true }).catch(() => {});
+    if (activeJobPromise && activeSigningJobs.get(jobId) === activeJobPromise) {
+      if (!activeJobSettled && rejectActiveJob) {
+        activeJobSettled = true;
+        rejectActiveJob(new Error("Signing job ended without a verified IPA artifact."));
+      }
+      activeSigningJobs.delete(jobId);
     }
+    if (workDir) await rm(workDir, { recursive: true, force: true });
+    await removeUploadedFiles(uploaded);
   }
 });
 

@@ -7,7 +7,7 @@ interface Env {
 }
 
 const PORT = 8080;
-const INACTIVITY_TIMEOUT_MS = 30 * 1000;
+const INACTIVITY_TIMEOUT_MS = 120 * 1000;
 const MAX_CONCURRENT_SIGNINGS = 10;
 const ACTIVE_LEASE_MS = 2 * 60 * 1000;
 const MAX_SIGNING_RUNTIME_MS = 15 * 60 * 1000;
@@ -394,13 +394,41 @@ export class SigningContainer extends DurableObject<Env> {
     url.host = "container";
     const forwarded = new Request(url, request);
     forwarded.headers.delete("host");
-    try {
-      return await container.getTcpPort(PORT).fetch(forwarded);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      console.error("Mehmet IPA container request forwarding failed", { detail, running: container.running });
-      return Response.json({ error: "Container request forwarding failed.", detail }, { status: 503 });
+    const port = container.getTcpPort(PORT);
+    // The same job ID is an idempotency key in the signing container. If the
+    // TCP proxy drops a connection after Node has accepted the request, retrying
+    // the same request retrieves the existing artifact instead of signing twice.
+    const attempts = [forwarded.clone(), forwarded.clone(), forwarded.clone()];
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts.length; attempt++) {
+      try {
+        return await port.fetch(attempts[attempt]);
+      } catch (error) {
+        lastError = error;
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error("Mehmet IPA container request forwarding failed", {
+          detail, running: container.running, attempt: attempt + 1, maxAttempts: attempts.length,
+        });
+        if (attempt < attempts.length - 1) {
+          await scheduler.wait(400 * (attempt + 1));
+          try {
+            // Re-check readiness without blindly restarting a live signing process.
+            await this.startAndWaitForPort(container);
+          } catch (readinessError) {
+            lastError = readinessError;
+          }
+        }
+      }
     }
+    const detail = lastError instanceof Error ? lastError.message : String(lastError || "Unknown container forwarding error");
+    console.error("Mehmet IPA container forwarding retries exhausted", { detail, running: container.running });
+    return Response.json({
+      error: "İmzalama motoruna bağlantı geçici olarak kesildi. Aynı iş güvenli biçimde tekrar denenebilir.",
+      code: "CONTAINER_FORWARDING_RETRIES_EXHAUSTED",
+      retryable: true,
+      attempts: attempts.length,
+      detail,
+    }, { status: 503 });
   }
 
   private async startAndWaitForPort(container: NonNullable<DurableObjectState["container"]>): Promise<void> {

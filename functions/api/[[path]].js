@@ -2647,10 +2647,14 @@ async function handleRequest({ request, env, params }) {
         let containerStartedAt = 0
         let containerDurationMs = 0
         const progressLogs = []
-        const writeProgress = async (stage, percent, label, log) => {
+        const writeProgress = async (stage, percent, label, log, extra = {}) => {
           if (!jobId) return
           progressLogs.push({ at: new Date().toISOString(), text: String(log).slice(0, 240) })
-          const state = { job_id: jobId, user_id: session.sub, stage, percent, label, logs: progressLogs.slice(-80), updated_at: new Date().toISOString() }
+          const state = {
+            job_id: jobId, user_id: session.sub, stage, percent, label,
+            logs: progressLogs.slice(-80), updated_at: new Date().toISOString(),
+            ...extra,
+          }
           try {
             await env.CERTS.put('signing-progress/' + jobId + '.json', JSON.stringify(state), {
               httpMetadata: { contentType: 'application/json; charset=utf-8' },
@@ -2877,22 +2881,36 @@ async function handleRequest({ request, env, params }) {
             throw error
           }
 
-          await writeProgress(5, 100, 'İmzalama tamamlandı · IPA hazır', '05/05 · İmza doğrulandı; orijinal dosya işlem sonunda silinecek, imzalı IPA 5 dakika içinde otomatik temizlenecek.')
-          await env.DB.prepare("UPDATE signing_logs SET status = 'success' WHERE id = ?").bind(logId).run()
-          releaseStatus = 'complete'
           const origin = new URL(request.url).origin
           const manifestUrl = origin + '/api/install/' + installToken + '/manifest.plist'
           const downloadUrl = origin + '/api/install/' + installToken + '/app.ipa'
+          const installUrl = 'itms-services://?action=download-manifest&url=' + manifestUrl
+          const expiresAtIso = new Date(expiresAt).toISOString()
+          // Persist the exact result before replying. If a network hop drops the
+          // response, the user's recovery button can restore these same links.
+          await writeProgress(5, 100, 'İmzalama tamamlandı · IPA hazır', '05/05 · İmza doğrulandı; indirme ve OTA kurulum bağlantıları kurtarma kaydına yazıldı.', {
+            result: {
+              bundle_id: bundleId,
+              version: appVersion,
+              file_name: fileName,
+              expires_at: expiresAtIso,
+              download_url: downloadUrl,
+              manifest_url: manifestUrl,
+              install_url: installUrl,
+            },
+          })
+          await env.DB.prepare("UPDATE signing_logs SET status = 'success' WHERE id = ?").bind(logId).run()
+          releaseStatus = 'complete'
           return json({
             success: true,
             bundle_id: bundleId,
             version: appVersion,
             file_name: fileName,
-            expires_at: new Date(expiresAt).toISOString(),
+            expires_at: expiresAtIso,
             expires_in_seconds: 300,
             download_url: downloadUrl,
             manifest_url: manifestUrl,
-            install_url: 'itms-services://?action=download-manifest&url=' + manifestUrl,
+            install_url: installUrl,
           })
         } catch (error) {
           releaseError = error instanceof Error ? error.message : 'İmzalama işlemi başarısız.'

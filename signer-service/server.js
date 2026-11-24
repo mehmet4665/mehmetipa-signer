@@ -134,12 +134,20 @@ app.post("/sign", upload.fields([
       return res.status(422).json({ error: "IPA uygulama kimliği okunamadı.", diagnostic: String(error?.message || error) });
     }
 
+    let zsignOutput = "";
+    let zsignErrorOutput = "";
     try {
-      await execFileAsync("zsign", [
+      const signingResult = await execFileAsync("zsign", [
         "-f", "-k", p12Path, "-p", password,
         "-m", profilePath,
+        // Zsign defaults to ZIP level 0 (store/no compression). Recompress
+        // signed large IPAs so the expanded app bundle does not exceed the
+        // output guard merely because the source IPA was originally compressed.
+        "-z", "3",
         "-o", outputPath, inputPath,
       ], { timeout: 15 * 60 * 1000, maxBuffer: 8 * 1024 * 1024 });
+      zsignOutput = String(signingResult.stdout || "").slice(-3000);
+      zsignErrorOutput = String(signingResult.stderr || "").slice(-3000);
     } catch (error) {
       const diagnostic = String(error?.stderr || error?.stdout || "").split("\n").filter(Boolean).slice(-8).join("\n");
       return res.status(422).json({ error: "zSign could not sign this IPA with the active profile.", diagnostic });
@@ -147,7 +155,17 @@ app.post("/sign", upload.fields([
 
     const outputStat = await stat(outputPath).catch(() => null);
     if (!outputStat?.isFile() || outputStat.size < 1024 || outputStat.size > 550 * 1024 * 1024) {
-      return res.status(500).json({ error: "Signing completed without a valid IPA output within the 500 MB limit." });
+      // Keep diagnostics server-side; never expose certificate or signing material.
+      console.error("[Mehmet IPA] Signed IPA output validation failed", {
+        inputBytes: expectedSize,
+        outputExists: Boolean(outputStat?.isFile()),
+        outputBytes: Number(outputStat?.size || 0),
+        outputLimitBytes: 550 * 1024 * 1024,
+        zipLevel: 3,
+        stdout: zsignOutput,
+        stderr: zsignErrorOutput,
+      });
+      return res.status(500).json({ error: "İmzalama çıktısı geçersiz veya 550 MB güvenlik sınırını aşıyor. Ayrıntı sunucu kayıtlarına yazıldı." });
     }
 
     let appVersion = "1.0";

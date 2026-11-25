@@ -80,6 +80,7 @@ export function InstallQrDialog({
   const [uploadProgress, setUploadProgress] = React.useState<UploadProgress | null>(null)
   const [uploadTransfer, setUploadTransfer] = React.useState<UploadTransfer | null>(null)
   const uploadController = React.useRef<AbortController | null>(null)
+  const isPreparingRef = React.useRef(false)
   const busy = state === 'uploading' || state === 'preparing'
 
   React.useEffect(() => () => uploadController.current?.abort(), [])
@@ -106,6 +107,9 @@ export function InstallQrDialog({
   }, [onClose])
 
   const handlePrepareInstall = async () => {
+    // State updates render asynchronously; this ref blocks rapid double taps immediately.
+    if (isPreparingRef.current) return
+    isPreparingRef.current = true
     const controller = new AbortController()
     uploadController.current = controller
     setState('uploading')
@@ -196,6 +200,9 @@ export function InstallQrDialog({
       setError(message)
       setState('error')
       onLog?.(`Installation preparation failed: ${message}`)
+    } finally {
+      if (uploadController.current === controller) uploadController.current = null
+      isPreparingRef.current = false
     }
   }
 
@@ -434,14 +441,9 @@ export function InstallQrDialog({
                   ) : (
                     <Send size={16} />
                   )}
-                  {state === 'preparing' ? 'Preparing installation link...'
-                    : state === 'uploading'
-                    ? useCatbox
-                      ? 'Backing up to Catbox...'
-                      : 'Uploading signed IPA...'
-                    : useCatbox
-                      ? 'Backup & Install'
-                      : 'Prepare Installation'}
+                  {busy ? 'Lütfen bekleyin…'
+                    : state === 'error' ? 'Tekrar dene'
+                    : useCatbox ? 'Yedekle ve yükle' : 'iPhone’ye yükle'}
                 </Button>
               ) : (
                 <AnimateIcon

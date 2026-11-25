@@ -1,26 +1,28 @@
-# Sylva Signer
+# Mehmet IPA
 
-Sylva Signer is a free, open-source browser tool for signing iOS IPA files locally.
-It runs zsign as WebAssembly in a dedicated browser worker and does not require Xcode,
-macOS, or a remote signing server.
+Mehmet IPA is a Turkish-language iOS app and IPA signing platform. Visitors can explore the public game catalogue and guides. Registered members can access account features, and VIP membership provides access to Mehmet IPA's IPA-signing workflow and certificate features.
 
-During normal signing, the IPA, P12/PFX certificate, provisioning profile, certificate
-password, injected dylibs, and signed output remain on the user's device. The separate,
-optional iPhone installation flow uploads only the already-signed IPA after explicit
-confirmation so iOS can retrieve it over HTTPS.
+## Main website
 
-## Primary pages
+- Home: https://mehmetipa-signer.pages.dev/
+- Privacy policy: https://mehmetipa-signer.pages.dev/privacy/
+- Legal information: https://mehmetipa-signer.pages.dev/legal/
 
-- Signer: https://sylva.antonp29.dev/
-- Privacy policy: https://sylva.antonp29.dev/privacy/
-- Legal notice: https://sylva.antonp29.dev/legal/
-- Source code: https://github.com/AntonP29/SylvaSigner
-- Author: https://github.com/AntonP29
-- Upstream signing engine: https://github.com/zhlynn/zsign
+## Platform features
 
-## Browser support
+- Public iOS game catalogue and related guides
+- Member registration and sign-in
+- VIP membership and certificate access
+- Browser-based iOS IPA signing workflow
+- Signed IPA download
+- Account and device management
+- Administrative membership and device management
 
-Current Chrome or Edge on desktop is recommended. Safari, iPhone, iPad, Android, and
-other mobile browsers use an experimental compatibility path and can be slower or more
-memory constrained. Local signing has no fixed Sylva file-size limit, but browser and
-device memory are practical limits. Optional temporary installation rejects files over 1 GB.
+## Signing notes
+
+Signing and installation compatibility depend on the iOS version, device, provisioning profile, certificate status, and browser capabilities. Apple may revoke certificates; Mehmet IPA does not represent that every certificate or signed app will remain valid indefinitely.
+
+## Support and source
+
+- Support: https://t.me/ajandare
+- Source repository: https://github.com/mehmet4665/mehmetipa-signer
